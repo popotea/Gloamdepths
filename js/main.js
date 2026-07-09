@@ -110,7 +110,11 @@ function localControl(me, dt) {
       }
     } else if (me.atkCD <= 0) {
       if (NET.isHost()) doSwing(me, me.aim);
-      else { me.atkCD = 0.35; me.swing = 0.22; me.action = 'atk'; NET.act({ t: 'atk', aim: me.aim }); }
+      else {
+        const meleeW = ITEMS[selItem?.id]?.sword;
+        me.atkCD = (meleeW && meleeW.manual ? meleeW.cd : null) ?? 0.35;
+        me.swing = 0.22; me.action = 'atk'; NET.act({ t: 'atk', aim: me.aim });
+      }
     }
   }
 
@@ -158,15 +162,15 @@ function frame(ts) {
   if (G.started) {
     const me = myPlayer();
     if (me) {
-      localControl(me, dt);
+      if (!G.paused) localControl(me, dt);
       if (NET.isHost()) {
-        if (!G.over) simTick(dt);
+        if (!G.over && !G.paused) simTick(dt);
         NET.hostTick(dt);
       } else {
         NET.clientTick(dt);
         clientTimers(me, dt);
       }
-      updateFloaters(dt);
+      if (!G.paused) updateFloaters(dt);
     }
   }
   render(dt);

@@ -5,6 +5,10 @@ const G = {
   dmg: null,            // Float32Array 挖掘進度
   explored: null,       // Uint8Array 小地圖探索記錄
   objects: new Map(),   // idx -> {type, hp} 已放置物件
+  // 塔/巢穴的獨立索引(idx 集合):updateTowers/updateArcherTowers/updateNests 每幀都要找同類物件,
+  // 直接掃 G.objects 要連蘑菇/火把等大量無關物件一起看過一遍;setObj 增減物件時同步維護,
+  // 讓這幾個 tick 函式只掃自己關心的那一小撮,不受地圖上其他建築/採集物數量影響
+  towerIdx: new Set(), archerTowerIdx: new Set(), nestIdx: new Set(),
   lights: new Map(),    // idx -> 光半徑(地形光 + 物件光)
   players: new Map(),   // id -> player
   myId: 0,
@@ -15,6 +19,7 @@ const G = {
   playersByName: {},    // 離線好友的背包(以名字為鍵,由房主保存)
   time: 0, seed: 0, over: null, started: false,
   mushCount: 0, warned: {},
+  paused: false,  // 只有單機模式能暫停(多人共享同一個模擬,暫停會卡住其他人)
 };
 
 function idx(x, y) { return y * MAP_W + x; }
@@ -46,15 +51,18 @@ function setTile(x, y, v, fromNet = false) {
 
 function objAt(x, y) { return G.objects.get(idx(x, y)) || null; }
 
+const TOWER_IDX_SETS = { tower: 'towerIdx', archer_tower: 'archerTowerIdx', nest: 'nestIdx' };
 // 放置/移除物件(o=null 移除)
 function setObj(x, y, o, fromNet = false) {
   const i = idx(x, y);
   const old = G.objects.get(i);
   if (old && OBJ_LIGHT[old.type]) G.lights.delete(i);
+  if (old) { const key = TOWER_IDX_SETS[old.type]; if (key) G[key].delete(i); }
   if (o) {
     G.objects.set(i, o);
     if (OBJ_LIGHT[o.type]) G.lights.set(i, OBJ_LIGHT[o.type]);
     if (o.type === 'mushroom') G.mushCount++;
+    const key = TOWER_IDX_SETS[o.type]; if (key) G[key].add(i);
   } else {
     if (old && old.type === 'mushroom') G.mushCount--;
     G.objects.delete(i);
@@ -109,6 +117,7 @@ function genWorld(seed) {
   G.dmg = new Float32Array(MAP_W * MAP_H);
   G.explored = new Uint8Array(MAP_W * MAP_H);
   G.objects.clear(); G.lights.clear(); G.cracks.clear();
+  G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear();
   G.enemies = []; G.drops = []; G.floaters = []; G.projs = [];
   G.shrines = []; G.mushCount = 0; G.warned = {};
   G.core = { x: CX + 0.5, y: CY + 0.5, energy: CORE_CFG.maxE, shards: 0 };
@@ -206,6 +215,40 @@ function genWorld(seed) {
       }
     }
     G.shrines.push({ x: sx + 0.5, y: sy + 0.5, dead: false });
+  }
+
+  // 7) 廢墟(石磚小房+寶箱):在各區隨機找地板挖出 3x3 石磚房間,中央放寶箱
+  for (let n = 0; n < POI_CFG.ruins; n++) {
+    for (let tries = 0; tries < 30; tries++) {
+      const ang = rnd() * TAU, d = 10 + rnd() * 82;
+      const cx = Math.floor(CX + Math.cos(ang) * d), cy = Math.floor(CY + Math.sin(ang) * d);
+      if (!inMap(cx, cy) || dist(cx, cy, CX, CY) < 8) continue;
+      let ok = true;
+      for (let dy = -2; dy <= 2 && ok; dy++) for (let dx = -2; dx <= 2 && ok; dx++) {
+        const x = cx + dx, y = cy + dy;
+        if (!inMap(x, y) || G.tiles[idx(x, y)] === T.BEDROCK || dist(x, y, G.core.x, G.core.y) < 10) ok = false;
+      }
+      if (!ok) continue;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        G.tiles[idx(cx + dx, cy + dy)] = (Math.abs(dx) === 1 && Math.abs(dy) === 1) ? T.STONEWALL : T.FLOOR;
+      }
+      G.objects.set(idx(cx, cy), { type: 'chest', hp: OBJ_HP.chest });
+      break;
+    }
+  }
+
+  // 8) 蝕影巢穴:持續生怪的據點,拆掉噴獎勵;離星核夠遠避免開局就被暗潮波及
+  for (let n = 0; n < POI_CFG.nests; n++) {
+    for (let tries = 0; tries < 30; tries++) {
+      const ang = rnd() * TAU, d = 14 + rnd() * 78;
+      const x = Math.floor(CX + Math.cos(ang) * d), y = Math.floor(CY + Math.sin(ang) * d);
+      if (!inMap(x, y) || G.tiles[idx(x, y)] !== T.FLOOR || G.objects.has(idx(x, y))) continue;
+      if (dist(x, y, G.core.x, G.core.y) < 14) continue;
+      const ni = idx(x, y);
+      G.objects.set(ni, { type: 'nest', hp: OBJ_HP.nest });
+      G.nestIdx.add(ni);
+      break;
+    }
   }
 
   rebuildLights();

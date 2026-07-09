@@ -94,6 +94,30 @@ function swapSlots(p, a, b) {
   p.invDirty = true;
 }
 
+// 背包「整理」:只動快捷欄之後的格子(INV_SIZE 前8格是快捷欄,保留原位不打亂正在用的裝備)。
+// 同 id 且無強化等級的堆疊會先合併到上限,帶等級的裝備各自獨立一格不合併(等級不能被吃掉);
+// 依 RECIPE_CATS 分類排序(工具/武器/防具/建築/素材),同分類內依 id 字母序,空格全部推到最後
+function sortInventory(p) {
+  const HOT = 8;
+  const items = p.inv.slice(HOT).filter(Boolean);
+  const merged = [];
+  for (const s of items) {
+    if (s.lv) { merged.push(s); continue; } // 強化裝備各自獨立,不與其他堆疊合併
+    const mx = stackMax(s.id);
+    const existing = merged.find(m => m.id === s.id && !m.lv && m.count < mx);
+    if (existing) {
+      const room = mx - existing.count;
+      const move = Math.min(room, s.count);
+      existing.count += move;
+      if (s.count - move > 0) merged.push({ id: s.id, count: s.count - move });
+    } else merged.push(s);
+  }
+  const catIndex = id => RECIPE_CATS.findIndex(c => c.test(ITEMS[id]));
+  merged.sort((a, b) => catIndex(a.id) - catIndex(b.id) || a.id.localeCompare(b.id));
+  for (let i = HOT; i < INV_SIZE; i++) p.inv[i] = merged[i - HOT] || null;
+  p.invDirty = true;
+}
+
 // Shift+左鍵對半拆堆:把該格數量砍半,移到最近的空格;數量1或裝備類(帶lv)不能拆
 function splitStack(p, slot) {
   if (slot < 0 || slot >= INV_SIZE) return;
@@ -125,6 +149,20 @@ function bestSword(p) {
       best = { ...w, name: ITEMS[s.id].name, icon: ITEMS[s.id].icon, dmg: w.dmg * enhMult(s) };
   }
   return best;
+}
+
+// 近戰攻擊實際使用的武器:快捷欄選中矛/鎚(manual)時用其專屬 range/arc/kb/elem,
+// 否則退回自動選劍(補上劍的預設攻擊距離/弧度,維持原本手感)
+const SWORD_DEFAULT_RANGE = 1.8, SWORD_DEFAULT_ARC = 1.1;
+function meleeWeaponOf(p) {
+  const s = p.inv[p.sel];
+  const w = s && ITEMS[s.id].sword;
+  if (w && w.manual) {
+    return { ...w, name: ITEMS[s.id].name, icon: ITEMS[s.id].icon, dmg: w.dmg * enhMult(s),
+      range: w.range ?? SWORD_DEFAULT_RANGE, arc: w.arc ?? SWORD_DEFAULT_ARC };
+  }
+  const best = bestSword(p);
+  return { ...best, range: SWORD_DEFAULT_RANGE, arc: SWORD_DEFAULT_ARC };
 }
 
 // 目前使用的武器:快捷欄選中的武器(近戰/遠程)優先,否則自動用最好的劍;傷害套用強化卷軸加成

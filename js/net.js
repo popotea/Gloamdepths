@@ -91,6 +91,7 @@ const NET = {
       case 'drop': doDropItem(p, d.slot | 0); break;
       case 'swap': swapSlots(p, d.a | 0, d.b | 0); break;
       case 'split': splitStack(p, d.slot | 0); break;
+      case 'sort_inv': sortInventory(p); break;
       case 'craft': {
         const err = craftRecipe(p, d.ri | 0);
         if (err) this.sendToPid(conn.pid, { t: 'msg', text: '⚠️ ' + err });
@@ -179,7 +180,7 @@ const NET = {
         G.tiles = rleDec(d.tiles, MAP_W * MAP_H, Uint8Array);
         G.explored = rleDec(d.explored, MAP_W * MAP_H, Uint8Array);
         G.dmg = new Float32Array(MAP_W * MAP_H);
-        G.objects.clear(); G.mushCount = 0;
+        G.objects.clear(); G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.mushCount = 0;
         for (const [i, type, hp, ammo, off, owner] of d.objects) {
           const o = hp === null ? { type } : { type, hp };
           if (ammo !== null && ammo !== undefined) o.ammo = ammo;
@@ -187,6 +188,7 @@ const NET = {
           if (owner !== null && owner !== undefined) o.owner = owner;
           G.objects.set(i, o);
           if (type === 'mushroom') G.mushCount++;
+          const key = TOWER_IDX_SETS[type]; if (key) G[key].add(i);
         }
         G.core.energy = d.core.energy; G.core.shards = d.core.shards;
         G.shrines = d.shrines; G.wave = d.wave; G.time = d.time;

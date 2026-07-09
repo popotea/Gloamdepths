@@ -107,7 +107,8 @@ function render(dt) {
   };
 
   // ---- 物件 ----
-  const OBJ_ICON = { mushroom: '🍄', torch: '🕯️', workbench: '🛠️', furnace: '🔥', tower: '🗼', archer_tower: '🏹' };
+  const OBJ_ICON = { mushroom: '🍄', torch: '🕯️', workbench: '🛠️', furnace: '🔥', tower: '🗼', archer_tower: '🏹',
+    chest: '🎁', nest: '🕸️' };
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   for (const [i, o] of G.objects) {
     const tx = i % MAP_W, ty = (i / MAP_W) | 0;

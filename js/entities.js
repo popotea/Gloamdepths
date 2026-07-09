@@ -353,12 +353,13 @@ function toggleInfinite(p) {
 // ===== 玩家動作(房主端執行;客戶端透過網路請求) =====
 function doSwing(p, aim) {
   if (p.dead || p.atkCD > 0) return;
-  p.atkCD = 0.35; p.swing = 0.22; p.aim = aim; p.action = 'atk';
-  const dmg = bestSword(p).dmg * playerDmgMult(p);
+  const w = meleeWeaponOf(p);
+  p.atkCD = w.cd ?? 0.35; p.swing = w.manual ? 0.22 : 0.22; p.aim = aim; p.action = 'atk';
+  const dmg = w.dmg * playerDmgMult(p);
   for (const e of [...G.enemies]) {
     const d = dist(p.x, p.y, e.x, e.y);
-    if (d < 1.8 + ENEMY_TYPES[e.type].r && angDiff(Math.atan2(e.y - p.y, e.x - p.x), aim) < 1.1) {
-      hurtEnemy(e, dmg, p);
+    if (d < w.range + ENEMY_TYPES[e.type].r && angDiff(Math.atan2(e.y - p.y, e.x - p.x), aim) < w.arc) {
+      hurtEnemy(e, dmg, p, w.kb, w.elem);
     }
   }
 }
@@ -405,8 +406,11 @@ function doMine(p, x, y) {
     o.hp = (o.hp ?? OBJ_HP[o.type]) - bestPick(p).power * 4;
     emitFx({ k: 'sfx', s: 'mine' });
     if (o.hp <= 0) {
+      // 寶箱/巢穴不是可攜帶物品,拆掉直接開獎勵,不走「物件變回背包道具」那條路
+      if (o.type === 'chest') openChest(p, x, y);
+      else if (o.type === 'nest') breakNest(x, y);
+      else spawnDrop(o.type, 1, x + 0.5, y + 0.5);
       setObj(x, y, null);
-      spawnDrop(o.type, 1, x + 0.5, y + 0.5);
       emitFx({ k: 'sfx', s: 'break_' });
     }
     return;
@@ -571,14 +575,48 @@ function hintOnPickup(p, item) {
   }
 }
 
+// ===== 廢墟寶箱 / 蝕影巢穴 =====
+// 開箱:依所在區域(zone 0/1/2)從 CHEST_LOOT 抽 2~3 項掉在地上,不進背包(避免一開就滿)
+function openChest(p, x, y) {
+  const zone = zoneOf(x + 0.5, y + 0.5);
+  const table = CHEST_LOOT[zone] || CHEST_LOOT[0];
+  const picks = [...table].sort(() => Math.random() - 0.5).slice(0, 2 + (Math.random() < 0.5 ? 1 : 0));
+  for (const [id, n] of picks) spawnDrop(id, n, x + 0.5, y + 0.5);
+  msgAll(`📦 ${p.name} 打開了廢墟寶箱!`);
+}
+
+// 拆巢穴:給光晶+機率卷軸做回饋(補償玩家主動清除生怪源的努力)
+function breakNest(x, y) {
+  spawnDrop('lumite', 2 + Math.floor(Math.random() * 3), x + 0.5, y + 0.5);
+  if (Math.random() < 0.4) spawnDrop('enh_scroll', 1, x + 0.5, y + 0.5);
+}
+
+// 巢穴持續生怪(房主):每座巢穴每隔一段時間嘗試在周圍生 1 隻,
+// 巢穴附近活怪數達上限就暫停,避免玩家不清怪就被越滾越多的怪淹沒
+function updateNests(dt) {
+  for (const i of G.nestIdx) {
+    const o = G.objects.get(i);
+    o.spawnT = (o.spawnT ?? Math.random() * POI_CFG.nestSpawnCD) - dt;
+    if (o.spawnT > 0) continue;
+    o.spawnT = POI_CFG.nestSpawnCD;
+    const nx = (i % MAP_W) + 0.5, ny = ((i / MAP_W) | 0) + 0.5;
+    const near = G.enemies.filter(e => !e.wave && dist(e.x, e.y, nx, ny) < 10).length;
+    if (near >= POI_CFG.nestNearCap) continue;
+    const ang = Math.random() * TAU, d = 1.5 + Math.random() * 2;
+    const x = Math.floor(nx + Math.cos(ang) * d), y = Math.floor(ny + Math.sin(ang) * d);
+    if (!inMap(x, y) || tileAt(x, y) !== T.FLOOR) continue;
+    const zone = zoneOf(x + 0.5, y + 0.5);
+    spawnEnemy(zone === 0 ? 'imp' : zone === 1 ? 'hunter' : 'abyss', x + 0.5, y + 0.5);
+  }
+}
+
 // ===== 光塔自動攻擊(房主) =====
 let towerTick = 0;
 function updateTowers(dt) {
   towerTick -= dt;
   if (towerTick > 0) return;
   towerTick = 1.2;
-  for (const [i, o] of G.objects) {
-    if (o.type !== 'tower') continue;
+  for (const i of G.towerIdx) {
     const tx = (i % MAP_W) + 0.5, ty = ((i / MAP_W) | 0) + 0.5;
     let best = null, bd = 5.5;
     for (const e of G.enemies) {
@@ -594,8 +632,8 @@ function updateTowers(dt) {
 
 // ===== 箭塔(房主):要玩家補箭矢才會開火,彈藥打完自動停火;可手動開關省彈藥 =====
 function updateArcherTowers(dt) {
-  for (const [i, o] of G.objects) {
-    if (o.type !== 'archer_tower') continue;
+  for (const i of G.archerTowerIdx) {
+    const o = G.objects.get(i);
     o.shootT = (o.shootT ?? 0) - dt;
     if (o.off || o.shootT > 0 || !o.ammo) continue;
     const tx = (i % MAP_W) + 0.5, ty = ((i / MAP_W) | 0) + 0.5;

@@ -58,6 +58,14 @@ function initUI() {
     navigator.clipboard?.writeText(NET.code);
     showMsg('📋 房號已複製:' + NET.code);
   };
+  $id('btnSortInv').onclick = () => {
+    const me = myPlayer();
+    if (!me) return;
+    UI.pendingSwap = -1;
+    if (NET.isHost()) sortInventory(me);
+    else NET.act({ t: 'sort_inv' });
+    UI.invDirty = true;
+  };
 }
 
 function myPlayer() { return G.players.get(G.myId); }
@@ -437,13 +445,17 @@ function saveSizeText() {
 function renderMenu() {
   const panel = UI.els.menuPanel;
   if (UI.menuView === 'main') {
+    // 暫停只在單機模式提供:多人共用同一個模擬,房主暫停會連帶卡住其他人的遊戲
+    const canPause = NET.mode === 'single';
     panel.innerHTML = `
-      <h2>選單</h2>
+      <h2>選單${G.paused ? ' <span class="warn">(已暫停)</span>' : ''}</h2>
       <div class="btnrow col">
         <button id="mResume">▶️ 返回遊戲</button>
+        ${canPause ? `<button id="mPause">${G.paused ? '▶️ 繼續遊戲' : '⏸️ 暫停遊戲'}</button>` : ''}
         <button id="mSettings">⚙️ 設定</button>
       </div>`;
     $id('mResume').onclick = () => toggleMenu(false);
+    if (canPause) $id('mPause').onclick = () => { G.paused = !G.paused; renderMenu(); };
     $id('mSettings').onclick = () => { UI.menuView = 'settings'; renderMenu(); };
     return;
   }
@@ -674,6 +686,7 @@ function beginGame(load) {
 // 開房(單機途中隨時可開)
 function openRoom() {
   SFX.unlock();
+  G.paused = false; // 開房邀請朋友後就不再是單機了,暫停會卡住新加入的玩家
   UI.els.hostBtn.disabled = true;
   UI.els.hostBtn.textContent = '開房中…';
   NET.startHost(code => {

@@ -35,6 +35,7 @@ function simTick(dt) {
   updateProjs(dt);
   updateTowers(dt);
   updateArcherTowers(dt);
+  updateNests(dt);
   updateDrops(dt);
   updateWave(dt);
   updateCore(dt);
@@ -228,7 +229,7 @@ function applySave(s, name) {
   G.tiles = rleDec(s.tiles, MAP_W * MAP_H, Uint8Array);
   G.explored = rleDec(s.explored, MAP_W * MAP_H, Uint8Array);
   G.dmg = new Float32Array(MAP_W * MAP_H);
-  G.objects.clear(); G.mushCount = 0;
+  G.objects.clear(); G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.mushCount = 0;
   for (const [i, type, hp, ammo, off, owner] of s.objects) {
     const o = hp === null ? { type } : { type, hp };
     if (ammo !== null && ammo !== undefined) o.ammo = ammo;
@@ -236,6 +237,7 @@ function applySave(s, name) {
     if (owner !== null && owner !== undefined) o.owner = owner;
     G.objects.set(i, o);
     if (type === 'mushroom') G.mushCount++;
+    const key = TOWER_IDX_SETS[type]; if (key) G[key].add(i);
   }
   G.enemies = []; G.drops = []; G.projs = [];
   for (const [item, n, x, y] of s.drops || []) spawnDrop(item, n, x, y);
