@@ -90,10 +90,16 @@ const NET = {
       case 'deposit': doDeposit(p); break;
       case 'drop': doDropItem(p, d.slot | 0); break;
       case 'swap': swapSlots(p, d.a | 0, d.b | 0); break;
+      case 'split': splitStack(p, d.slot | 0); break;
       case 'craft': {
         const err = craftRecipe(p, d.ri | 0);
         if (err) this.sendToPid(conn.pid, { t: 'msg', text: '⚠️ ' + err });
         else this.sendToPid(conn.pid, { t: 'fx', f: { k: 'sfx', s: 'craft' } });
+        break;
+      }
+      case 'give_all': {
+        const on = toggleInfinite(p);
+        this.sendToPid(conn.pid, { t: 'msg', text: on ? '♾️ 資源無限已開啟' : '資源無限已關閉' });
         break;
       }
       case 'enh': {

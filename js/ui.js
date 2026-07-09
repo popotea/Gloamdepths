@@ -40,7 +40,7 @@ function initUI() {
     d.className = 'slot' + (i < 8 ? ' hotrow' : '');
     d.dataset.i = i;
     d.innerHTML = `<span class="icon"></span><span class="cnt"></span>`;
-    d.onclick = () => onInvClick(i);
+    d.onclick = (ev) => onInvClick(i, ev.shiftKey);
     d.oncontextmenu = (ev) => { ev.preventDefault(); openEnhPanel(i); };
     UI.els.invgrid.appendChild(d);
   }
@@ -53,9 +53,17 @@ function initUI() {
 
 function myPlayer() { return G.players.get(G.myId); }
 
-function onInvClick(i) {
+function onInvClick(i, shift) {
   const me = myPlayer();
   if (!me) return;
+  // Shift+左鍵:對半拆堆到最近的空格,不進入交換流程(取消任何待交換選取)
+  if (shift) {
+    UI.pendingSwap = -1;
+    if (NET.isHost()) splitStack(me, i);
+    else NET.act({ t: 'split', slot: i });
+    UI.invDirty = true;
+    return;
+  }
   if (UI.pendingSwap < 0) { UI.pendingSwap = i; }
   else {
     const a = UI.pendingSwap, b = i;
@@ -106,10 +114,27 @@ function closeChat() {
   UI.els.chatInput.blur();
 }
 
+// 隱藏除錯指令:只有輸入的人自己看得到效果與回饋,不會廣播給其他玩家、
+// 不留聊天紀錄,刻意不寫進任何操作說明/UI 提示裡
+function tryDebugCommand(text) {
+  const me = myPlayer();
+  if (!me || !text.startsWith('/')) return false;
+  const cmd = text.slice(1).trim().toLowerCase();
+  if (cmd === 'give_all') {
+    if (NET.isHost()) {
+      const on = toggleInfinite(me);
+      showMsg(on ? '♾️ 資源無限已開啟' : '資源無限已關閉');
+    } else NET.act({ t: 'give_all' });
+    return true;
+  }
+  return false;
+}
+
 function sendChat() {
   const text = UI.els.chatInput.value.trim().slice(0, 80);
   closeChat();
   if (!text) return;
+  if (tryDebugCommand(text)) return;
   const me = myPlayer();
   if (!me) return;
   if (NET.isHost()) {

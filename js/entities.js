@@ -334,6 +334,22 @@ function damagePlayer(p, amount) {
   }
 }
 
+// 隱藏除錯指令 /give_all:切換「資源無限」狀態(payCost/removeOne/consumeSlot 見 inventory.js 旁路),
+// 開啟當下順便把常用基礎材料補到 99,讓效果立刻看得見。
+// 只影響下指令的這個玩家物件本身,且回饋只送給觸發者(見呼叫端用 sendToPid/本地 showMsg,
+// 不走 addFloater/emitFx,避免其他玩家在畫面上看到任何提示或聊天紀錄)
+function toggleInfinite(p) {
+  p.infinite = !p.infinite;
+  if (p.infinite) {
+    for (const id of ['wood', 'stone', 'copper_ore', 'iron_ore', 'gold_ore', 'lumite',
+      'copper_bar', 'iron_bar', 'gold_bar', 'arrow', 'enh_scroll']) {
+      addItem(p, id, 99 - countItem(p, id));
+    }
+  }
+  p.invDirty = true;
+  return p.infinite;
+}
+
 // ===== 玩家動作(房主端執行;客戶端透過網路請求) =====
 function doSwing(p, aim) {
   if (p.dead || p.atkCD > 0) return;

@@ -51,7 +51,9 @@ function canAfford(p, cost) {
   for (const id in cost) if (countItem(p, id) < cost[id]) return false;
   return true;
 }
+// p.infinite:隱藏指令 /give_all 開啟的除錯狀態,開啟時所有消耗一律跳過扣款
 function payCost(p, cost) {
+  if (p.infinite) return;
   for (const id in cost) {
     let need = cost[id];
     for (let i = 0; i < INV_SIZE && need > 0; i++) {
@@ -66,6 +68,7 @@ function payCost(p, cost) {
   p.invDirty = true;
 }
 function removeOne(p, id) {
+  if (p.infinite) return true;
   for (let i = 0; i < INV_SIZE; i++) {
     const s = p.inv[i];
     if (s && s.id === id) {
@@ -78,6 +81,7 @@ function removeOne(p, id) {
   return false;
 }
 function consumeSlot(p, slot) {
+  if (p.infinite) return;
   const s = p.inv[slot];
   if (!s) return;
   s.count--;
@@ -87,6 +91,19 @@ function consumeSlot(p, slot) {
 function swapSlots(p, a, b) {
   if (a < 0 || b < 0 || a >= INV_SIZE || b >= INV_SIZE) return;
   const t = p.inv[a]; p.inv[a] = p.inv[b]; p.inv[b] = t;
+  p.invDirty = true;
+}
+
+// Shift+左鍵對半拆堆:把該格數量砍半,移到最近的空格;數量1或裝備類(帶lv)不能拆
+function splitStack(p, slot) {
+  if (slot < 0 || slot >= INV_SIZE) return;
+  const s = p.inv[slot];
+  if (!s || s.count <= 1 || s.lv) return;
+  const empty = p.inv.findIndex(x => !x);
+  if (empty < 0) return; // 背包滿了拆不出去
+  const half = Math.floor(s.count / 2);
+  s.count -= half;
+  p.inv[empty] = { id: s.id, count: half };
   p.invDirty = true;
 }
 
