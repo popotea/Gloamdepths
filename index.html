@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>微光深淵 Gloamdepths</title>
+<link rel="stylesheet" href="style.css">
+<!-- PeerJS:與朋友連線用(免費信令服務);沒網路時仍可離線單人遊玩 -->
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud">
+  <div id="stats">
+    <div class="bar hp"><div id="hpfill"></div><span id="hptext"></span></div>
+    <div class="bar core"><div id="corefill"></div><span id="coretext"></span></div>
+    <div id="shards"></div>
+  </div>
+  <div id="wavebox"></div>
+  <div id="netbox">
+    <button id="hostBtn" class="hidden">🔗 開房邀請朋友</button>
+    <div id="roomcode" class="hidden"></div>
+    <canvas id="minimap" width="200" height="200"></canvas>
+  </div>
+  <div id="msglog"></div>
+  <div id="deathbanner" class="hidden"></div>
+  <div id="hotbar"></div>
+  <div id="invpanel" class="hidden">
+    <h3>背包 <span class="hint">(點一格再點另一格可交換;護甲放背包即生效)</span></h3>
+    <div id="invgrid"></div>
+    <h3>合成 <span class="hint">(✋徒手 🛠️需工作台 🔥需熔爐)</span></h3>
+    <div id="craftlist"></div>
+  </div>
+  <div id="overlay" class="hidden"></div>
+</div>
+<script src="js/config.js"></script>
+<script src="js/sfx.js"></script>
+<script src="js/world.js"></script>
+<script src="js/inventory.js"></script>
+<script src="js/entities.js"></script>
+<script src="js/game.js"></script>
+<script src="js/net.js"></script>
+<script src="js/render.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

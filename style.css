@@ -1,0 +1,88 @@
+/* ===== 微光深淵 UI ===== */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #050508; }
+body { font-family: "Microsoft JhengHei", "Noto Sans TC", sans-serif; color: #dde4ee; user-select: none; }
+
+#game { position: absolute; inset: 0; display: block; cursor: crosshair; }
+#hud { position: absolute; inset: 0; pointer-events: none; }
+#hud button, #hud input, #hud .slot, #hud .recipe, #hud #roomcode, #hud #minimap { pointer-events: auto; }
+
+.hidden { display: none !important; }
+
+/* 左上:血條 / 星核 */
+#stats { position: absolute; top: 12px; left: 12px; width: 240px; }
+.bar { position: relative; height: 22px; background: #0009; border: 1px solid #445; border-radius: 6px; margin-bottom: 6px; overflow: hidden; }
+.bar span { position: absolute; inset: 0; text-align: center; font-size: 13px; line-height: 22px; text-shadow: 0 1px 2px #000; }
+#hpfill { height: 100%; background: linear-gradient(#ff7d7d, #d63c3c); transition: width .2s; }
+#corefill { height: 100%; background: linear-gradient(#a8f4ff, #3fb9d6); transition: width .3s; }
+#corefill.low { background: linear-gradient(#ffb27d, #d6683c); animation: blink 1s infinite; }
+@keyframes blink { 50% { opacity: .55; } }
+#shards { font-size: 18px; letter-spacing: 3px; text-shadow: 0 0 6px #7ef0ff; }
+
+/* 上中:暗潮 */
+#wavebox { position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+  background: #000a; border: 1px solid #445; border-radius: 8px; padding: 6px 16px; font-size: 15px; }
+#wavebox.warn { border-color: #ff5d5d; color: #ffb0b0; animation: blink 1s infinite; }
+
+/* 右上:連線 + 小地圖 */
+#netbox { position: absolute; top: 12px; right: 12px; text-align: right; }
+#hostBtn { font-size: 14px; padding: 6px 12px; margin-bottom: 6px; }
+#roomcode { display: inline-block; background: #123a44cc; border: 1px solid #7ef0ff; border-radius: 8px;
+  padding: 6px 12px; margin-bottom: 6px; cursor: pointer; font-weight: bold; letter-spacing: 1px; }
+#minimap { display: block; margin-left: auto; width: 170px; height: 170px; border: 2px solid #445;
+  border-radius: 8px; background: #000; image-rendering: pixelated; }
+
+/* 訊息列 */
+#msglog { position: absolute; left: 12px; top: 110px; width: 380px; font-size: 14px; }
+.msg { background: #000a; border-left: 3px solid #7ef0ff; padding: 4px 10px; margin-bottom: 4px;
+  border-radius: 0 6px 6px 0; transition: opacity .9s; }
+.msg.fade { opacity: 0; }
+
+/* 死亡橫幅 */
+#deathbanner { position: absolute; top: 35%; left: 50%; transform: translate(-50%, -50%);
+  font-size: 26px; background: #300a; border: 2px solid #ff5d5d; border-radius: 12px; padding: 14px 30px; }
+
+/* 快捷欄 */
+#hotbar { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; }
+.slot { position: relative; width: 52px; height: 52px; background: #0a0d14cc; border: 2px solid #3a4152;
+  border-radius: 8px; font-size: 26px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.slot.sel { border-color: #7ef0ff; box-shadow: 0 0 8px #7ef0ff88; }
+.slot.pending { border-color: #ffd23f; }
+.slot .key { position: absolute; top: 1px; left: 4px; font-size: 10px; color: #8899aa; }
+.slot .cnt { position: absolute; bottom: 1px; right: 4px; font-size: 12px; font-weight: bold; color: #fff; text-shadow: 0 1px 2px #000; }
+.slot .icon { text-shadow: 0 2px 3px #000; }
+
+/* 背包 + 合成面板 */
+#invpanel { position: absolute; right: 12px; top: 200px; bottom: 90px; width: 500px; background: #0a0d14ee;
+  border: 2px solid #3a4152; border-radius: 12px; padding: 14px; overflow-y: auto; }
+#invpanel h3 { font-size: 15px; margin: 6px 0; color: #9fb0c8; }
+#invpanel .hint { font-weight: normal; font-size: 12px; color: #667; }
+#invgrid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; margin-bottom: 10px; }
+#invgrid .slot { width: auto; height: 50px; }
+#invgrid .slot.hotrow { border-bottom-color: #7ef0ff55; }
+.recipe { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 8px;
+  border: 1px solid #2a3040; margin-bottom: 4px; cursor: pointer; opacity: .45; }
+.recipe.ok { opacity: 1; border-color: #4a5a40; background: #16240faa; }
+.recipe.ok:hover { background: #23381abb; }
+.recipe .ricon { font-size: 22px; }
+.recipe .rname { flex: 0 0 110px; font-size: 14px; }
+.recipe .rcost { flex: 1; font-size: 13px; color: #aab; }
+.recipe .rst { font-size: 15px; }
+
+/* 全螢幕選單 */
+#overlay { position: absolute; inset: 0; background: #050508e6; display: flex; align-items: center;
+  justify-content: center; pointer-events: auto; }
+.menu { max-width: 560px; text-align: center; padding: 30px; }
+.menu h1 { font-size: 44px; letter-spacing: 8px; color: #9ff4ff; text-shadow: 0 0 24px #7ef0ff88; margin-bottom: 8px; }
+.menu .sub { color: #8899aa; margin-bottom: 22px; }
+.menu input { width: 220px; padding: 9px 12px; font-size: 16px; background: #10141f; color: #dde4ee;
+  border: 1px solid #3a4152; border-radius: 8px; text-align: center; margin-bottom: 14px; }
+.menu .btnrow, .menu .joinrow { display: flex; gap: 10px; justify-content: center; margin-bottom: 14px; }
+.menu .joinrow input { width: 150px; margin: 0; text-transform: uppercase; }
+button { font-family: inherit; font-size: 16px; padding: 10px 20px; background: #1b3a44; color: #cef3ff;
+  border: 1px solid #7ef0ff66; border-radius: 10px; cursor: pointer; }
+button:hover:not(:disabled) { background: #26525f; }
+button:disabled { opacity: .4; cursor: default; }
+.menu .help { text-align: left; font-size: 13px; line-height: 1.9; color: #9fb0c8; background: #10141f;
+  border-radius: 10px; padding: 14px 18px; }
+.menu .warn { color: #ffb27d; font-size: 13px; margin-bottom: 12px; }

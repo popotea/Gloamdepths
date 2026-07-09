@@ -1,0 +1,219 @@
+// ===== 全域常數與資料表 =====
+const TILE = 40;                 // 每格像素
+const MAP_W = 200, MAP_H = 200;  // 地圖大小(格)
+const CX = MAP_W / 2, CY = MAP_H / 2;
+const TAU = Math.PI * 2;
+
+// 星核設定
+const CORE_CFG = {
+  maxE: 100,
+  drain: 0.25,        // 每秒流失能量
+  feed: 6,            // 每顆光晶補充能量
+  hitDrain: 5,        // 暗潮怪打星核一下扣的能量
+  needShards: 3,
+};
+
+// 暗潮設定
+const WAVE_CFG = {
+  first: 240,         // 開局幾秒後第一波
+  interval: 240,      // 之後每隔幾秒一波
+  warn: 30,           // 提前幾秒警告
+  spawnDist: 28,      // 從離星核多遠的黑暗處出現
+};
+
+// 地形代號
+const T = {
+  FLOOR: 0, DIRT: 1, STONE: 2, OBSIDIAN: 3,
+  COPPER: 4, IRON: 5, GOLD: 6, LUMITE: 7, ROOT: 8,
+  BEDROCK: 9, GLOW: 10, WOODWALL: 11, STONEWALL: 12,
+};
+
+// 地形資料:hp=挖掘耐久, tier=所需鎬階級, light=自帶光半徑
+// 配色原則:每種牆用「不同色相」拉開辨識度(泥土=暖棕、石=冷灰藍、黑曜=紫、
+// 木根=亮木色);整體提高明度與飽和度(亮處要一眼分得出來,暗處靠遮罩壓暗);
+// 礦脈底色比同區牆亮一階 + 礦點高飽和 + sparkle 白點(render 畫)
+const TILE_INFO = {
+  [T.FLOOR]:    { solid: false },
+  [T.GLOW]:     { solid: false, light: 4 },
+  [T.DIRT]:     { solid: true, hp: 3,  tier: 0, name: '泥土牆',   drop: null,                      c1: '#96683c', c2: '#6e4a24' },
+  [T.STONE]:    { solid: true, hp: 10, tier: 0, name: '石牆',     drop: { id: 'stone', n: 1 },      c1: '#8d92aa', c2: '#666b80' },
+  [T.OBSIDIAN]: { solid: true, hp: 22, tier: 2, name: '黑曜岩',   drop: { id: 'stone', n: 1 },      c1: '#6b529e', c2: '#4a3870' },
+  [T.COPPER]:   { solid: true, hp: 6,  tier: 0, name: '銅礦脈',   drop: { id: 'copper_ore', n: 1 }, c1: '#a06a38', c2: '#784e24', ore: '#ff9040' },
+  [T.IRON]:     { solid: true, hp: 16, tier: 1, name: '鐵礦脈',   drop: { id: 'iron_ore', n: 1 },   c1: '#9aa0b8', c2: '#70768c', ore: '#f4f8ff' },
+  [T.GOLD]:     { solid: true, hp: 24, tier: 2, name: '金礦脈',   drop: { id: 'gold_ore', n: 1 },   c1: '#7a62b0', c2: '#564584', ore: '#ffd23f' },
+  [T.LUMITE]:   { solid: true, hp: 8,  tier: 0, name: '光晶礦脈', drop: { id: 'lumite', n: 2 },     c1: '#3e6c94', c2: '#2c4e6c', ore: '#7ef0ff', light: 2.5 },
+  [T.ROOT]:     { solid: true, hp: 4,  tier: 0, name: '木根',     drop: { id: 'wood', n: 2 },       c1: '#b08a48', c2: '#886a34', ore: '#e0b878' },
+  [T.BEDROCK]:  { solid: true, hp: Infinity, tier: 99, name: '基岩', c1: '#16161c', c2: '#0e0e12' },
+  [T.WOODWALL]: { solid: true, hp: 12, tier: 0, name: '木牆', drop: { id: 'wood_wall', n: 1 },  c1: '#c09454', c2: '#96743e', built: 'plank' },
+  [T.STONEWALL]:{ solid: true, hp: 30, tier: 0, name: '石牆(建)', drop: { id: 'stone_wall', n: 1 }, c1: '#b4b4c4', c2: '#8e8e9e', built: 'brick' },
+};
+
+// 物品表:pick=鎬(tier 階級/power 每下傷害), sword=劍, armor=減傷比例
+// place='物件類型' 或 placeTile=地形代號
+const ITEMS = {
+  wood:            { name: '木材', icon: '🪵' },
+  stone:           { name: '石頭', icon: '🪨' },
+  copper_ore:      { name: '銅礦', icon: '🟤' },
+  iron_ore:        { name: '鐵礦', icon: '⚪' },
+  gold_ore:        { name: '金礦', icon: '🟡' },
+  lumite:          { name: '光晶', icon: '💠', desc: '在星核旁按 F 灌入(+6 能量),也是火把/光塔材料' },
+  copper_bar:      { name: '銅錠', icon: '🥉' },
+  iron_bar:        { name: '鐵錠', icon: '🥈' },
+  gold_bar:        { name: '金錠', icon: '🥇' },
+  mushroom:        { name: '螢光蘑菇', icon: '🍄', food: 15 },
+  cooked_mushroom: { name: '烤蘑菇', icon: '🍢', food: 40 },
+  shard:           { name: '星核碎片', icon: '🔷', desc: '帶回星核附近會自動放入', max: 9 },
+  torch:           { name: '火把', icon: '🕯️', place: 'torch' },
+  wood_wall:       { name: '木牆', icon: '🟫', placeTile: T.WOODWALL },
+  stone_wall:      { name: '石牆', icon: '⬜', placeTile: T.STONEWALL },
+  workbench:       { name: '工作台', icon: '🛠️', place: 'workbench' },
+  furnace:         { name: '熔爐', icon: '🔥', place: 'furnace' },
+  tower:           { name: '光塔', icon: '🗼', place: 'tower', desc: '照明並自動攻擊附近的蝕影' },
+  wood_pick:       { name: '木鎬', icon: '⛏️', pick: { tier: 0, power: 1 },   max: 1 },
+  copper_pick:     { name: '銅鎬', icon: '⛏️', pick: { tier: 1, power: 2.5 }, max: 1, tint: '#7a4526' },
+  iron_pick:       { name: '鐵鎬', icon: '⛏️', pick: { tier: 2, power: 5 },   max: 1, tint: '#5c6570' },
+  gold_pick:       { name: '金鎬', icon: '⛏️', pick: { tier: 3, power: 9 },   max: 1, tint: '#8a6d1f' },
+  // 近戰武器:dmg=傷害, cd=攻速, range=距離, arc=揮擊弧度, kb=擊退
+  // 劍會被自動選用;矛/鎚要放到快捷欄「選中」才會使用(manual)
+  wood_sword:      { name: '木劍', icon: '🗡️', sword: { dmg: 8 },  max: 1 },
+  copper_sword:    { name: '銅劍', icon: '🗡️', sword: { dmg: 15 }, max: 1, tint: '#7a4526' },
+  iron_sword:      { name: '鐵劍', icon: '🗡️', sword: { dmg: 25 }, max: 1, tint: '#5c6570' },
+  gold_sword:      { name: '金劍', icon: '🗡️', sword: { dmg: 40 }, max: 1, tint: '#8a6d1f' },
+  flame_sword:     { name: '焰紋劍', icon: '🔥', sword: { dmg: 22, elem: 'fire' },  max: 1, tint: '#7a2e1a',
+                     desc: '焰屬性:剋冰(穿牆幽影),對暗小加成,別拿去打爆裂蝕影' },
+  frost_sword:     { name: '霜刃',   icon: '❄️', sword: { dmg: 22, elem: 'frost' }, max: 1, tint: '#1f4a5c',
+                     desc: '冰屬性:剋焰(爆裂蝕影),對暗小加成,別拿去打穿牆幽影' },
+  copper_spear:    { name: '銅矛', icon: '🔱', sword: { dmg: 12, cd: 0.45, range: 3.0, arc: 0.5, manual: true }, max: 1, tint: '#7a4526',
+                     desc: '選中使用:攻擊距離 3 格,適合隔牆縫戳怪' },
+  iron_spear:      { name: '鐵矛', icon: '🔱', sword: { dmg: 20, cd: 0.45, range: 3.0, arc: 0.5, manual: true }, max: 1, tint: '#5c6570',
+                     desc: '選中使用:攻擊距離 3 格,適合隔牆縫戳怪' },
+  iron_hammer:     { name: '鐵鎚', icon: '🔨', sword: { dmg: 32, cd: 0.8, range: 2.0, arc: 1.5, kb: 14, manual: true, elem: 'smash' }, max: 1, tint: '#5c6570',
+                     desc: '選中使用:慢但大範圍橫掃+超強擊退;重擊剋石(裂地者/石像守衛)' },
+  gold_hammer:     { name: '金鎚', icon: '🔨', sword: { dmg: 50, cd: 0.8, range: 2.0, arc: 1.5, kb: 14, manual: true, elem: 'smash' }, max: 1, tint: '#8a6d1f',
+                     desc: '選中使用:慢但大範圍橫掃+超強擊退;重擊剋石(裂地者/石像守衛)' },
+  // 遠程武器:選中後左鍵發射,消耗彈藥
+  bow:             { name: '獵弓', icon: '🏹', ranged: { dmg: 14, cd: 0.5, speed: 13, ammo: 'arrow' }, max: 1,
+                     desc: '選中使用:發射箭矢(需背包有箭)' },
+  crossbow:        { name: '強弩', icon: '🎯', ranged: { dmg: 32, cd: 0.8, speed: 16, ammo: 'arrow' }, max: 1, tint: '#5c6570',
+                     desc: '選中使用:重擊箭矢(需背包有箭)' },
+  lumite_staff:    { name: '光晶法杖', icon: '🪄', ranged: { dmg: 26, cd: 0.55, speed: 11, ammo: 'lumite', pierce: true, elem: 'light' }, max: 1, tint: '#1f4a5c',
+                     desc: '選中使用:貫穿光束,每發耗 1 光晶;光剋暗(所有蝕影)' },
+  arrow:           { name: '箭矢', icon: '➳', desc: '獵弓與強弩的彈藥' },
+  enh_scroll:      { name: '強化卷軸', icon: '📜', desc: '在工作台旁對武器/鎬/護甲衝裝(+攻擊力);怪物會掉落' },
+  iron_armor:      { name: '鐵甲', icon: '🛡️', armor: 0.3, max: 1, tint: '#5c6570', desc: '放在背包即生效,受傷 -30%' },
+  gold_armor:      { name: '金甲', icon: '🛡️', armor: 0.5, max: 1, tint: '#8a6d1f', desc: '放在背包即生效,受傷 -50%' },
+};
+
+// 合成配方:station=null 徒手 / 'workbench' / 'furnace'
+const RECIPES = [
+  { out: 'torch',       n: 3, cost: { wood: 1, lumite: 1 },  station: null },
+  { out: 'workbench',   n: 1, cost: { wood: 8 },             station: null },
+  { out: 'wood_wall',   n: 4, cost: { wood: 2 },             station: 'workbench' },
+  { out: 'stone_wall',  n: 4, cost: { stone: 2 },            station: 'workbench' },
+  { out: 'furnace',     n: 1, cost: { stone: 10 },           station: 'workbench' },
+  { out: 'tower',       n: 1, cost: { lumite: 6, stone: 4, copper_bar: 2 }, station: 'workbench' },
+  { out: 'copper_pick', n: 1, cost: { copper_bar: 3, wood: 1 }, station: 'workbench' },
+  { out: 'copper_sword',n: 1, cost: { copper_bar: 3, wood: 1 }, station: 'workbench' },
+  { out: 'iron_pick',   n: 1, cost: { iron_bar: 3, wood: 1 },   station: 'workbench' },
+  { out: 'iron_sword',  n: 1, cost: { iron_bar: 3, wood: 1 },   station: 'workbench' },
+  { out: 'iron_armor',  n: 1, cost: { iron_bar: 5 },            station: 'workbench' },
+  { out: 'gold_pick',   n: 1, cost: { gold_bar: 3, wood: 1 },   station: 'workbench' },
+  { out: 'gold_sword',  n: 1, cost: { gold_bar: 3, wood: 1 },   station: 'workbench' },
+  { out: 'gold_armor',  n: 1, cost: { gold_bar: 5 },            station: 'workbench' },
+  { out: 'bow',          n: 1, cost: { wood: 6 },                        station: 'workbench' },
+  { out: 'arrow',        n: 8, cost: { wood: 1, stone: 1 },              station: 'workbench' },
+  { out: 'copper_spear', n: 1, cost: { copper_bar: 2, wood: 2 },         station: 'workbench' },
+  { out: 'iron_spear',   n: 1, cost: { iron_bar: 2, wood: 2 },           station: 'workbench' },
+  { out: 'iron_hammer',  n: 1, cost: { iron_bar: 4, wood: 1 },           station: 'workbench' },
+  { out: 'crossbow',     n: 1, cost: { iron_bar: 3, wood: 3 },           station: 'workbench' },
+  { out: 'gold_hammer',  n: 1, cost: { gold_bar: 4, wood: 1 },           station: 'workbench' },
+  { out: 'flame_sword',  n: 1, cost: { iron_bar: 2, copper_bar: 3 },     station: 'furnace' },
+  { out: 'frost_sword',  n: 1, cost: { iron_bar: 2, lumite: 6 },         station: 'workbench' },
+  { out: 'lumite_staff', n: 1, cost: { gold_bar: 2, lumite: 8, wood: 2 }, station: 'workbench' },
+  { out: 'enh_scroll',   n: 1, cost: { lumite: 4, stone: 2 },            station: 'workbench' },
+  { out: 'copper_bar',  n: 1, cost: { copper_ore: 2 },  station: 'furnace' },
+  { out: 'iron_bar',    n: 1, cost: { iron_ore: 2 },    station: 'furnace' },
+  { out: 'gold_bar',    n: 1, cost: { gold_ore: 2 },    station: 'furnace' },
+  { out: 'cooked_mushroom', n: 1, cost: { mushroom: 1 }, station: 'furnace' },
+];
+
+// 敵人表:speed=跳撲衝量, hopCD=跳撲間隔
+// shape=外形(blob 圓球/spike 帶刺/mono 獨眼/mouth 大嘴/ghost 半透明/tank 方甲)
+// 行為擴充:pack=成群生成數, ranged=遠程吐彈, explode=自爆, ghost=穿牆, wallMult=拆牆倍率
+const ENEMY_TYPES = {
+  imp:      { name: '小蝕影',   hp: 18,  dmg: 6,  r: 0.36, speed: 3.6, hopCD: 1.6, color: '#39435c', eye: '#7ef0ff', shape: 'blob',  elem: 'dark' },
+  spore:    { name: '蝕影孢子', hp: 8,   dmg: 3,  r: 0.22, speed: 4.4, hopCD: 0.9, color: '#2e544e', eye: '#9fffec', shape: 'mono',  elem: 'dark', pack: 3 },
+  hunter:   { name: '蝕影獵手', hp: 40,  dmg: 12, r: 0.42, speed: 4.4, hopCD: 1.3, color: '#523a70', eye: '#c06cff', shape: 'spike', elem: 'dark' },
+  spitter:  { name: '吐影者',   hp: 30,  dmg: 8,  r: 0.40, speed: 3.4, hopCD: 1.7, color: '#63357e', eye: '#e08cff', shape: 'mouth', elem: 'dark',
+              ranged: { range: 5.5, cd: 2.2, dmg: 10, speed: 7.5 } },
+  bomber:   { name: '爆裂蝕影', hp: 26,  dmg: 6,  r: 0.38, speed: 5.2, hopCD: 1.1, color: '#7e3524', eye: '#ffb35c', shape: 'blob',  elem: 'fire',
+              explode: { fuse: 0.9, r: 1.9, dmg: 24, wallDmg: 45, core: 10 } },
+  phantom:  { name: '穿牆幽影', hp: 22,  dmg: 10, r: 0.40, speed: 2.6, hopCD: 1.4, color: '#3e6480', eye: '#dffbff', shape: 'ghost', elem: 'frost', ghost: true },
+  breaker:  { name: '裂地者',   hp: 130, dmg: 14, r: 0.55, speed: 3.6, hopCD: 1.9, color: '#6b6250', eye: '#ffd23f', shape: 'tank',  elem: 'earth', wallMult: 4 },
+  abyss:    { name: '深淵蝕影', hp: 75,  dmg: 20, r: 0.50, speed: 4.6, hopCD: 1.2, color: '#742e42', eye: '#ff5d5d', shape: 'spike', elem: 'dark' },
+  sentinel: { name: '石像守衛', hp: 350, dmg: 25, r: 0.90, speed: 5.5, hopCD: 2.0, color: '#767c94', eye: '#ffd23f', shape: 'tank',  elem: 'earth', boss: true },
+};
+
+// ── 屬性相剋:attackElem → enemyElem → 倍率(未列 = 1.0)──
+// 光剋暗、焰剋冰、冰剋焰、重擊(鎚)剋石;同屬性打折
+const ELEM_VS = {
+  light: { dark: 1.6 },
+  fire:  { frost: 1.6, dark: 1.2, fire: 0.6 },
+  frost: { fire: 1.6, dark: 1.2, frost: 0.6 },
+  smash: { earth: 1.6 },
+};
+function elemMult(atk, def) {
+  return (atk && def && ELEM_VS[atk] && ELEM_VS[atk][def]) || 1;
+}
+
+// ── 衝裝(強化卷軸)──
+// 每級 +15% 武器/鎬威力、護甲 +4%;+4/+5 有失敗率(失敗只噴卷軸不炸裝)
+const ENH_CFG = {
+  maxLv: 5,
+  scrolls: lv => lv + 1,            // 衝到 lv 需要的卷軸數(衝+1要1張…衝+5要5張)
+  rate:    [1, 1, 1, 0.7, 0.5],     // 衝 +1..+5 的成功率
+  dmgPer: 0.15, armorPer: 0.04,
+};
+function enhMult(s) { return 1 + ENH_CFG.dmgPer * ((s && s.lv) || 0); }
+
+// 已放置物件的耐久
+const OBJ_HP = { torch: 4, workbench: 20, furnace: 20, tower: 50, chest: 12, nest: 60 };
+// 物件光照半徑
+const OBJ_LIGHT = { torch: 7, tower: 6, furnace: 3 };
+// 會擋路的物件
+const OBJ_SOLID = { workbench: true, furnace: true, tower: true, chest: true, nest: true };
+
+// ── 世界據點(隨機生成)──
+// chest=廢墟寶箱(敲開拿戰利品) / nest=蝕影巢穴(持續生怪,拆掉噴光晶+卷軸)
+const POI_CFG = {
+  ruins: 7,   // 廢墟數(石磚小房,內有寶箱)
+  nests: 6,   // 巢穴數
+  nestSpawnCD: 8,     // 每座巢穴幾秒嘗試生 1 隻
+  nestNearCap: 3,     // 巢穴周圍活怪達此數就暫停生
+};
+// 寶箱戰利品表(依區域 zone 0/1/2 抽 2~3 項)
+const CHEST_LOOT = [
+  [ ['arrow', 8], ['copper_bar', 2], ['enh_scroll', 1], ['lumite', 3], ['cooked_mushroom', 2] ],
+  [ ['arrow', 12], ['iron_bar', 2], ['enh_scroll', 1], ['lumite', 4], ['bow', 1] ],
+  [ ['arrow', 15], ['gold_bar', 2], ['enh_scroll', 2], ['lumite', 6], ['crossbow', 1] ],
+];
+
+// ===== 小工具 =====
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function dist(x1, y1, x2, y2) { return Math.hypot(x2 - x1, y2 - y1); }
+function angDiff(a, b) {
+  let d = (a - b) % TAU;
+  if (d > Math.PI) d -= TAU;
+  if (d < -Math.PI) d += TAU;
+  return Math.abs(d);
+}
