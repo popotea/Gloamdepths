@@ -21,6 +21,31 @@ const WAVE_CFG = {
   spawnDist: 28,      // 從離星核多遠的黑暗處出現
 };
 
+// 玩家等級設定:每級 +HP、+攻擊力%(疊加在裝備傷害上),打怪獲得經驗
+const LEVEL_CFG = {
+  maxLv: 10,
+  hpPer: 8,            // 每級 +最大HP
+  dmgPer: 0.05,         // 每級 +5% 攻擊力
+  xpNeed: lv => Math.round(20 * lv * (1 + lv * 0.15)), // 升到 lv+1 需要的經驗值
+};
+// 各怪物擊殺經驗值
+const ENEMY_XP = {
+  imp: 4, spore: 2, hunter: 9, spitter: 7, bomber: 6,
+  phantom: 8, breaker: 20, abyss: 16, sentinel: 60,
+};
+function xpToNext(lv) { return LEVEL_CFG.xpNeed(lv); }
+function playerDmgMult(p) { return 1 + LEVEL_CFG.dmgPer * ((p.lv || 1) - 1); }
+function playerMaxHp(p) { return 100 + LEVEL_CFG.hpPer * ((p.lv || 1) - 1); }
+
+// 衝刺設定:Shift 瞬間加速,消耗體力,體力不足需回復才能再衝
+const DASH_CFG = {
+  cost: 30,        // 每次衝刺消耗體力
+  regen: 20,        // 每秒回復體力(衝刺中不回復)
+  dur: 0.22,        // 衝刺持續秒數
+  mult: 2.3,        // 衝刺時速度倍率
+  cd: 0.5,          // 衝刺後的再次觸發冷卻
+};
+
 // 地形代號
 const T = {
   FLOOR: 0, DIRT: 1, STONE: 2, OBSIDIAN: 3,
@@ -44,8 +69,8 @@ const TILE_INFO = {
   [T.LUMITE]:   { solid: true, hp: 8,  tier: 0, name: '光晶礦脈', drop: { id: 'lumite', n: 2 },     c1: '#3e6c94', c2: '#2c4e6c', ore: '#7ef0ff', light: 2.5 },
   [T.ROOT]:     { solid: true, hp: 4,  tier: 0, name: '木根',     drop: { id: 'wood', n: 2 },       c1: '#b08a48', c2: '#886a34', ore: '#e0b878' },
   [T.BEDROCK]:  { solid: true, hp: Infinity, tier: 99, name: '基岩', c1: '#16161c', c2: '#0e0e12' },
-  [T.WOODWALL]: { solid: true, hp: 12, tier: 0, name: '木牆', drop: { id: 'wood_wall', n: 1 },  c1: '#c09454', c2: '#96743e', built: 'plank' },
-  [T.STONEWALL]:{ solid: true, hp: 30, tier: 0, name: '石牆(建)', drop: { id: 'stone_wall', n: 1 }, c1: '#b4b4c4', c2: '#8e8e9e', built: 'brick' },
+  [T.WOODWALL]: { solid: true, hp: 40, tier: 0, name: '木牆', drop: { id: 'wood_wall', n: 1 },  c1: '#c09454', c2: '#96743e', built: 'plank' },
+  [T.STONEWALL]:{ solid: true, hp: 90, tier: 0, name: '石牆(建)', drop: { id: 'stone_wall', n: 1 }, c1: '#b4b4c4', c2: '#8e8e9e', built: 'brick' },
 };
 
 // 物品表:pick=鎬(tier 階級/power 每下傷害), sword=劍, armor=減傷比例
@@ -179,7 +204,7 @@ function enhMult(s) { return 1 + ENH_CFG.dmgPer * ((s && s.lv) || 0); }
 // 已放置物件的耐久
 const OBJ_HP = { torch: 4, workbench: 20, furnace: 20, tower: 50, chest: 12, nest: 60 };
 // 物件光照半徑
-const OBJ_LIGHT = { torch: 7, tower: 6, furnace: 3 };
+const OBJ_LIGHT = { torch: 7, tower: 6, furnace: 3, workbench: 2.5 };
 // 會擋路的物件
 const OBJ_SOLID = { workbench: true, furnace: true, tower: true, chest: true, nest: true };
 

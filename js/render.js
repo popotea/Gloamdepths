@@ -156,6 +156,18 @@ function render(dt) {
     const et = ENEMY_TYPES[e.type];
     const [sx, sy] = worldToScreen(e.x, e.y);
     const squash = 1 + Math.sin(performance.now() / 200 + e.id) * 0.08;
+    // 暗潮怪:紅色脈動外圈 + 頭頂警示標記,一眼分辨優先目標
+    if (e.wave) {
+      const pulse = 1 + Math.sin(performance.now() / 220) * 0.12;
+      ctx.strokeStyle = `rgba(255,70,70,${0.55 + Math.sin(performance.now() / 220) * 0.25})`;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(sx, sy, et.r * TILE * 1.4 * pulse, 0, TAU);
+      ctx.stroke();
+      ctx.font = `${TILE * 0.4}px "Segoe UI Emoji"`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('⚠️', sx, sy - et.r * TILE - 16);
+    }
     ctx.fillStyle = et.color;
     ctx.beginPath();
     ctx.ellipse(sx, sy, et.r * TILE * squash, et.r * TILE / squash, 0, 0, TAU);
@@ -225,19 +237,18 @@ function render(dt) {
   for (const p of G.players.values()) {
     if (p.dead || p.id === G.myId) continue;
     const [sx, sy] = worldToScreen(p.x, p.y);
+    const label = `${p.name} Lv.${p.lv || 1}`;
     ctx.fillStyle = '#000a';
-    ctx.fillText(p.name, sx + 1, sy - p.r * TILE - 9);
+    ctx.fillText(label, sx + 1, sy - p.r * TILE - 9);
     ctx.fillStyle = PLAYER_COLORS[p.id % PLAYER_COLORS.length];
-    ctx.fillText(p.name, sx, sy - p.r * TILE - 10);
+    ctx.fillText(label, sx, sy - p.r * TILE - 10);
   }
 
-  // ---- 滑鼠格子提示 ----
+  // ---- 滑鼠挖礦/放置高亮框 ----
   {
-    const tip = document.getElementById('tileTip');
     const [wx, wy] = screenToWorld(INPUT.mx, INPUT.my);
     const tx = Math.floor(wx), ty = Math.floor(wy);
-    const onMap = !UI.panelOpen && !UI.menuOpen && inMap(tx, ty) && lightOf(tx + 0.5, ty + 0.5) > 0.03;
-    if (onMap) {
+    if (inMap(tx, ty) && lightOf(tx + 0.5, ty + 0.5) > 0.03) {
       const info = TILE_INFO[tileAt(tx, ty)];
       const inRange = dist(me.x, me.y, tx + 0.5, ty + 0.5) <= 3.6;
       const sel = me.inv[me.sel];
@@ -252,19 +263,34 @@ function render(dt) {
         ctx.strokeStyle = col; ctx.lineWidth = 2;
         ctx.strokeRect(sx + 1, sy + 1, TILE - 2, TILE - 2);
       }
-      // 文字說明:優先顯示格上的物件,其次顯示地形
-      const obj = G.objects.get(idx(tx, ty));
+    }
+  }
+
+  // ---- 角色附近格子說明(走近一格內自動顯示)----
+  {
+    const tip = document.getElementById('tileTip');
+    const px = Math.floor(me.x), py = Math.floor(me.y);
+    let best = null, bestD = Infinity;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dy === 0) continue;
+      const gx = px + dx, gy = py + dy;
+      if (!inMap(gx, gy)) continue;
+      const d = dist(me.x, me.y, gx + 0.5, gy + 0.5);
+      if (d > 1.5 || d >= bestD) continue;
+      const obj = G.objects.get(idx(gx, gy));
+      const info = TILE_INFO[tileAt(gx, gy)];
       let label = null;
-      if (obj) label = (ITEMS[obj.type] ? ITEMS[obj.type].icon + ' ' + ITEMS[obj.type].name : '❓ ' + obj.type);
-      else if (dist(tx + 0.5, ty + 0.5, G.core.x, G.core.y) < 2) label = '💠 星核';
-      else if (info.name) label = (info.ore ? '⛏️ ' : '') + info.name;
-      else label = '地板';
-      if (label) {
-        tip.textContent = label;
-        tip.style.left = INPUT.mx + 'px';
-        tip.style.top = INPUT.my + 'px';
-        tip.classList.remove('hidden');
-      } else tip.classList.add('hidden');
+      if (obj) label = (ITEMS[obj.type] ? ITEMS[obj.type].icon + ' ' + ITEMS[obj.type].name : null);
+      else if (dist(gx + 0.5, gy + 0.5, G.core.x, G.core.y) < 2) label = '💠 星核';
+      else if (info.solid && info.name) label = (info.ore ? '⛏️ ' : '') + info.name;
+      if (label) { best = { label, gx, gy }; bestD = d; }
+    }
+    if (best && !UI.panelOpen && !UI.menuOpen) {
+      const [sx, sy] = worldToScreen(best.gx + 0.5, best.gy + 0.5);
+      tip.textContent = best.label;
+      tip.style.left = sx + 'px';
+      tip.style.top = (sy - TILE * 0.9) + 'px';
+      tip.classList.remove('hidden');
     } else tip.classList.add('hidden');
   }
 

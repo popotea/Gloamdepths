@@ -27,6 +27,7 @@ const SFX = (() => {
     pickup() { beep(660, 0.08, 'sine', 0.07, 220); },
     craft()  { beep(440, 0.12, 'triangle', 0.09, 120); },
     place()  { beep(300, 0.08, 'triangle', 0.07); },
+    dash()   { beep(200, 0.1, 'sine', 0.06, 260); },
     eat()    { beep(500, 0.1, 'sine', 0.07, -150); },
     deposit(){ beep(520, 0.15, 'sine', 0.09, 260); },
     shoot()  { beep(880, 0.07, 'sine', 0.06, -300); },

@@ -16,6 +16,12 @@ body { font-family: "Microsoft JhengHei", "Noto Sans TC", sans-serif; color: #dd
 #hpfill { height: 100%; background: linear-gradient(#ff7d7d, #d63c3c); transition: width .2s; }
 #corefill { height: 100%; background: linear-gradient(#a8f4ff, #3fb9d6); transition: width .3s; }
 #corefill.low { background: linear-gradient(#ffb27d, #d6683c); animation: blink 1s infinite; }
+#xpfill { height: 100%; background: linear-gradient(#e0c1ff, #a855f7); transition: width .3s; }
+.bar.xp { height: 14px; }
+.bar.xp span { line-height: 14px; font-size: 11px; }
+#stafill { height: 100%; background: linear-gradient(#d4ffb0, #7ed957); transition: width .15s; }
+.bar.stamina { height: 14px; }
+.bar.stamina span { line-height: 14px; font-size: 11px; }
 @keyframes blink { 50% { opacity: .55; } }
 #shards { font-size: 18px; letter-spacing: 3px; text-shadow: 0 0 6px #7ef0ff; }
 
@@ -37,6 +43,17 @@ body { font-family: "Microsoft JhengHei", "Noto Sans TC", sans-serif; color: #dd
 .msg { background: #000a; border-left: 3px solid #7ef0ff; padding: 4px 10px; margin-bottom: 4px;
   border-radius: 0 6px 6px 0; transition: opacity .9s; }
 .msg.fade { opacity: 0; }
+
+/* 聊天 */
+#chatlog { position: absolute; left: 12px; bottom: 110px; width: 340px; max-height: 160px;
+  display: flex; flex-direction: column-reverse; overflow: hidden; font-size: 13px; }
+.chatmsg { background: #000a; padding: 3px 9px; margin-top: 4px; border-radius: 6px;
+  transition: opacity .9s; word-break: break-word; }
+.chatmsg .who { color: #7ef0ff; font-weight: bold; margin-right: 4px; }
+.chatmsg.fade { opacity: 0; }
+#chatbox { position: absolute; left: 12px; bottom: 70px; width: 340px; pointer-events: auto; }
+#chatInput { width: 100%; padding: 7px 10px; font-size: 14px; background: #0a0d14ee; color: #dde4ee;
+  border: 1px solid #7ef0ff88; border-radius: 8px; }
 
 /* 死亡橫幅 */
 #deathbanner { position: absolute; top: 35%; left: 50%; transform: translate(-50%, -50%);
@@ -81,7 +98,7 @@ body { font-family: "Microsoft JhengHei", "Noto Sans TC", sans-serif; color: #dd
 .recipe .rst { font-size: 15px; }
 
 #tileTip { position: absolute; padding: 4px 9px; background: #0a0d14ee; border: 1px solid #3a4152;
-  border-radius: 6px; font-size: 13px; color: #dde4ee; white-space: nowrap; transform: translate(14px, 18px); }
+  border-radius: 6px; font-size: 13px; color: #dde4ee; white-space: nowrap; transform: translate(-50%, -100%); }
 
 /* 全螢幕選單 */
 #overlay { position: absolute; inset: 0; background: #050508e6; display: flex; align-items: center;

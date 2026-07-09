@@ -84,9 +84,12 @@ function updateWave(dt) {
 function startWave() {
   const w = G.wave;
   w.n++; w.state = 'active';
-  const players = Math.max(1, [...G.players.values()].length);
-  let count = Math.round((4 + 3 * w.n) * (0.7 + 0.3 * players));
-  if (w.final) count = Math.round(20 * (0.7 + 0.3 * players));
+  const alive = [...G.players.values()];
+  const players = Math.max(1, alive.length);
+  const avgLv = alive.length ? alive.reduce((s, p) => s + (p.lv || 1), 0) / alive.length : 1;
+  const lvMult = 1 + (avgLv - 1) * 0.12; // 隊伍平均等級每高一級,數量再多 12%
+  let count = Math.round((4 + 3 * w.n) * (0.7 + 0.3 * players) * lvMult);
+  if (w.final) count = Math.round(20 * (0.7 + 0.3 * players) * lvMult);
   msgAll(w.final ? '🌑💥 最終暗潮來襲!!撐過去,星核就會甦醒!' : `🌊 第 ${w.n} 波暗潮來襲!共 ${count} 隻`);
   emitFx({ k: 'sfx', s: 'wave' });
   for (let k = 0; k < count; k++) {
@@ -175,7 +178,7 @@ function gameOver(win) {
 function buildSave() {
   // 把目前所有玩家的背包記進名字表,離線好友下次同名加入可拿回
   for (const p of G.players.values()) {
-    G.playersByName[p.name] = { inv: p.inv, hp: p.hp, x: p.x, y: p.y };
+    G.playersByName[p.name] = { inv: p.inv, hp: p.hp, x: p.x, y: p.y, lv: p.lv, xp: p.xp };
   }
   return {
     v: 1, seed: G.seed, time: G.time,
@@ -234,7 +237,11 @@ function loadGame(name) {
   G.myId = 0;
   const p = makePlayer(0, name);
   const saved = G.playersByName[name];
-  if (saved) { p.inv = saved.inv; p.hp = saved.hp; }
+  if (saved) {
+    p.inv = saved.inv;
+    p.lv = saved.lv || 1; p.xp = saved.xp || 0; p.maxhp = playerMaxHp(p);
+    p.hp = Math.min(p.maxhp, saved.hp);
+  }
   G.players.set(0, p);
   G.started = true;
   showMsg('📂 讀取存檔完成,歡迎回到微光深淵');
@@ -245,7 +252,11 @@ function loadGame(name) {
 function playerJoinAs(id, name) {
   const p = makePlayer(id, name);
   const saved = G.playersByName[name];
-  if (saved) { p.inv = saved.inv; p.hp = Math.max(30, saved.hp); }
+  if (saved) {
+    p.inv = saved.inv;
+    p.lv = saved.lv || 1; p.xp = saved.xp || 0; p.maxhp = playerMaxHp(p);
+    p.hp = Math.max(30, Math.min(p.maxhp, saved.hp));
+  }
   G.players.set(id, p);
   return p;
 }

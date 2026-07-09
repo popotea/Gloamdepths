@@ -12,8 +12,11 @@ function initUI() {
   UI.els = {
     hpfill: $id('hpfill'), hptext: $id('hptext'),
     corefill: $id('corefill'), coretext: $id('coretext'),
+    xpfill: $id('xpfill'), xptext: $id('xptext'),
+    stafill: $id('stafill'), statext: $id('statext'),
     shards: $id('shards'), wavebox: $id('wavebox'),
     hotbar: $id('hotbar'), msglog: $id('msglog'),
+    chatlog: $id('chatlog'), chatbox: $id('chatbox'), chatInput: $id('chatInput'),
     invpanel: $id('invpanel'), invgrid: $id('invgrid'), craftlist: $id('craftlist'),
     overlay: $id('overlay'), minimap: $id('minimap'),
     hostBtn: $id('hostBtn'), roomcode: $id('roomcode'),
@@ -73,6 +76,47 @@ function showMsg(text) {
   setTimeout(() => { d.classList.add('fade'); setTimeout(() => d.remove(), 900); }, 6000);
 }
 
+function showChat(name, text) {
+  const log = UI.els.chatlog;
+  if (!log) return;
+  const d = document.createElement('div');
+  d.className = 'chatmsg';
+  const who = document.createElement('span');
+  who.className = 'who';
+  who.textContent = name + ':';
+  d.appendChild(who);
+  d.appendChild(document.createTextNode(text));
+  log.prepend(d);
+  while (log.children.length > 20) log.lastChild.remove();
+  setTimeout(() => { d.classList.add('fade'); setTimeout(() => d.remove(), 900); }, 12000);
+}
+
+function openChat() {
+  if (!G.started || UI.menuOpen) return;
+  UI.els.chatbox.classList.remove('hidden');
+  UI.els.chatInput.value = '';
+  UI.els.chatInput.focus();
+}
+
+function closeChat() {
+  UI.els.chatbox.classList.add('hidden');
+  UI.els.chatInput.blur();
+}
+
+function sendChat() {
+  const text = UI.els.chatInput.value.trim().slice(0, 80);
+  closeChat();
+  if (!text) return;
+  const me = myPlayer();
+  if (!me) return;
+  if (NET.isHost()) {
+    showChat(me.name, text);
+    NET.sendAll({ t: 'chat', name: me.name, text });
+  } else {
+    NET.act({ t: 'chat', name: me.name, text });
+  }
+}
+
 // ===== 每幀 UI 更新(內部有節流)=====
 function uiTick(dt) {
   const me = myPlayer();
@@ -81,11 +125,24 @@ function uiTick(dt) {
   // 血條 / 星核
   UI.els.hpfill.style.width = (me.hp / me.maxhp * 100) + '%';
   UI.els.hptext.textContent = `❤ ${Math.ceil(me.hp)}/${me.maxhp}`;
+  UI.els.stafill.style.width = (me.stamina || 0) + '%';
+  UI.els.statext.textContent = `⚡ ${Math.ceil(me.stamina || 0)}` + (me.dashT > 0 ? ' 衝刺中!' : '');
   const eR = G.core.energy / CORE_CFG.maxE;
   UI.els.corefill.style.width = (eR * 100) + '%';
   UI.els.corefill.classList.toggle('low', eR < 0.3);
   UI.els.coretext.textContent = `💠 星核 ${Math.ceil(G.core.energy)}`;
   UI.els.shards.textContent = '🔷'.repeat(G.core.shards) + '◇'.repeat(Math.max(0, CORE_CFG.needShards - G.core.shards));
+
+  // 等級 / 經驗
+  const lv = me.lv || 1;
+  if (lv >= LEVEL_CFG.maxLv) {
+    UI.els.xpfill.style.width = '100%';
+    UI.els.xptext.textContent = `⭐ Lv.${lv} (滿級)`;
+  } else {
+    const need = xpToNext(lv);
+    UI.els.xpfill.style.width = (Math.min(1, (me.xp || 0) / need) * 100) + '%';
+    UI.els.xptext.textContent = `⭐ Lv.${lv}  ${Math.floor(me.xp || 0)}/${need}`;
+  }
 
   // 暗潮狀態
   const w = G.wave;

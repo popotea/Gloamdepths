@@ -4,14 +4,34 @@ let nextEid = 1, nextDid = 1;
 const PLAYER_COLORS = ['#ffd97a', '#7ad0ff', '#8dff9e', '#ff9ecb'];
 
 function makePlayer(id, name) {
-  return {
+  const p = {
     id, name,
     x: G.core.x + (id % 2 ? 1.5 : -1.5), y: G.core.y + (id >= 2 ? 1.5 : -1.5),
     r: 0.35, hp: 100, maxhp: 100, aim: 0,
     inv: makeStartInv(), sel: 0,
     swing: 0, atkCD: 0, mineCD: 0, iframe: 0, lastHurt: -99,
     dead: false, respawnT: 0, invDirty: true,
+    lv: 1, xp: 0,
+    stamina: 100, dashCD: 0, dashT: 0,
   };
+  p.maxhp = playerMaxHp(p);
+  p.hp = p.maxhp;
+  return p;
+}
+
+// 打怪獲得經驗;升級補滿血並跳提示
+function grantXp(p, amount) {
+  if (!amount || p.lv >= LEVEL_CFG.maxLv) return;
+  p.xp += amount;
+  while (p.lv < LEVEL_CFG.maxLv && p.xp >= xpToNext(p.lv)) {
+    p.xp -= xpToNext(p.lv);
+    p.lv++;
+    p.maxhp = playerMaxHp(p);
+    p.hp = p.maxhp;
+    addFloater(p.x, p.y - 0.8, `升級!Lv.${p.lv}`, '#ffd23f');
+    emitFx({ k: 'sfx', s: 'craft' });
+    msgAll(`✨ ${p.name} 升到 Lv.${p.lv}!`);
+  }
 }
 
 // ===== 圓形 vs 格子碰撞 =====
@@ -92,6 +112,7 @@ function killEnemy(e, killer) {
   const i = G.enemies.indexOf(e);
   if (i >= 0) G.enemies.splice(i, 1);
   emitFx({ k: 'sfx', s: 'break_' });
+  if (killer) grantXp(killer, ENEMY_XP[e.type] || 0);
   // 戰利品:蝕影掉光晶,回饋防守循環;各怪都有機率掉強化卷軸(衝裝來源)
   const SCROLL_RATE = { imp: 0.03, spore: 0.02, hunter: 0.06, spitter: 0.08, bomber: 0.08, phantom: 0.1, breaker: 0.12, abyss: 0.1 };
   if (SCROLL_RATE[e.type] && Math.random() < SCROLL_RATE[e.type]) spawnDrop('enh_scroll', 1, e.x, e.y);
@@ -264,7 +285,7 @@ function damagePlayer(p, amount) {
 function doSwing(p, aim) {
   if (p.dead || p.atkCD > 0) return;
   p.atkCD = 0.35; p.swing = 0.22; p.aim = aim;
-  const dmg = bestSword(p).dmg;
+  const dmg = bestSword(p).dmg * playerDmgMult(p);
   for (const e of [...G.enemies]) {
     const d = dist(p.x, p.y, e.x, e.y);
     if (d < 1.8 + ENEMY_TYPES[e.type].r && angDiff(Math.atan2(e.y - p.y, e.x - p.x), aim) < 1.1) {

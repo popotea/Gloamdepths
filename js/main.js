@@ -7,6 +7,11 @@ function typingInInput() {
 }
 
 function bindInput() {
+  UI.els.chatInput?.addEventListener('keydown', e => {
+    e.stopPropagation();
+    if (e.key === 'Enter') sendChat();
+    else if (e.key === 'Escape') closeChat();
+  });
   addEventListener('keydown', e => {
     if (typingInInput()) return;
     const k = e.key.toLowerCase();
@@ -19,6 +24,7 @@ function bindInput() {
       return;
     }
     if (UI.menuOpen) return;
+    if (k === 'enter') { openChat(); return; }
     if (k === 'e') togglePanel();
     else if (k >= '1' && k <= '8') { me.sel = +k - 1; UI.invDirty = true; }
     else if (k === 'f') {
@@ -58,9 +64,21 @@ function localControl(me, dt) {
   if (INPUT.keys.has('s') || INPUT.keys.has('arrowdown')) dy += 1;
   if (INPUT.keys.has('a') || INPUT.keys.has('arrowleft')) dx -= 1;
   if (INPUT.keys.has('d') || INPUT.keys.has('arrowright')) dx += 1;
+
+  // 衝刺:Shift 瞬間加速,消耗體力,冷卻中或體力不足不能觸發
+  me.dashCD -= dt; me.dashT -= dt;
+  if (me.dashCD <= 0 && (INPUT.keys.has('shift') || INPUT.keys.has('shiftleft') || INPUT.keys.has('shiftright'))
+      && (dx || dy) && me.stamina >= DASH_CFG.cost) {
+    me.stamina -= DASH_CFG.cost;
+    me.dashT = DASH_CFG.dur;
+    me.dashCD = DASH_CFG.cd;
+    emitFx({ k: 'sfx', s: 'dash' });
+  }
+  if (me.dashT <= 0) me.stamina = Math.min(100, me.stamina + DASH_CFG.regen * dt);
+
   if (dx || dy) {
     const len = Math.hypot(dx, dy);
-    const spd = 4.6;
+    const spd = 4.6 * (me.dashT > 0 ? DASH_CFG.mult : 1);
     moveCircle(me, dx / len * spd * dt, dy / len * spd * dt);
   }
   // 瞄準

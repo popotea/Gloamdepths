@@ -117,10 +117,11 @@ function bestArmor(p) {
 }
 
 // 附近是否有指定合成站
+const STATION_RANGE = 6;
 function stationNear(p, type) {
   if (!type) return true;
   const px = Math.floor(p.x), py = Math.floor(p.y);
-  for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
+  for (let dy = -STATION_RANGE; dy <= STATION_RANGE; dy++) for (let dx = -STATION_RANGE; dx <= STATION_RANGE; dx++) {
     const o = objAt(px + dx, py + dy);
     if (o && o.type === type) return true;
   }

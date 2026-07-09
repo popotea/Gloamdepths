@@ -64,7 +64,7 @@ const NET = {
         objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null]),
         core: { energy: G.core.energy, shards: G.core.shards },
         shrines: G.shrines, wave: G.wave, time: G.time,
-        players: [...G.players.values()].map(pl => [pl.id, pl.name, pl.x, pl.y, pl.hp, pl.dead ? 1 : 0]),
+        players: [...G.players.values()].map(pl => [pl.id, pl.name, pl.x, pl.y, pl.hp, pl.dead ? 1 : 0, pl.lv || 1, pl.xp || 0]),
         inv: p.inv, over: G.over,
       });
       this.sendAllExcept(pid, { t: 'join', id: pid, name, x: p.x, y: p.y });
@@ -92,6 +92,12 @@ const NET = {
         else this.sendToPid(conn.pid, { t: 'fx', f: { k: 'sfx', s: 'craft' } });
         break;
       }
+      case 'chat': {
+        const name = String(d.name || p.name).slice(0, 12);
+        const text = String(d.text || '').slice(0, 80);
+        if (text) { showChat(name, text); this.sendAll({ t: 'chat', name, text }); }
+        break;
+      }
     }
   },
 
@@ -116,7 +122,7 @@ const NET = {
     const snap = {
       t: 'snap', time: r2(G.time),
       players: [...G.players.values()].map(p =>
-        [p.id, r2(p.x), r2(p.y), r2(p.aim), p.swing > 0 ? 1 : 0, Math.round(p.hp), p.dead ? 1 : 0, Math.ceil(p.respawnT || 0)]),
+        [p.id, r2(p.x), r2(p.y), r2(p.aim), p.swing > 0 ? 1 : 0, Math.round(p.hp), p.dead ? 1 : 0, Math.ceil(p.respawnT || 0), p.lv || 1, Math.round(p.xp || 0)]),
       enemies: G.enemies.map(e => [e.id, e.type, r2(e.x), r2(e.y), Math.round(e.hp)]),
       drops: G.drops.map(d => [d.id, d.item, d.n, r2(d.x), r2(d.y)]),
       core: { e: r2(G.core.energy), s: G.core.shards },
@@ -166,8 +172,9 @@ const NET = {
         G.shrines = d.shrines; G.wave = d.wave; G.time = d.time;
         G.enemies = []; G.drops = []; G.floaters = []; G.cracks.clear();
         G.players.clear();
-        for (const [id, name, x, y, hp, dead] of d.players) {
+        for (const [id, name, x, y, hp, dead, lv, xp] of d.players) {
           const p = makePlayer(id, name);
+          p.lv = lv || 1; p.xp = xp || 0; p.maxhp = playerMaxHp(p);
           p.x = x; p.y = y; p.tx = x; p.ty = y; p.hp = hp; p.dead = !!dead;
           G.players.set(id, p);
         }
@@ -180,9 +187,11 @@ const NET = {
         break;
       }
       case 'snap': {
-        for (const [id, x, y, aim, swing, hp, dead, respawnT] of d.players) {
+        for (const [id, x, y, aim, swing, hp, dead, respawnT, lv, xp] of d.players) {
           let p = G.players.get(id);
           if (!p) { p = makePlayer(id, '?'); G.players.set(id, p); p.x = x; p.y = y; }
+          if (lv && p.lv !== lv) UI.invDirty = true;
+          p.lv = lv || 1; p.xp = xp || 0; p.maxhp = playerMaxHp(p);
           p.hp = hp; p.dead = !!dead; p.respawnT = respawnT;
           if (id === G.myId) continue; // 自己的位置用本地預測
           p.tx = x; p.ty = y; p.aim = aim;
@@ -213,6 +222,7 @@ const NET = {
       case 'obj': setObj(d.i % MAP_W, (d.i / MAP_W) | 0, d.o, true); break;
       case 'fx': applyFx(d.f); break;
       case 'msg': showMsg(d.text); break;
+      case 'chat': showChat(d.name, d.text); break;
       case 'join': {
         const p = makePlayer(d.id, d.name);
         p.x = d.x; p.y = d.y; p.tx = d.x; p.ty = d.y;
