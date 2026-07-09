@@ -80,6 +80,9 @@ body { font-family: "Microsoft JhengHei", "Noto Sans TC", sans-serif; color: #dd
 .recipe .rcost { flex: 1; font-size: 13px; color: #aab; }
 .recipe .rst { font-size: 15px; }
 
+#tileTip { position: absolute; padding: 4px 9px; background: #0a0d14ee; border: 1px solid #3a4152;
+  border-radius: 6px; font-size: 13px; color: #dde4ee; white-space: nowrap; transform: translate(14px, 18px); }
+
 /* 全螢幕選單 */
 #overlay { position: absolute; inset: 0; background: #050508e6; display: flex; align-items: center;
   justify-content: center; pointer-events: auto; }

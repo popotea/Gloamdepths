@@ -7,6 +7,7 @@ function makeStartInv() {
   inv[1] = { id: 'wood_sword', count: 1 };
   inv[2] = { id: 'torch', count: 8 };
   inv[3] = { id: 'mushroom', count: 2 };
+  inv[4] = { id: 'wood', count: 8 };
   return inv;
 }
 

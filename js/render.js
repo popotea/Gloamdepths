@@ -233,9 +233,11 @@ function render(dt) {
 
   // ---- 滑鼠格子提示 ----
   {
+    const tip = document.getElementById('tileTip');
     const [wx, wy] = screenToWorld(INPUT.mx, INPUT.my);
     const tx = Math.floor(wx), ty = Math.floor(wy);
-    if (inMap(tx, ty)) {
+    const onMap = !UI.panelOpen && !UI.menuOpen && inMap(tx, ty) && lightOf(tx + 0.5, ty + 0.5) > 0.03;
+    if (onMap) {
       const info = TILE_INFO[tileAt(tx, ty)];
       const inRange = dist(me.x, me.y, tx + 0.5, ty + 0.5) <= 3.6;
       const sel = me.inv[me.sel];
@@ -250,7 +252,20 @@ function render(dt) {
         ctx.strokeStyle = col; ctx.lineWidth = 2;
         ctx.strokeRect(sx + 1, sy + 1, TILE - 2, TILE - 2);
       }
-    }
+      // 文字說明:優先顯示格上的物件,其次顯示地形
+      const obj = G.objects.get(idx(tx, ty));
+      let label = null;
+      if (obj) label = (ITEMS[obj.type] ? ITEMS[obj.type].icon + ' ' + ITEMS[obj.type].name : '❓ ' + obj.type);
+      else if (dist(tx + 0.5, ty + 0.5, G.core.x, G.core.y) < 2) label = '💠 星核';
+      else if (info.name) label = (info.ore ? '⛏️ ' : '') + info.name;
+      else label = '地板';
+      if (label) {
+        tip.textContent = label;
+        tip.style.left = INPUT.mx + 'px';
+        tip.style.top = INPUT.my + 'px';
+        tip.classList.remove('hidden');
+      } else tip.classList.add('hidden');
+    } else tip.classList.add('hidden');
   }
 
   // ---- 浮動文字 ----
