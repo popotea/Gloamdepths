@@ -193,11 +193,25 @@ function refreshSlots() {
   [...UI.els.invgrid.children].forEach((el, i) => slotHTML(el, me.inv[i], false, UI.pendingSwap === i));
 }
 
+// 依配方產出的物品欄位推斷分類(不额外改資料結構)
+const RECIPE_CATS = [
+  { key: 'tool',  name: '⛏️ 工具', test: it => !!it.pick },
+  { key: 'weapon',name: '⚔️ 武器', test: it => !!it.sword || !!it.ranged },
+  { key: 'armor', name: '🛡️ 防具', test: it => !!it.armor },
+  { key: 'build', name: '🏗️ 建築', test: it => !!it.place || it.placeTile !== undefined },
+  { key: 'misc',  name: '📦 素材/其他', test: () => true },
+];
+function recipeCat(r) {
+  const it = ITEMS[r.out];
+  return RECIPE_CATS.find(c => c.test(it)).key;
+}
+
 function refreshCraft() {
   const me = myPlayer();
   const list = UI.els.craftlist;
-  if (!list.children.length) {
-    RECIPES.forEach((r, i) => {
+  if (!list.dataset.built) {
+    list.dataset.built = '1';
+    UI.recipeEls = RECIPES.map((r, i) => {
       const d = document.createElement('div');
       d.className = 'recipe';
       const cost = Object.entries(r.cost).map(([id, n]) => `${ITEMS[id].icon}×${n}`).join(' ');
@@ -215,13 +229,28 @@ function refreshCraft() {
           else { SFX.craft(); UI.invDirty = true; }
         } else NET.act({ t: 'craft', ri: i });
       };
-      list.appendChild(d);
+      return d;
     });
+    UI.catHeaders = {};
+    for (const c of RECIPE_CATS) {
+      const h = document.createElement('div');
+      h.className = 'rcathead';
+      h.textContent = c.name;
+      UI.catHeaders[c.key] = h;
+    }
   }
-  RECIPES.forEach((r, i) => {
-    const ok = canAfford(me, r.cost) && stationNear(me, r.station);
-    list.children[i].classList.toggle('ok', ok);
-  });
+
+  // 分類 -> 類別內材料足夠優先,其餘維持原配方順序
+  const order = RECIPES.map((r, i) => ({ i, r, cat: recipeCat(r), ok: canAfford(me, r.cost) && stationNear(me, r.station) }));
+  for (const o of order) UI.recipeEls[o.i].classList.toggle('ok', o.ok);
+
+  list.innerHTML = '';
+  for (const c of RECIPE_CATS) {
+    const items = order.filter(o => o.cat === c.key).sort((a, b) => b.ok - a.ok);
+    if (!items.length) continue;
+    list.appendChild(UI.catHeaders[c.key]);
+    for (const o of items) list.appendChild(UI.recipeEls[o.i]);
+  }
 }
 
 function togglePanel(open) {
@@ -288,8 +317,29 @@ function renderMenu() {
   panel.innerHTML = `
     <h2>設定</h2>
     ${body}
+    <p>🔄 <b>遊戲有更新但畫面沒變?</b>瀏覽器可能還在用快取的舊檔案,點下面按鈕強制重新抓取最新版本
+    (不會影響存檔,但網頁本身無法清除瀏覽器的「瀏覽紀錄」,那是瀏覽器設定裡的功能)。</p>
+    <div class="btnrow">
+      <button id="mForceUpdate">🔄 強制更新(清快取重載)</button>
+    </div>
     <div class="btnrow"><button id="mBack">← 返回</button></div>`;
   $id('mBack').onclick = () => { UI.menuView = 'main'; renderMenu(); };
+  $id('mForceUpdate').onclick = async () => {
+    if (!confirm('確定要強制更新嗎?會重新載入頁面(存檔不受影響)。')) return;
+    try {
+      if (window.caches) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+      if (navigator.serviceWorker) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
+      }
+    } catch (e) { }
+    const u = new URL(location.href);
+    u.searchParams.set('_t', Date.now());
+    location.replace(u.toString());
+  };
   if (isHost) {
     $id('mSaveNow').onclick = () => { saveGame(); renderMenu(); };
     $id('mClearSave').onclick = () => {

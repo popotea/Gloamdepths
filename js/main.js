@@ -95,11 +95,11 @@ function localControl(me, dt) {
     if (mineable) {
       if (me.mineCD <= 0) {
         if (NET.isHost()) doMine(me, tx, ty);
-        else { me.mineCD = 0.26; me.swing = 0.2; NET.act({ t: 'mine', x: tx, y: ty }); }
+        else { me.mineCD = 0.26; me.swing = 0.2; me.action = 'mine'; NET.act({ t: 'mine', x: tx, y: ty }); }
       }
     } else if (me.atkCD <= 0) {
       if (NET.isHost()) doSwing(me, me.aim);
-      else { me.atkCD = 0.35; me.swing = 0.22; NET.act({ t: 'atk', aim: me.aim }); }
+      else { me.atkCD = 0.35; me.swing = 0.22; me.action = 'atk'; NET.act({ t: 'atk', aim: me.aim }); }
     }
   }
 

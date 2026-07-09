@@ -47,15 +47,21 @@ function circleHitsSolid(cx, cy, r) {
   return false;
 }
 // X/Y 軸分開移動,撞牆貼齊;回傳是否被擋
+// 大位移(如鎚子重擊退)會拆成多個子步逐步檢查,避免一步跳過整格牆體(隧穿)
 function moveCircle(e, dx, dy) {
+  const step = Math.max(e.r, 0.1);
+  const n = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / step));
+  const sx = dx / n, sy = dy / n;
   let blocked = false;
-  if (dx !== 0) {
-    if (!circleHitsSolid(e.x + dx, e.y, e.r)) e.x += dx;
-    else blocked = true;
-  }
-  if (dy !== 0) {
-    if (!circleHitsSolid(e.x, e.y + dy, e.r)) e.y += dy;
-    else blocked = true;
+  for (let k = 0; k < n; k++) {
+    if (sx !== 0) {
+      if (!circleHitsSolid(e.x + sx, e.y, e.r)) e.x += sx;
+      else { blocked = true; break; }
+    }
+    if (sy !== 0) {
+      if (!circleHitsSolid(e.x, e.y + sy, e.r)) e.y += sy;
+      else { blocked = true; break; }
+    }
   }
   return blocked;
 }
@@ -284,7 +290,7 @@ function damagePlayer(p, amount) {
 // ===== 玩家動作(房主端執行;客戶端透過網路請求) =====
 function doSwing(p, aim) {
   if (p.dead || p.atkCD > 0) return;
-  p.atkCD = 0.35; p.swing = 0.22; p.aim = aim;
+  p.atkCD = 0.35; p.swing = 0.22; p.aim = aim; p.action = 'atk';
   const dmg = bestSword(p).dmg * playerDmgMult(p);
   for (const e of [...G.enemies]) {
     const d = dist(p.x, p.y, e.x, e.y);
@@ -307,7 +313,7 @@ function doMine(p, x, y) {
   if (dist(p.x, p.y, x + 0.5, y + 0.5) > 3.6) return;
   p.mineCD = 0.26;
   p.aim = Math.atan2(y + 0.5 - p.y, x + 0.5 - p.x);
-  p.swing = 0.2;
+  p.swing = 0.2; p.action = 'mine';
   const i = idx(x, y);
   const o = G.objects.get(i);
   const info = TILE_INFO[G.tiles[i]];

@@ -198,17 +198,49 @@ function render(dt) {
     const [sx, sy] = worldToScreen(p.x, p.y);
     if (sx < -60 || sy < -60 || sx > cv.width + 60 || sy > cv.height + 60) continue;
     const col = PLAYER_COLORS[p.id % PLAYER_COLORS.length];
+    const R = p.r * TILE;
+    // 移動時偵測位移做走路擺腿動畫(不額外存狀態,用位置差推斷)
+    const mvx = p.x - (p._lrx ?? p.x), mvy = p.y - (p._lry ?? p.y);
+    const moving = (mvx * mvx + mvy * mvy) > 0.00002;
+    p._lrx = p.x; p._lry = p.y;
+    if (moving) p._walkPh = (p._walkPh ?? 0) + dt * 9;
+    const walk = moving ? Math.sin(p._walkPh ?? 0) : 0;
+
+    // 護甲等級決定輪廓色(無甲=深色 / 鐵甲=銀邊 / 金甲=金邊)
+    const armor = bestArmor(p);
+    const outline = armor >= 0.5 ? '#ffd23f' : armor >= 0.3 ? '#c8ced8' : '#0008';
+    const outlineW = armor > 0 ? 3 : 2;
+
+    // 雙腳(走路交替擺動)
+    ctx.fillStyle = '#0006';
+    const legOff = R * 0.4;
+    ctx.beginPath();
+    ctx.ellipse(sx - legOff, sy + R * 0.75 + walk * 3, R * 0.22, R * 0.32, 0, 0, TAU);
+    ctx.ellipse(sx + legOff, sy + R * 0.75 - walk * 3, R * 0.22, R * 0.32, 0, 0, TAU);
+    ctx.fill();
+
+    // 身體(略呈橢圓,呼吸/步伐輕微擠壓)
+    const squashB = 1 + Math.abs(walk) * 0.03;
     ctx.fillStyle = col;
     ctx.beginPath();
-    ctx.arc(sx, sy, p.r * TILE, 0, TAU);
+    ctx.ellipse(sx, sy + R * 0.12, R * 0.92 * squashB, R * 0.8 / squashB, 0, 0, TAU);
     ctx.fill();
-    ctx.strokeStyle = '#0008'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.strokeStyle = outline; ctx.lineWidth = outlineW; ctx.stroke();
+
+    // 頭部(疊在身體上方,略偏向瞄準方向做出朝向感)
+    const hx0 = sx + Math.cos(p.aim) * R * 0.12, hy0 = sy - R * 0.45 + Math.sin(p.aim) * R * 0.06;
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.arc(hx0, hy0, R * 0.62, 0, TAU);
+    ctx.fill();
+    ctx.strokeStyle = outline; ctx.lineWidth = outlineW * 0.8; ctx.stroke();
+
     // 面向的眼睛
     ctx.fillStyle = '#222';
-    const ex = Math.cos(p.aim) * p.r * TILE * 0.45, ey = Math.sin(p.aim) * p.r * TILE * 0.45;
+    const ex = Math.cos(p.aim) * R * 0.3, ey = Math.sin(p.aim) * R * 0.3;
     ctx.beginPath();
-    ctx.arc(sx + ex - Math.sin(p.aim) * 4, sy + ey + Math.cos(p.aim) * 4, 2.5, 0, TAU);
-    ctx.arc(sx + ex + Math.sin(p.aim) * 4, sy + ey - Math.cos(p.aim) * 4, 2.5, 0, TAU);
+    ctx.arc(hx0 + ex - Math.sin(p.aim) * 4, hy0 + ey + Math.cos(p.aim) * 4, 2.5, 0, TAU);
+    ctx.arc(hx0 + ex + Math.sin(p.aim) * 4, hy0 + ey - Math.cos(p.aim) * 4, 2.5, 0, TAU);
     ctx.fill();
     // 揮擊弧光
     if (p.swing > 0) {
@@ -217,6 +249,21 @@ function render(dt) {
       ctx.beginPath();
       ctx.arc(sx, sy, TILE * 1.3, p.aim - 0.8, p.aim + 0.8);
       ctx.stroke();
+    }
+    // 手持物品:待機時貼身顯示,攻擊/挖礦時往瞄準方向揮出
+    const held = p.swing > 0 && p.action === 'mine' ? bestPick(p) : weaponOf(p);
+    if (held && held.icon) {
+      const swinging = p.swing > 0;
+      const swingF = swinging ? (p.action === 'mine' ? p.swing / 0.2 : p.swing / 0.22) : 0;
+      const ang = p.aim + (swinging ? (swingF - 0.5) * 1.1 : 0);
+      const hr = p.r * TILE * (swinging ? 1.15 : 0.85);
+      const hx = sx + Math.cos(ang) * hr, hy = sy + Math.sin(ang) * hr;
+      ctx.save();
+      ctx.font = `${TILE * (swinging ? 0.5 : 0.38)}px "Segoe UI Emoji"`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.globalAlpha = swinging ? 1 : 0.85;
+      ctx.fillText(held.icon, hx, hy);
+      ctx.restore();
     }
   }
 

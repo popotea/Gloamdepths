@@ -83,20 +83,20 @@ function swapSlots(p, a, b) {
 
 // 自動選最好的工具(徒手也能挖/打,避免卡死)
 function bestPick(p) {
-  let best = { tier: 0, power: 0.5, name: '徒手' };
+  let best = { tier: 0, power: 0.5, name: '徒手', icon: '✊' };
   for (const s of p.inv) {
     if (s && ITEMS[s.id].pick && ITEMS[s.id].pick.power > best.power)
-      best = { ...ITEMS[s.id].pick, name: ITEMS[s.id].name };
+      best = { ...ITEMS[s.id].pick, name: ITEMS[s.id].name, icon: ITEMS[s.id].icon };
   }
   return best;
 }
 function bestSword(p) {
   // 只自動選「劍」;矛/鎚(manual)要放快捷欄選中才會用,保留武器選擇的意義
-  let best = { dmg: 4, name: '徒手' };
+  let best = { dmg: 4, name: '徒手', icon: '✊' };
   for (const s of p.inv) {
     const w = s && ITEMS[s.id].sword;
     if (w && !w.manual && w.dmg > best.dmg)
-      best = { ...w, name: ITEMS[s.id].name };
+      best = { ...w, name: ITEMS[s.id].name, icon: ITEMS[s.id].icon };
   }
   return best;
 }
@@ -104,8 +104,8 @@ function bestSword(p) {
 // 目前使用的武器:快捷欄選中的武器(近戰/遠程)優先,否則自動用最好的劍
 function weaponOf(p) {
   const s = p.inv[p.sel];
-  if (s && ITEMS[s.id].ranged) return { ...ITEMS[s.id].ranged, name: ITEMS[s.id].name, ranged: true };
-  if (s && ITEMS[s.id].sword)  return { ...ITEMS[s.id].sword,  name: ITEMS[s.id].name };
+  if (s && ITEMS[s.id].ranged) return { ...ITEMS[s.id].ranged, name: ITEMS[s.id].name, icon: ITEMS[s.id].icon, ranged: true };
+  if (s && ITEMS[s.id].sword)  return { ...ITEMS[s.id].sword,  name: ITEMS[s.id].name, icon: ITEMS[s.id].icon };
   return bestSword(p);
 }
 function bestArmor(p) {
