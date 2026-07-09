@@ -10,6 +10,24 @@ function initRender() {
   fit();
 }
 
+// ---- 怪物貼圖快取 ----
+// 依 ENEMY_TYPES[type].icon 從 assets/monsters/ 載入;載入失敗(檔案不存在)就標記 failed,
+// 繪製時自動退回原本的向量畫法,不會噴錯也不擋遊戲運作
+const MONSTER_IMG = new Map();
+function monsterImg(type) {
+  const et = ENEMY_TYPES[type];
+  if (!et || !et.icon) return null;
+  let entry = MONSTER_IMG.get(type);
+  if (!entry) {
+    entry = { img: new Image(), ready: false, failed: false };
+    entry.img.onload = () => { entry.ready = true; };
+    entry.img.onerror = () => { entry.failed = true; };
+    entry.img.src = `assets/monsters/${et.icon}`;
+    MONSTER_IMG.set(type, entry);
+  }
+  return entry.ready ? entry.img : null;
+}
+
 function worldToScreen(x, y) { return [(x - camX) * TILE, (y - camY) * TILE]; }
 function screenToWorld(sx, sy) { return [sx / TILE + camX, sy / TILE + camY]; }
 
@@ -148,6 +166,20 @@ function render(dt) {
     }
   }
 
+  // ---- 投射物(箭矢/暗影彈;不受黑暗遮罩影響,飛行中要能被看見閃避) ----
+  for (const pj of G.projs) {
+    if (pj.x < x0 - 1 || pj.x > x1 + 2 || pj.y < y0 - 1 || pj.y > y1 + 2) continue;
+    const [sx, sy] = worldToScreen(pj.x, pj.y);
+    ctx.fillStyle = pj.from === 'e' ? '#e08cff' : '#ffe89a';
+    ctx.beginPath();
+    ctx.arc(sx, sy, TILE * 0.1, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = pj.from === 'e' ? 'rgba(224,140,255,0.35)' : 'rgba(255,232,154,0.35)';
+    ctx.beginPath();
+    ctx.arc(sx, sy, TILE * 0.22, 0, TAU);
+    ctx.fill();
+  }
+
   // ---- 敵人 ----
   for (const e of G.enemies) {
     if (e.x < x0 - 1 || e.x > x1 + 2 || e.y < y0 - 1 || e.y > y1 + 2) continue;
@@ -168,20 +200,26 @@ function render(dt) {
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText('⚠️', sx, sy - et.r * TILE - 16);
     }
-    ctx.fillStyle = et.color;
-    ctx.beginPath();
-    ctx.ellipse(sx, sy, et.r * TILE * squash, et.r * TILE / squash, 0, 0, TAU);
-    ctx.fill();
-    if (e.type === 'sentinel') {
-      ctx.strokeStyle = '#8a90a5'; ctx.lineWidth = 3; ctx.stroke();
+    const img = monsterImg(e.type);
+    if (img) {
+      const size = et.r * TILE * 2.3 * squash;
+      ctx.drawImage(img, sx - size / 2, sy - size / 2, size, size);
+    } else {
+      ctx.fillStyle = et.color;
+      ctx.beginPath();
+      ctx.ellipse(sx, sy, et.r * TILE * squash, et.r * TILE / squash, 0, 0, TAU);
+      ctx.fill();
+      if (e.type === 'sentinel') {
+        ctx.strokeStyle = '#8a90a5'; ctx.lineWidth = 3; ctx.stroke();
+      }
+      // 發光的眼睛(黑暗氛圍重點)
+      ctx.fillStyle = et.eye;
+      const ex = et.r * TILE * 0.35;
+      ctx.beginPath();
+      ctx.arc(sx - ex, sy - et.r * TILE * 0.15, et.r * TILE * 0.14, 0, TAU);
+      ctx.arc(sx + ex, sy - et.r * TILE * 0.15, et.r * TILE * 0.14, 0, TAU);
+      ctx.fill();
     }
-    // 發光的眼睛(黑暗氛圍重點)
-    ctx.fillStyle = et.eye;
-    const ex = et.r * TILE * 0.35;
-    ctx.beginPath();
-    ctx.arc(sx - ex, sy - et.r * TILE * 0.15, et.r * TILE * 0.14, 0, TAU);
-    ctx.arc(sx + ex, sy - et.r * TILE * 0.15, et.r * TILE * 0.14, 0, TAU);
-    ctx.fill();
     // 血條
     if (e.hp < et.hp) {
       const w = et.r * 2 * TILE;

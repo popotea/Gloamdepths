@@ -1,5 +1,5 @@
 // ===== 實體:玩家、敵人、掉落物、戰鬥、挖掘、放置 =====
-let nextEid = 1, nextDid = 1;
+let nextEid = 1, nextDid = 1, nextPjid = 1;
 
 const PLAYER_COLORS = ['#ffd97a', '#7ad0ff', '#8dff9e', '#ff9ecb'];
 
@@ -276,6 +276,49 @@ function updateEnemies(dt) {
   }
 }
 
+// ===== 投射物(玩家遠程武器 / 遠程怪的暗影彈,僅房主端模擬)=====
+// from: 'p'=玩家發射(打怪) / 'e'=怪物發射(打玩家)
+// pierce=貫穿(不因命中而消失,靠 ttl/出圖結束) elem=屬性(供 elemMult 相剋判定)
+function spawnProj(o) {
+  const pj = { id: nextPjid++, x: o.x, y: o.y, vx: o.vx, vy: o.vy,
+    dmg: o.dmg, from: o.from, ttl: o.ttl ?? 1.4, pierce: !!o.pierce,
+    elem: o.elem || null, owner: o.owner || null, hitSet: o.pierce ? new Set() : null };
+  G.projs.push(pj);
+  return pj;
+}
+
+function updateProjs(dt) {
+  for (let i = G.projs.length - 1; i >= 0; i--) {
+    const pj = G.projs[i];
+    pj.ttl -= dt;
+    pj.x += pj.vx * dt; pj.y += pj.vy * dt;
+    let dead = pj.ttl <= 0 || !inMap(Math.floor(pj.x), Math.floor(pj.y)) || isSolid(Math.floor(pj.x), Math.floor(pj.y));
+    if (!dead) {
+      if (pj.from === 'p') {
+        for (const e of G.enemies) {
+          if (pj.hitSet && pj.hitSet.has(e.id)) continue;
+          const et = ENEMY_TYPES[e.type];
+          if (dist(pj.x, pj.y, e.x, e.y) < et.r + 0.18) {
+            hurtEnemy(e, pj.dmg, pj.owner, null, pj.elem);
+            if (pj.pierce) pj.hitSet.add(e.id); else { dead = true; }
+            if (!pj.pierce) break;
+          }
+        }
+      } else if (pj.from === 'e') {
+        for (const p of G.players.values()) {
+          if (p.dead || p.iframe > 0) continue;
+          if (dist(pj.x, pj.y, p.x, p.y) < p.r + 0.18) {
+            damagePlayer(p, pj.dmg);
+            dead = true;
+            break;
+          }
+        }
+      }
+    }
+    if (dead) G.projs.splice(i, 1);
+  }
+}
+
 function damagePlayer(p, amount) {
   const dmg = Math.max(1, Math.round(amount * (1 - bestArmor(p))));
   p.hp -= dmg; p.iframe = 0.8; p.lastHurt = G.time;
@@ -298,6 +341,26 @@ function doSwing(p, aim) {
       hurtEnemy(e, dmg, p);
     }
   }
+}
+
+// 遠程武器發射(選中弓/弩/法杖時觸發);消耗對應彈藥,沒彈藥就不發射
+function doShoot(p, aim) {
+  if (p.dead || p.atkCD > 0) return;
+  const s = p.inv[p.sel];
+  const w = s && ITEMS[s.id].ranged;
+  if (!w) return;
+  if (!removeOne(p, w.ammo)) {
+    addFloater(p.x, p.y - 0.6, `沒有${ITEMS[w.ammo].name}了`, '#8899aa');
+    return;
+  }
+  p.atkCD = w.cd; p.swing = 0.18; p.aim = aim; p.action = 'atk';
+  const dmg = w.dmg * playerDmgMult(p);
+  spawnProj({
+    x: p.x + Math.cos(aim) * 0.4, y: p.y + Math.sin(aim) * 0.4,
+    vx: Math.cos(aim) * w.speed, vy: Math.sin(aim) * w.speed,
+    dmg, from: 'p', owner: p, ttl: 1.6, pierce: !!w.pierce, elem: w.elem || null,
+  });
+  emitFx({ k: 'sfx', s: 'shoot' });
 }
 
 function breakTile(x, y, withDrop = true) {

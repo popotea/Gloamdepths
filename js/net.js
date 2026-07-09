@@ -82,6 +82,7 @@ const NET = {
         break;
       case 'mine': doMine(p, d.x | 0, d.y | 0); break;
       case 'atk': doSwing(p, +d.aim || 0); break;
+      case 'shoot': doShoot(p, +d.aim || 0); break;
       case 'place': doPlace(p, d.slot | 0, d.x | 0, d.y | 0); break;
       case 'eat': doEat(p, d.slot | 0); break;
       case 'deposit': doDeposit(p); break;
@@ -125,6 +126,7 @@ const NET = {
         [p.id, r2(p.x), r2(p.y), r2(p.aim), p.swing > 0 ? 1 : 0, Math.round(p.hp), p.dead ? 1 : 0, Math.ceil(p.respawnT || 0), p.lv || 1, Math.round(p.xp || 0)]),
       enemies: G.enemies.map(e => [e.id, e.type, r2(e.x), r2(e.y), Math.round(e.hp)]),
       drops: G.drops.map(d => [d.id, d.item, d.n, r2(d.x), r2(d.y)]),
+      projs: G.projs.map(pj => [pj.id, r2(pj.x), r2(pj.y), pj.from === 'e' ? 1 : 0]),
       core: { e: r2(G.core.energy), s: G.core.shards },
       wave: { n: G.wave.n, state: G.wave.state, timer: Math.round(G.wave.timer), alive: G.wave.alive || 0, final: G.wave.final },
     };
@@ -170,7 +172,7 @@ const NET = {
         }
         G.core.energy = d.core.energy; G.core.shards = d.core.shards;
         G.shrines = d.shrines; G.wave = d.wave; G.time = d.time;
-        G.enemies = []; G.drops = []; G.floaters = []; G.cracks.clear();
+        G.enemies = []; G.drops = []; G.floaters = []; G.cracks.clear(); G.projs = [];
         G.players.clear();
         for (const [id, name, x, y, hp, dead, lv, xp] of d.players) {
           const p = makePlayer(id, name);
@@ -210,6 +212,7 @@ const NET = {
         }
         G.enemies = list;
         G.drops = d.drops.map(([id, item, n, x, y]) => ({ id, item, n, x, y }));
+        G.projs = (d.projs || []).map(([id, x, y, fromE]) => ({ id, x, y, from: fromE ? 'e' : 'p' }));
         G.core.energy = d.core.e; G.core.shards = d.core.s;
         G.wave = d.wave; G.time = d.time;
         if (d.me) {

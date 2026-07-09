@@ -85,17 +85,24 @@ function localControl(me, dt) {
   const [wx, wy] = screenToWorld(INPUT.mx, INPUT.my);
   me.aim = Math.atan2(wy - me.y, wx - me.x);
 
-  // 左鍵:挖牆 / 拆物件 / 攻擊(自動判斷)
+  // 左鍵:挖牆 / 拆物件 / 攻擊(自動判斷);快捷欄選中遠程武器時優先發射,不會誤觸挖礦
+  const selItem = me.inv[me.sel];
+  const rangedW = selItem && ITEMS[selItem.id].ranged;
   if (INPUT.l && !UI.panelOpen) {
     const tx = Math.floor(wx), ty = Math.floor(wy);
     const info = infoAt(tx, ty);
     const o = objAt(tx, ty);
-    const mineable = ((info.solid && info.hp !== Infinity) || (o && o.type !== 'mushroom'))
+    const mineable = !rangedW && ((info.solid && info.hp !== Infinity) || (o && o.type !== 'mushroom'))
       && dist(me.x, me.y, tx + 0.5, ty + 0.5) <= 3.6;
     if (mineable) {
       if (me.mineCD <= 0) {
         if (NET.isHost()) doMine(me, tx, ty);
         else { me.mineCD = 0.26; me.swing = 0.2; me.action = 'mine'; NET.act({ t: 'mine', x: tx, y: ty }); }
+      }
+    } else if (rangedW) {
+      if (me.atkCD <= 0) {
+        if (NET.isHost()) doShoot(me, me.aim);
+        else { me.atkCD = rangedW.cd; me.swing = 0.18; me.action = 'atk'; NET.act({ t: 'shoot', aim: me.aim }); }
       }
     } else if (me.atkCD <= 0) {
       if (NET.isHost()) doSwing(me, me.aim);

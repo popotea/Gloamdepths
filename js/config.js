@@ -163,20 +163,21 @@ const RECIPES = [
 ];
 
 // 敵人表:speed=跳撲衝量, hopCD=跳撲間隔
-// shape=外形(blob 圓球/spike 帶刺/mono 獨眼/mouth 大嘴/ghost 半透明/tank 方甲)
+// shape=外形(blob 圓球/spike 帶刺/mono 獨眼/mouth 大嘴/ghost 半透明/tank 方甲),無對應貼圖時的備用畫法
+// icon=貼圖檔名(放在 assets/monsters/ 底下);找不到檔案會自動退回 shape 向量畫法,不影響遊戲運作
 // 行為擴充:pack=成群生成數, ranged=遠程吐彈, explode=自爆, ghost=穿牆, wallMult=拆牆倍率
 const ENEMY_TYPES = {
-  imp:      { name: '小蝕影',   hp: 18,  dmg: 6,  r: 0.36, speed: 3.6, hopCD: 1.6, color: '#39435c', eye: '#7ef0ff', shape: 'blob',  elem: 'dark' },
-  spore:    { name: '蝕影孢子', hp: 8,   dmg: 3,  r: 0.22, speed: 4.4, hopCD: 0.9, color: '#2e544e', eye: '#9fffec', shape: 'mono',  elem: 'dark', pack: 3 },
-  hunter:   { name: '蝕影獵手', hp: 40,  dmg: 12, r: 0.42, speed: 4.4, hopCD: 1.3, color: '#523a70', eye: '#c06cff', shape: 'spike', elem: 'dark' },
-  spitter:  { name: '吐影者',   hp: 30,  dmg: 8,  r: 0.40, speed: 3.4, hopCD: 1.7, color: '#63357e', eye: '#e08cff', shape: 'mouth', elem: 'dark',
+  imp:      { name: '小蝕影',   hp: 18,  dmg: 6,  r: 0.36, speed: 3.6, hopCD: 1.6, color: '#39435c', eye: '#7ef0ff', shape: 'blob',  elem: 'dark', icon: 'imp.png' },
+  spore:    { name: '蝕影孢子', hp: 8,   dmg: 3,  r: 0.22, speed: 4.4, hopCD: 0.9, color: '#2e544e', eye: '#9fffec', shape: 'mono',  elem: 'dark', pack: 3, icon: 'spore.png' },
+  hunter:   { name: '蝕影獵手', hp: 40,  dmg: 12, r: 0.42, speed: 4.4, hopCD: 1.3, color: '#523a70', eye: '#c06cff', shape: 'spike', elem: 'dark', icon: 'hunter.png' },
+  spitter:  { name: '吐影者',   hp: 30,  dmg: 8,  r: 0.40, speed: 3.4, hopCD: 1.7, color: '#63357e', eye: '#e08cff', shape: 'mouth', elem: 'dark', icon: 'spitter.png',
               ranged: { range: 5.5, cd: 2.2, dmg: 10, speed: 7.5 } },
-  bomber:   { name: '爆裂蝕影', hp: 26,  dmg: 6,  r: 0.38, speed: 5.2, hopCD: 1.1, color: '#7e3524', eye: '#ffb35c', shape: 'blob',  elem: 'fire',
+  bomber:   { name: '爆裂蝕影', hp: 26,  dmg: 6,  r: 0.38, speed: 5.2, hopCD: 1.1, color: '#7e3524', eye: '#ffb35c', shape: 'blob',  elem: 'fire', icon: 'bomber.png',
               explode: { fuse: 0.9, r: 1.9, dmg: 24, wallDmg: 45, core: 10 } },
-  phantom:  { name: '穿牆幽影', hp: 22,  dmg: 10, r: 0.40, speed: 2.6, hopCD: 1.4, color: '#3e6480', eye: '#dffbff', shape: 'ghost', elem: 'frost', ghost: true },
-  breaker:  { name: '裂地者',   hp: 130, dmg: 14, r: 0.55, speed: 3.6, hopCD: 1.9, color: '#6b6250', eye: '#ffd23f', shape: 'tank',  elem: 'earth', wallMult: 4 },
-  abyss:    { name: '深淵蝕影', hp: 75,  dmg: 20, r: 0.50, speed: 4.6, hopCD: 1.2, color: '#742e42', eye: '#ff5d5d', shape: 'spike', elem: 'dark' },
-  sentinel: { name: '石像守衛', hp: 350, dmg: 25, r: 0.90, speed: 5.5, hopCD: 2.0, color: '#767c94', eye: '#ffd23f', shape: 'tank',  elem: 'earth', boss: true },
+  phantom:  { name: '穿牆幽影', hp: 22,  dmg: 10, r: 0.40, speed: 2.6, hopCD: 1.4, color: '#3e6480', eye: '#dffbff', shape: 'ghost', elem: 'frost', ghost: true, icon: 'phantom.png' },
+  breaker:  { name: '裂地者',   hp: 130, dmg: 14, r: 0.55, speed: 3.6, hopCD: 1.9, color: '#6b6250', eye: '#ffd23f', shape: 'tank',  elem: 'earth', wallMult: 4, icon: 'breaker.png' },
+  abyss:    { name: '深淵蝕影', hp: 75,  dmg: 20, r: 0.50, speed: 4.6, hopCD: 1.2, color: '#742e42', eye: '#ff5d5d', shape: 'spike', elem: 'dark', icon: 'abyss.png' },
+  sentinel: { name: '石像守衛', hp: 350, dmg: 25, r: 0.90, speed: 5.5, hopCD: 2.0, color: '#767c94', eye: '#ffd23f', shape: 'tank',  elem: 'earth', boss: true, icon: 'sentinel.png' },
 };
 
 // ── 屬性相剋:attackElem → enemyElem → 倍率(未列 = 1.0)──

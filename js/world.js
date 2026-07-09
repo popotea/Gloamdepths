@@ -8,7 +8,7 @@ const G = {
   lights: new Map(),    // idx -> 光半徑(地形光 + 物件光)
   players: new Map(),   // id -> player
   myId: 0,
-  enemies: [], drops: [], floaters: [], cracks: new Map(),
+  enemies: [], drops: [], floaters: [], cracks: new Map(), projs: [],
   core: { x: CX + 0.5, y: CY + 0.5, energy: CORE_CFG.maxE, shards: 0 },
   wave: { n: 0, state: 'calm', timer: WAVE_CFG.first, final: false },
   shrines: [],          // [{x,y,dead}]
@@ -109,7 +109,7 @@ function genWorld(seed) {
   G.dmg = new Float32Array(MAP_W * MAP_H);
   G.explored = new Uint8Array(MAP_W * MAP_H);
   G.objects.clear(); G.lights.clear(); G.cracks.clear();
-  G.enemies = []; G.drops = []; G.floaters = [];
+  G.enemies = []; G.drops = []; G.floaters = []; G.projs = [];
   G.shrines = []; G.mushCount = 0; G.warned = {};
   G.core = { x: CX + 0.5, y: CY + 0.5, energy: CORE_CFG.maxE, shards: 0 };
   G.wave = { n: 0, state: 'calm', timer: WAVE_CFG.first, final: false };

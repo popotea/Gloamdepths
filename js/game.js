@@ -32,6 +32,7 @@ function simTick(dt) {
   G.time += dt;
   updatePlayersHost(dt);
   updateEnemies(dt);
+  updateProjs(dt);
   updateTowers(dt);
   updateDrops(dt);
   updateWave(dt);
@@ -220,7 +221,7 @@ function loadGame(name) {
     G.objects.set(i, hp === null ? { type } : { type, hp });
     if (type === 'mushroom') G.mushCount++;
   }
-  G.enemies = []; G.drops = [];
+  G.enemies = []; G.drops = []; G.projs = [];
   for (const [item, n, x, y] of s.drops || []) spawnDrop(item, n, x, y);
   G.core.energy = s.core.energy; G.core.shards = s.core.shards;
   G.wave = { n: s.wave.n, state: 'calm', timer: s.wave.timer, final: false };
