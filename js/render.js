@@ -250,16 +250,17 @@ function render(dt) {
       ctx.arc(sx, sy, TILE * 1.3, p.aim - 0.8, p.aim + 0.8);
       ctx.stroke();
     }
-    // 手持物品:待機時貼身顯示,攻擊/挖礦時往瞄準方向揮出
+    // 手持物品:待機時偏向側後方貼身顯示(避開頭部),攻擊/挖礦時往瞄準方向揮出到身體外側
     const held = p.swing > 0 && p.action === 'mine' ? bestPick(p) : weaponOf(p);
     if (held && held.icon) {
       const swinging = p.swing > 0;
       const swingF = swinging ? (p.action === 'mine' ? p.swing / 0.2 : p.swing / 0.22) : 0;
-      const ang = p.aim + (swinging ? (swingF - 0.5) * 1.1 : 0);
-      const hr = p.r * TILE * (swinging ? 1.15 : 0.85);
+      // 待機時擺在慣用手側(瞄準方向 +100°),不擋住臉;揮動時甩到瞄準方向前方
+      const ang = swinging ? p.aim + (swingF - 0.5) * 1.1 : p.aim + 1.75;
+      const hr = R * (swinging ? 1.35 : 0.95);
       const hx = sx + Math.cos(ang) * hr, hy = sy + Math.sin(ang) * hr;
       ctx.save();
-      ctx.font = `${TILE * (swinging ? 0.5 : 0.38)}px "Segoe UI Emoji"`;
+      ctx.font = `${TILE * (swinging ? 0.5 : 0.34)}px "Segoe UI Emoji"`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.globalAlpha = swinging ? 1 : 0.85;
       ctx.fillText(held.icon, hx, hy);

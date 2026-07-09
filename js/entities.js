@@ -49,7 +49,7 @@ function circleHitsSolid(cx, cy, r) {
 // X/Y 軸分開移動,撞牆貼齊;回傳是否被擋
 // 大位移(如鎚子重擊退)會拆成多個子步逐步檢查,避免一步跳過整格牆體(隧穿)
 function moveCircle(e, dx, dy) {
-  const step = Math.max(e.r, 0.1);
+  const step = 0.4; // 遠小於一格牆體厚度,不依賴 e.r(怪物物件本身沒有 .r,半徑存在 ENEMY_TYPES 裡)
   const n = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / step));
   const sx = dx / n, sy = dy / n;
   let blocked = false;
