@@ -20,6 +20,7 @@ function bindInput() {
     if (!G.started || !me) return;
     if (k === 'escape') {
       if (UI.panelOpen) togglePanel(false);
+      else if (UI.towerPos) closeTowerPanel();
       else toggleMenu();
       return;
     }
@@ -113,29 +114,28 @@ function localControl(me, dt) {
     }
   }
 
-  // 右鍵:對準箭塔補箭矢/開關優先,否則依快捷欄選中物品放置/吃
+  // 右鍵:對準箭塔開儲物面板、對準工作台/熔爐直接開背包+合成,否則依快捷欄選中物品放置/吃
   INPUT.rCD -= dt;
   if (INPUT.r && INPUT.rCD <= 0 && !UI.panelOpen) {
     INPUT.rCD = 0.25;
     const tx0 = Math.floor(wx), ty0 = Math.floor(wy);
     const targetObj = objAt(tx0, ty0);
-    const s = me.inv[me.sel];
-    if (targetObj && targetObj.type === 'archer_tower' && dist(me.x, me.y, tx0 + 0.5, ty0 + 0.5) <= 3.8) {
-      if (s && s.id === 'arrow') {
-        if (NET.isHost()) doFillTower(me, tx0, ty0);
-        else NET.act({ t: 'fill_tower', x: tx0, y: ty0 });
-      } else {
-        if (NET.isHost()) doToggleTower(me, tx0, ty0);
-        else NET.act({ t: 'toggle_tower', x: tx0, y: ty0 });
-      }
-    } else if (s) {
-      const it = ITEMS[s.id];
-      if (it.food) {
-        if (NET.isHost()) doEat(me, me.sel);
-        else NET.act({ t: 'eat', slot: me.sel });
-      } else if (it.place || it.placeTile !== undefined) {
-        if (NET.isHost()) doPlace(me, me.sel, tx0, ty0);
-        else NET.act({ t: 'place', slot: me.sel, x: tx0, y: ty0 });
+    const inRange = dist(me.x, me.y, tx0 + 0.5, ty0 + 0.5) <= 3.8;
+    if (targetObj && targetObj.type === 'archer_tower' && inRange) {
+      openTowerPanel(tx0, ty0);
+    } else if (targetObj && (targetObj.type === 'workbench' || targetObj.type === 'furnace') && inRange) {
+      togglePanel(true);
+    } else {
+      const s = me.inv[me.sel];
+      if (s) {
+        const it = ITEMS[s.id];
+        if (it.food) {
+          if (NET.isHost()) doEat(me, me.sel);
+          else NET.act({ t: 'eat', slot: me.sel });
+        } else if (it.place || it.placeTile !== undefined) {
+          if (NET.isHost()) doPlace(me, me.sel, tx0, ty0);
+          else NET.act({ t: 'place', slot: me.sel, x: tx0, y: ty0 });
+        }
       }
     }
   }

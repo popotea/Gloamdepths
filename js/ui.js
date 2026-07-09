@@ -5,6 +5,7 @@ const UI = {
   menuOpen: false, menuView: 'main',
   els: {}, mmImage: null, mmT: 0, craftT: 0,
   enhSlot: -1,
+  towerPos: null, towerT: 0,
 };
 
 function $id(s) { return document.getElementById(s); }
@@ -20,6 +21,7 @@ function initUI() {
     chatlog: $id('chatlog'), chatbox: $id('chatbox'), chatInput: $id('chatInput'),
     invpanel: $id('invpanel'), invgrid: $id('invgrid'), craftlist: $id('craftlist'), crafttabs: $id('crafttabs'),
     enhPanel: $id('enhPanel'),
+    towerPanel: $id('towerPanel'), towerBody: $id('towerBody'),
     overlay: $id('overlay'), minimap: $id('minimap'),
     hostBtn: $id('hostBtn'), roomcode: $id('roomcode'),
     deathbanner: $id('deathbanner'),
@@ -34,14 +36,21 @@ function initUI() {
     d.onclick = () => { const me = myPlayer(); if (me) { me.sel = i; UI.invDirty = true; } };
     UI.els.hotbar.appendChild(d);
   }
-  // 背包 32 格(左鍵交換, 右鍵開強化面板)
+  // 背包 32 格(左鍵交換, 右鍵開強化面板, 可拖拽到箭塔面板的彈藥格補箭)
   for (let i = 0; i < INV_SIZE; i++) {
     const d = document.createElement('div');
     d.className = 'slot' + (i < 8 ? ' hotrow' : '');
     d.dataset.i = i;
+    d.draggable = true;
     d.innerHTML = `<span class="icon"></span><span class="cnt"></span>`;
     d.onclick = (ev) => onInvClick(i, ev.shiftKey);
     d.oncontextmenu = (ev) => { ev.preventDefault(); openEnhPanel(i); };
+    d.ondragstart = (ev) => {
+      const me = myPlayer();
+      const s = me && me.inv[i];
+      if (!s) { ev.preventDefault(); return; }
+      ev.dataTransfer.setData('text/plain', String(i));
+    };
     UI.els.invgrid.appendChild(d);
   }
   UI.els.hostBtn.onclick = openRoom;
@@ -202,6 +211,18 @@ function uiTick(dt) {
   UI.mmT -= dt;
   if (UI.mmT <= 0) { UI.mmT = 0.4; drawMinimap(); }
 
+  // 箭塔面板(開著才更新,節流;走遠或塔被拆掉就自動關閉)
+  if (UI.towerPos) {
+    UI.towerT -= dt;
+    if (UI.towerT <= 0) {
+      UI.towerT = 0.3;
+      const { x, y } = UI.towerPos;
+      const o = objAt(x, y);
+      if (!o || o.type !== 'archer_tower' || dist(me.x, me.y, x + 0.5, y + 0.5) > 4.5) closeTowerPanel();
+      else renderTowerPanel();
+    }
+  }
+
   UI.els.hostBtn.classList.toggle('hidden', !(NET.isHost() && NET.mode === 'single'));
 }
 
@@ -220,6 +241,60 @@ function refreshSlots() {
   [...UI.els.hotbar.children].forEach((el, i) => slotHTML(el, me.inv[i], me.sel === i));
   [...UI.els.invgrid.children].forEach((el, i) => slotHTML(el, me.inv[i], false, UI.pendingSwap === i));
   if (UI.enhSlot >= 0) renderEnhPanel();
+}
+
+// ===== 箭塔面板:右鍵箭塔開啟,像儲物櫃一樣把箭矢拖進彈藥格補彈 =====
+function openTowerPanel(x, y) {
+  const o = objAt(x, y);
+  if (!o || o.type !== 'archer_tower') { closeTowerPanel(); return; }
+  UI.panelOpen = false;
+  UI.els.invpanel.classList.add('hidden');
+  UI.towerPos = { x, y };
+  UI.towerT = 0;
+  UI.els.towerPanel.classList.remove('hidden');
+  renderTowerPanel();
+}
+function closeTowerPanel() {
+  UI.towerPos = null;
+  UI.els.towerPanel.classList.add('hidden');
+}
+function renderTowerPanel() {
+  if (!UI.towerPos) return;
+  const { x, y } = UI.towerPos;
+  const o = objAt(x, y);
+  if (!o || o.type !== 'archer_tower') { closeTowerPanel(); return; }
+  const ammo = o.ammo || 0, max = ARCHER_TOWER_CFG.maxAmmo;
+  const body = UI.els.towerBody;
+  body.innerHTML = `
+    <div class="tower-row">
+      <div id="towerAmmoSlot" class="slot tower-slot">
+        <span class="icon">${ammo > 0 ? ITEMS.arrow.icon : ''}</span>
+        <span class="cnt">${ammo > 0 ? ammo : ''}</span>
+      </div>
+      <div class="tower-info">
+        <p>彈藥 <b>${ammo} / ${max}</b></p>
+        <p class="hint">傷害 ${ARCHER_TOWER_CFG.dmg} · 射程 ${ARCHER_TOWER_CFG.range} 格 · ${o.off ? '<span class="warn">已關閉</span>' : '運作中'}</p>
+      </div>
+    </div>
+    <div class="btnrow">
+      <button id="towerToggle">${o.off ? '▶️ 開啟' : '⏸️ 關閉'}</button>
+      <button id="towerClose">✖ 關閉面板</button>
+    </div>`;
+  $id('towerClose').onclick = closeTowerPanel;
+  $id('towerToggle').onclick = () => {
+    if (NET.isHost()) doToggleTower(myPlayer(), x, y);
+    else NET.act({ t: 'toggle_tower', x, y });
+  };
+  const slot = $id('towerAmmoSlot');
+  slot.ondragover = (ev) => ev.preventDefault();
+  slot.ondrop = (ev) => {
+    ev.preventDefault();
+    const from = +ev.dataTransfer.getData('text/plain');
+    const me = myPlayer();
+    if (!me || isNaN(from) || !me.inv[from] || me.inv[from].id !== 'arrow') return;
+    if (NET.isHost()) doFillTower(me, x, y);
+    else NET.act({ t: 'fill_tower', x, y });
+  };
 }
 
 // ===== 衝裝(強化卷軸)面板:右鍵背包格開啟 =====
@@ -341,6 +416,7 @@ function togglePanel(open) {
   UI.pendingSwap = -1;
   UI.enhSlot = -1;
   UI.els.enhPanel.classList.add('hidden');
+  closeTowerPanel();
   if (UI.panelOpen) { refreshSlots(); UI.craftT = 0; }
 }
 
