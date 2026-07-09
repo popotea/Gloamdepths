@@ -4,6 +4,7 @@ const UI = {
   pendingSwap: -1, panelOpen: false,
   menuOpen: false, menuView: 'main',
   els: {}, mmImage: null, mmT: 0, craftT: 0,
+  enhSlot: -1,
 };
 
 function $id(s) { return document.getElementById(s); }
@@ -18,6 +19,7 @@ function initUI() {
     hotbar: $id('hotbar'), msglog: $id('msglog'),
     chatlog: $id('chatlog'), chatbox: $id('chatbox'), chatInput: $id('chatInput'),
     invpanel: $id('invpanel'), invgrid: $id('invgrid'), craftlist: $id('craftlist'), crafttabs: $id('crafttabs'),
+    enhPanel: $id('enhPanel'),
     overlay: $id('overlay'), minimap: $id('minimap'),
     hostBtn: $id('hostBtn'), roomcode: $id('roomcode'),
     deathbanner: $id('deathbanner'),
@@ -32,13 +34,14 @@ function initUI() {
     d.onclick = () => { const me = myPlayer(); if (me) { me.sel = i; UI.invDirty = true; } };
     UI.els.hotbar.appendChild(d);
   }
-  // 背包 32 格
+  // 背包 32 格(左鍵交換, 右鍵開強化面板)
   for (let i = 0; i < INV_SIZE; i++) {
     const d = document.createElement('div');
     d.className = 'slot' + (i < 8 ? ' hotrow' : '');
     d.dataset.i = i;
     d.innerHTML = `<span class="icon"></span><span class="cnt"></span>`;
     d.onclick = () => onInvClick(i);
+    d.oncontextmenu = (ev) => { ev.preventDefault(); openEnhPanel(i); };
     UI.els.invgrid.appendChild(d);
   }
   UI.els.hostBtn.onclick = openRoom;
@@ -179,11 +182,11 @@ function uiTick(dt) {
 
 function slotHTML(el, s, selected, pending) {
   el.querySelector('.icon').textContent = s ? ITEMS[s.id].icon : '';
-  el.querySelector('.cnt').textContent = s && s.count > 1 ? s.count : '';
+  el.querySelector('.cnt').textContent = s && s.count > 1 ? s.count : (s && s.lv ? '+' + s.lv : '');
   el.style.background = s && ITEMS[s.id].tint ? ITEMS[s.id].tint : '';
   el.classList.toggle('sel', !!selected);
   el.classList.toggle('pending', !!pending);
-  el.title = s ? ITEMS[s.id].name + (ITEMS[s.id].desc ? '\n' + ITEMS[s.id].desc : '') : '';
+  el.title = s ? ITEMS[s.id].name + (s.lv ? ` +${s.lv}` : '') + (ITEMS[s.id].desc ? '\n' + ITEMS[s.id].desc : '') : '';
 }
 
 function refreshSlots() {
@@ -191,6 +194,57 @@ function refreshSlots() {
   if (!me) return;
   [...UI.els.hotbar.children].forEach((el, i) => slotHTML(el, me.inv[i], me.sel === i));
   [...UI.els.invgrid.children].forEach((el, i) => slotHTML(el, me.inv[i], false, UI.pendingSwap === i));
+  if (UI.enhSlot >= 0) renderEnhPanel();
+}
+
+// ===== 衝裝(強化卷軸)面板:右鍵背包格開啟 =====
+function openEnhPanel(slot) {
+  const me = myPlayer();
+  if (!me) return;
+  const s = me.inv[slot];
+  if (!s || !isEnhancable(s.id)) { UI.enhSlot = -1; UI.els.enhPanel.classList.add('hidden'); return; }
+  UI.enhSlot = slot;
+  UI.els.enhPanel.classList.remove('hidden');
+  renderEnhPanel();
+}
+
+function renderEnhPanel() {
+  const me = myPlayer();
+  const panel = UI.els.enhPanel;
+  if (!me || UI.enhSlot < 0) { panel.classList.add('hidden'); return; }
+  const s = me.inv[UI.enhSlot];
+  if (!s || !isEnhancable(s.id)) { UI.enhSlot = -1; panel.classList.add('hidden'); return; }
+  const it = ITEMS[s.id];
+  const lv = s.lv || 0;
+  const maxed = lv >= ENH_CFG.maxLv;
+  const near = stationNear(me, 'workbench');
+  const need = maxed ? 0 : ENH_CFG.scrolls(lv);
+  const have = countItem(me, 'enh_scroll');
+  const rate = maxed ? 0 : Math.round(ENH_CFG.rate[lv] * 100);
+  const bonus = it.armor ? `護甲 +${Math.round(ENH_CFG.armorPer * 100)}%/級` : `攻擊力 +${Math.round(ENH_CFG.dmgPer * 100)}%/級`;
+  panel.innerHTML = `
+    <div class="enh-row">
+      <span class="enh-icon">${it.icon}</span>
+      <b>${it.name}</b> <span class="enh-lv">目前 +${lv}${maxed ? '(已滿級)' : ` / 上限 +${ENH_CFG.maxLv}`}</span>
+    </div>
+    <p class="hint">${bonus};成功只消耗卷軸不會讓裝備變差。</p>
+    ${maxed ? '' : `<p>需要 <b>${need}</b> 張強化卷軸(目前有 ${have} 張),成功率 <b>${rate}%</b>${near ? '' : '<span class="warn"> · 需靠近工作台</span>'}</p>`}
+    <div class="btnrow">
+      <button id="enhGo" ${maxed || !near || have < need ? 'disabled' : ''}>✨ 強化 (+${lv} → +${lv + 1})</button>
+      <button id="enhClose">✖ 關閉</button>
+    </div>`;
+  $id('enhClose').onclick = () => { UI.enhSlot = -1; panel.classList.add('hidden'); };
+  if (!maxed) {
+    $id('enhGo').onclick = () => {
+      if (NET.isHost()) {
+        const r = doEnh(me, UI.enhSlot);
+        if (r.err) showMsg('⚠️ ' + r.err);
+        UI.invDirty = true;
+      } else {
+        NET.act({ t: 'enh', slot: UI.enhSlot });
+      }
+    };
+  }
 }
 
 // 依配方產出的物品欄位推斷分類(不额外改資料結構)
@@ -260,6 +314,8 @@ function togglePanel(open) {
   UI.panelOpen = open === undefined ? !UI.panelOpen : open;
   UI.els.invpanel.classList.toggle('hidden', !UI.panelOpen);
   UI.pendingSwap = -1;
+  UI.enhSlot = -1;
+  UI.els.enhPanel.classList.add('hidden');
   if (UI.panelOpen) { refreshSlots(); UI.craftT = 0; }
 }
 
@@ -307,8 +363,12 @@ function renderMenu() {
       <p>💾 <b>地圖存檔存在房主(你)的電腦裡</b>,每 30 秒自動存一次,關閉分頁前也會存一次。</p>
       <p>${originNote}</p>
       <p>存檔識別碼(key):<code>${SAVE_KEY}</code><br>目前存檔大小:${saveSizeText()}</p>
+      <p>📤 <b>匯出成檔案</b>:下載一份地圖存檔到電腦,可以傳給別人。若你之後要關機、
+      或想把房主交給別人,對方可以在主選單用「匯入存檔檔案」讀取這份檔案,以新房主身分
+      開房繼續(地圖、怪物進度、所有人的背包都會保留)。</p>
       <div class="btnrow">
         <button id="mSaveNow">💾 立即存檔</button>
+        <button id="mExportSave" ${hasSave() ? '' : 'disabled'}>📤 匯出成檔案</button>
         <button id="mClearSave">🗑️ 清除存檔</button>
       </div>`;
   } else {
@@ -345,6 +405,19 @@ function renderMenu() {
   };
   if (isHost) {
     $id('mSaveNow').onclick = () => { saveGame(); renderMenu(); };
+    $id('mExportSave').onclick = () => {
+      let raw = null;
+      try { raw = localStorage.getItem(SAVE_KEY); } catch (e) { }
+      if (!raw) { showMsg('⚠️ 尚無存檔可匯出'); return; }
+      const blob = new Blob([raw], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+      a.href = url; a.download = `gloamdepths-save-${stamp}.json`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+      showMsg('📤 存檔已匯出,傳給朋友後對方可用「匯入存檔檔案」接手當房主');
+    };
     $id('mClearSave').onclick = () => {
       if (confirm('確定要清除自動存檔嗎?這個動作無法復原。')) {
         try { localStorage.removeItem(SAVE_KEY); } catch (e) { }
@@ -370,6 +443,7 @@ function drawMinimap() {
       [T.COPPER]: 0xff4078e0, [T.IRON]: 0xffe3ddd8, [T.GOLD]: 0xff3fd2ff,
       [T.LUMITE]: 0xfffff07e, [T.ROOT]: 0xff305c6d, [T.BEDROCK]: 0xff000000,
       [T.WOODWALL]: 0xff3e6a8a, [T.STONEWALL]: 0xff968a8a,
+      [T.GRAVEL]: 0xff787e8a, [T.COAL]: 0xff2a2a2a, [T.DIAMOND]: 0xffffc76a,
     };
     for (let i = 0; i < G.tiles.length; i++) {
       px[i] = G.explored[i] ? (C[G.tiles[i]] || 0xff000000) : 0xff000000;
@@ -408,6 +482,10 @@ function setOverlay(mode) {
           <button id="btnNew">🌍 新世界</button>
           <button id="btnLoad" ${hasSave() ? '' : 'disabled'}>📂 繼續存檔</button>
         </div>
+        <div class="btnrow">
+          <button id="btnImport">📤 匯入存檔檔案</button>
+          <input id="importFile" type="file" accept="application/json,.json" class="hidden">
+        </div>
         <div class="joinrow">
           <input id="codeInput" maxlength="5" placeholder="朋友的房號" ${netOK ? '' : 'disabled'}>
           <button id="btnJoin" ${netOK ? '' : 'disabled'}>🔗 加入房間</button>
@@ -417,11 +495,33 @@ function setOverlay(mode) {
           <b>目標</b>:星核能量會一直流失,挖 <b>光晶💠</b> 回來按 <b>F</b> 灌入;
           打敗外圈三座神殿的守衛、集齊 3 塊碎片,撐過最終暗潮即通關。<br>
           <b>操作</b>:WASD 移動|左鍵 挖牆/攻擊|右鍵 放置/吃|1–8 快捷欄|E 背包合成|F 餵星核<br>
-          <b>連線</b>:進入遊戲後點右上「開房邀請朋友」,把房號給朋友即可;存檔在房主電腦。
+          <b>連線</b>:進入遊戲後點右上「開房邀請朋友」,把房號給朋友即可;存檔在房主電腦。<br>
+          <b>換房主</b>:原房主可在選單(Esc)「設定」裡匯出存檔檔案傳給你,用「匯入存檔檔案」
+          讀取後,你就能以新房主身分開房,讓大家用原本的名字加入拿回進度。
         </div>
       </div>`;
     $id('btnNew').onclick = () => beginGame(false);
     $id('btnLoad').onclick = () => beginGame(true);
+    $id('btnImport').onclick = () => $id('importFile').click();
+    $id('importFile').onchange = () => {
+      const file = $id('importFile').files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        let s;
+        try { s = JSON.parse(reader.result); } catch (e) { showMsg('⚠️ 檔案格式錯誤,無法讀取'); return; }
+        const name = getName();
+        SFX.unlock();
+        if (loadGameFromObject(s, name)) {
+          UI.mmDirty = true; UI.invDirty = true;
+          setOverlay(null);
+          showMsg('📂 已匯入存檔,你現在是房主,可點右上「開房邀請朋友」讓大家加入');
+        } else showMsg('⚠️ 存檔內容無效,無法匯入');
+      };
+      reader.onerror = () => showMsg('⚠️ 讀取檔案失敗');
+      reader.readAsText(file);
+      $id('importFile').value = '';
+    };
     $id('btnJoin').onclick = () => {
       const name = getName();
       const code = $id('codeInput').value.trim();

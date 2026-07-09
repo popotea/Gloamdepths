@@ -60,7 +60,7 @@ function setObj(x, y, o, fromNet = false) {
     G.objects.delete(i);
   }
   UI.mmDirty = true;
-  if (!fromNet && NET.isHost()) NET.sendAll({ t: 'obj', i, o: o ? { type: o.type, hp: o.hp } : null });
+  if (!fromNet && NET.isHost()) NET.sendAll({ t: 'obj', i, o: o ? { ...o } : null });
 }
 
 // 重掃全地圖光源(生成/讀檔/連線初始化後呼叫一次)
@@ -173,6 +173,10 @@ function genWorld(seed) {
   vein(55, 3, 5, [T.OBSIDIAN], T.GOLD, 72, 94);
   vein(120, 2, 4, [T.DIRT, T.STONE, T.OBSIDIAN], T.LUMITE, 8, 94);
   vein(70, 3, 5, [T.DIRT], T.ROOT, 8, 42);
+  // 砂礫:泥土區成片出現(比礦脈粗胖許多),打散大範圍同色泥土牆的單調感
+  vein(50, 8, 16, [T.DIRT], T.GRAVEL, 8, 42);
+  vein(90, 4, 8, [T.DIRT, T.STONE], T.COAL, 8, 72);
+  vein(28, 2, 4, [T.OBSIDIAN], T.DIAMOND, 72, 94);
 
   // 5) 螢光蘑菇(泥土區地面)
   for (let n = 0; n < 300 && G.mushCount < 120; n++) {

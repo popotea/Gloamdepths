@@ -51,6 +51,7 @@ const T = {
   FLOOR: 0, DIRT: 1, STONE: 2, OBSIDIAN: 3,
   COPPER: 4, IRON: 5, GOLD: 6, LUMITE: 7, ROOT: 8,
   BEDROCK: 9, GLOW: 10, WOODWALL: 11, STONEWALL: 12,
+  GRAVEL: 13, COAL: 14, DIAMOND: 15,
 };
 
 // 地形資料:hp=挖掘耐久, tier=所需鎬階級, light=自帶光半徑
@@ -68,9 +69,19 @@ const TILE_INFO = {
   [T.GOLD]:     { solid: true, hp: 24, tier: 2, name: '金礦脈',   drop: { id: 'gold_ore', n: 1 },   c1: '#7a62b0', c2: '#564584', ore: '#ffd23f' },
   [T.LUMITE]:   { solid: true, hp: 8,  tier: 0, name: '光晶礦脈', drop: { id: 'lumite', n: 2 },     c1: '#3e6c94', c2: '#2c4e6c', ore: '#7ef0ff', light: 2.5 },
   [T.ROOT]:     { solid: true, hp: 4,  tier: 0, name: '木根',     drop: { id: 'wood', n: 2 },       c1: '#b08a48', c2: '#886a34', ore: '#e0b878' },
+  [T.GRAVEL]:   { solid: true, hp: 4,  tier: 0, name: '砂礫',     drop: { id: 'stone', n: 1 },      c1: '#8a8478', c2: '#645e52' },
+  [T.COAL]:     { solid: true, hp: 7,  tier: 0, name: '煤礦脈',   drop: { id: 'coal', n: 1 },       c1: '#585850', c2: '#3a3a34', ore: '#26262a' },
+  [T.DIAMOND]:  { solid: true, hp: 30, tier: 3, name: '鑽石礦脈', drop: { id: 'diamond', n: 1 },    c1: '#5a4a8e', c2: '#3c3068', ore: '#6cf7ff' },
   [T.BEDROCK]:  { solid: true, hp: Infinity, tier: 99, name: '基岩', c1: '#16161c', c2: '#0e0e12' },
   [T.WOODWALL]: { solid: true, hp: 40, tier: 0, name: '木牆', drop: { id: 'wood_wall', n: 1 },  c1: '#c09454', c2: '#96743e', built: 'plank' },
   [T.STONEWALL]:{ solid: true, hp: 90, tier: 0, name: '石牆(建)', drop: { id: 'stone_wall', n: 1 }, c1: '#b4b4c4', c2: '#8e8e9e', built: 'brick' },
+};
+
+// ── 箭塔:玩家手動補箭矢的防禦建築,彈藥打完就停火,靠玩家回來補給形成天然上限 ──
+// dmg 比光塔(12)高,但沒箭就是廢鐵;每人可蓋數量上限避免堆成怪打不穿的彈幕牆
+const ARCHER_TOWER_CFG = {
+  maxAmmo: 20, dmg: 20, range: 6, cd: 0.9,
+  maxPerPlayer: 3,
 };
 
 // 物品表:pick=鎬(tier 階級/power 每下傷害), sword=劍, armor=減傷比例
@@ -81,6 +92,8 @@ const ITEMS = {
   copper_ore:      { name: '銅礦', icon: '🟤' },
   iron_ore:        { name: '鐵礦', icon: '⚪' },
   gold_ore:        { name: '金礦', icon: '🟡' },
+  coal:            { name: '煤炭', icon: '⚫' },
+  diamond:         { name: '鑽石', icon: '💎', desc: '深藏在黑曜岩區的頂級礦物,需要金鎬才挖得動' },
   lumite:          { name: '光晶', icon: '💠', desc: '在星核旁按 F 灌入(+6 能量),也是火把/光塔材料' },
   copper_bar:      { name: '銅錠', icon: '🥉' },
   iron_bar:        { name: '鐵錠', icon: '🥈' },
@@ -94,6 +107,9 @@ const ITEMS = {
   workbench:       { name: '工作台', icon: '🛠️', place: 'workbench' },
   furnace:         { name: '熔爐', icon: '🔥', place: 'furnace' },
   tower:           { name: '光塔', icon: '🗼', place: 'tower', desc: '照明並自動攻擊附近的蝕影' },
+  archer_tower:    { name: '箭塔', icon: '🏹', place: 'archer_tower',
+                     desc: `防禦力更強,但要靠玩家補箭矢(上限${ARCHER_TOWER_CFG.maxAmmo}發)才會開火,沒箭就停火。
+右鍵拿著箭矢對它可補箭,右鍵拿著空手對它可切換開/關。每人最多蓋 ${ARCHER_TOWER_CFG.maxPerPlayer} 座` },
   wood_pick:       { name: '木鎬', icon: '⛏️', pick: { tier: 0, power: 1 },   max: 1 },
   copper_pick:     { name: '銅鎬', icon: '⛏️', pick: { tier: 1, power: 2.5 }, max: 1, tint: '#7a4526' },
   iron_pick:       { name: '鐵鎬', icon: '⛏️', pick: { tier: 2, power: 5 },   max: 1, tint: '#5c6570' },
@@ -137,6 +153,7 @@ const RECIPES = [
   { out: 'stone_wall',  n: 4, cost: { stone: 2 },            station: 'workbench' },
   { out: 'furnace',     n: 1, cost: { stone: 10 },           station: 'workbench' },
   { out: 'tower',       n: 1, cost: { lumite: 6, stone: 4, copper_bar: 2 }, station: 'workbench' },
+  { out: 'archer_tower',n: 1, cost: { wood: 10, stone: 6, iron_bar: 3 },    station: 'workbench' },
   { out: 'copper_pick', n: 1, cost: { copper_bar: 3, wood: 1 }, station: 'workbench' },
   { out: 'copper_sword',n: 1, cost: { copper_bar: 3, wood: 1 }, station: 'workbench' },
   { out: 'iron_pick',   n: 1, cost: { iron_bar: 3, wood: 1 },   station: 'workbench' },
@@ -201,13 +218,19 @@ const ENH_CFG = {
   dmgPer: 0.15, armorPer: 0.04,
 };
 function enhMult(s) { return 1 + ENH_CFG.dmgPer * ((s && s.lv) || 0); }
+function enhArmorBonus(s) { return ENH_CFG.armorPer * ((s && s.lv) || 0); }
+// 該物品是否可強化(武器/鎬/護甲/遠程武器皆可,消耗品與建材不行)
+function isEnhancable(id) {
+  const it = ITEMS[id];
+  return !!(it && (it.sword || it.pick || it.armor || it.ranged));
+}
 
 // 已放置物件的耐久
-const OBJ_HP = { torch: 4, workbench: 20, furnace: 20, tower: 50, chest: 12, nest: 60 };
+const OBJ_HP = { torch: 4, workbench: 20, furnace: 20, tower: 50, archer_tower: 40, chest: 12, nest: 60 };
 // 物件光照半徑
-const OBJ_LIGHT = { torch: 7, tower: 6, furnace: 3, workbench: 2.5 };
+const OBJ_LIGHT = { torch: 7, tower: 6, furnace: 3, workbench: 2.5, archer_tower: 3 };
 // 會擋路的物件
-const OBJ_SOLID = { workbench: true, furnace: true, tower: true, chest: true, nest: true };
+const OBJ_SOLID = { workbench: true, furnace: true, tower: true, archer_tower: true, chest: true, nest: true };
 
 // ── 世界據點(隨機生成)──
 // chest=廢墟寶箱(敲開拿戰利品) / nest=蝕影巢穴(持續生怪,拆掉噴光晶+卷軸)

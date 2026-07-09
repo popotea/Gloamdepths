@@ -48,18 +48,22 @@ function circleHitsSolid(cx, cy, r) {
 }
 // X/Y 軸分開移動,撞牆貼齊;回傳是否被擋
 // 大位移(如鎚子重擊退)會拆成多個子步逐步檢查,避免一步跳過整格牆體(隧穿)
-function moveCircle(e, dx, dy) {
-  const step = 0.4; // 遠小於一格牆體厚度,不依賴 e.r(怪物物件本身沒有 .r,半徑存在 ENEMY_TYPES 裡)
+// r:碰撞半徑,顯式傳入 — 敵人物件本身沒有 .r(半徑存在 ENEMY_TYPES 裡),
+// 省略時退回 e.r(玩家物件有 .r);漏傳給敵人會讓 r 變 undefined,
+// circleHitsSolid 內比較式對上 NaN 恆為 false,牆壁碰撞直接失效(這正是敵人偶發穿牆的成因)
+function moveCircle(e, dx, dy, r) {
+  const rad = r ?? e.r;
+  const step = 0.4; // 遠小於一格牆體厚度
   const n = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / step));
   const sx = dx / n, sy = dy / n;
   let blocked = false;
   for (let k = 0; k < n; k++) {
     if (sx !== 0) {
-      if (!circleHitsSolid(e.x + sx, e.y, e.r)) e.x += sx;
+      if (!circleHitsSolid(e.x + sx, e.y, rad)) e.x += sx;
       else { blocked = true; break; }
     }
     if (sy !== 0) {
-      if (!circleHitsSolid(e.x, e.y + sy, e.r)) e.y += sy;
+      if (!circleHitsSolid(e.x, e.y + sy, rad)) e.y += sy;
       else { blocked = true; break; }
     }
   }
@@ -231,7 +235,7 @@ function updateEnemies(dt) {
       e.x = clamp(e.x + e.vx * dt, 1, MAP_W - 1);
       e.y = clamp(e.y + e.vy * dt, 1, MAP_H - 1);
     } else {
-      blocked = moveCircle(e, e.vx * dt, e.vy * dt);
+      blocked = moveCircle(e, e.vx * dt, e.vy * dt, et.r);
     }
 
     // 被牆擋住的追擊怪會啃牆/啃建築(裂地者有拆牆倍率)
@@ -354,7 +358,7 @@ function doShoot(p, aim) {
     return;
   }
   p.atkCD = w.cd; p.swing = 0.18; p.aim = aim; p.action = 'atk';
-  const dmg = w.dmg * playerDmgMult(p);
+  const dmg = w.dmg * enhMult(s) * playerDmgMult(p);
   spawnProj({
     x: p.x + Math.cos(aim) * 0.4, y: p.y + Math.sin(aim) * 0.4,
     vx: Math.cos(aim) * w.speed, vy: Math.sin(aim) * w.speed,
@@ -404,6 +408,32 @@ function doMine(p, x, y) {
   else emitFx({ k: 'crack', i, r: G.dmg[i] / info.hp });
 }
 
+// 衝裝(強化卷軸):消耗卷軸嘗試把裝備 +1 級,靠近工作台才能用;失敗只噴卷軸不降級
+// 回傳 { ok, lv, fail } 供呼叫端顯示結果;err 字串表示無法執行(不消耗卷軸)
+function doEnh(p, slot) {
+  if (p.dead) return { err: '你已倒下' };
+  if (!stationNear(p, 'workbench')) return { err: '需要靠近工作台' };
+  const s = p.inv[slot];
+  if (!s || !isEnhancable(s.id)) return { err: '這個物品無法強化' };
+  const lv = s.lv || 0;
+  if (lv >= ENH_CFG.maxLv) return { err: '已達最高強化等級' };
+  const need = ENH_CFG.scrolls(lv);
+  if (countItem(p, 'enh_scroll') < need) return { err: `需要 ${need} 張強化卷軸` };
+  payCost(p, { enh_scroll: need });
+  const rate = ENH_CFG.rate[lv];
+  if (Math.random() < rate) {
+    s.lv = lv + 1;
+    p.invDirty = true;
+    addFloater(p.x, p.y - 0.6, `✨ 強化成功 +${s.lv}`, '#ffd23f');
+    emitFx({ k: 'sfx', s: 'craft' });
+    return { ok: true, lv: s.lv };
+  } else {
+    addFloater(p.x, p.y - 0.6, '強化失敗(裝備無損)', '#ff9d5c');
+    emitFx({ k: 'sfx', s: 'hit' });
+    return { ok: false, fail: true, lv };
+  }
+}
+
 function doPlace(p, slot, x, y) {
   if (p.dead || !inMap(x, y)) return;
   const s = p.inv[slot];
@@ -412,6 +442,15 @@ function doPlace(p, slot, x, y) {
   if (!it.place && it.placeTile === undefined) return;
   if (dist(p.x, p.y, x + 0.5, y + 0.5) > 3.8) return;
   if (tileAt(x, y) !== T.FLOOR || G.objects.has(idx(x, y))) return;
+  // 箭塔太強會讓怪完全打不進來,靠彈藥上限自然限流之外,再限制每人可蓋數量避免堆成彈幕牆
+  if (it.place === 'archer_tower') {
+    let owned = 0;
+    for (const [, o] of G.objects) if (o.type === 'archer_tower' && o.owner === p.id) owned++;
+    if (owned >= ARCHER_TOWER_CFG.maxPerPlayer) {
+      addFloater(x + 0.5, y + 0.5, `每人最多 ${ARCHER_TOWER_CFG.maxPerPlayer} 座箭塔`, '#ff9d5c');
+      return;
+    }
+  }
   // 會擋路的東西不能蓋在任何人/怪身上
   const solidPlace = it.placeTile !== undefined || OBJ_SOLID[it.place];
   if (solidPlace) {
@@ -422,7 +461,11 @@ function doPlace(p, slot, x, y) {
   }
   consumeSlot(p, slot);
   if (it.placeTile !== undefined) setTile(x, y, it.placeTile);
-  else setObj(x, y, { type: it.place, hp: OBJ_HP[it.place] });
+  else {
+    const o = { type: it.place, hp: OBJ_HP[it.place] };
+    if (it.place === 'archer_tower') { o.owner = p.id; o.ammo = 0; }
+    setObj(x, y, o);
+  }
   emitFx({ k: 'sfx', s: 'place' });
 }
 
@@ -434,6 +477,19 @@ function doEat(p, slot) {
   addFloater(p.x, p.y - 0.6, '+' + ITEMS[s.id].food, '#7dff8e');
   emitFx({ k: 'sfx', s: 'eat' });
   consumeSlot(p, slot);
+}
+
+// 丟出快捷欄選中格子的物品(Q鍵);裝備類(count=1)整把丟出並保留強化等級,
+// 可堆疊物一次丟1個,方便多人合作時分批分享而不是整疊倒出去
+function doDropItem(p, slot) {
+  if (p.dead) return;
+  const s = p.inv[slot];
+  if (!s) return;
+  const ang = p.aim + (Math.random() - 0.5) * 0.6;
+  const dx = Math.cos(ang) * 0.8, dy = Math.sin(ang) * 0.8;
+  spawnDrop(s.id, 1, p.x + dx, p.y + dy, s.lv || 0);
+  consumeSlot(p, slot);
+  emitFx({ k: 'sfx', s: 'place' });
 }
 
 function doDeposit(p) {
@@ -450,9 +506,10 @@ function doDeposit(p) {
 }
 
 // ===== 掉落物 =====
-function spawnDrop(item, n, x, y) {
+// lv:強化等級(只有裝備類會帶,撿回背包時要一併還原,避免丟裝備遺失強化)
+function spawnDrop(item, n, x, y, lv) {
   G.drops.push({
-    id: nextDid++, item, n, x, y,
+    id: nextDid++, item, n, x, y, lv: lv || 0,
     vx: (Math.random() - 0.5) * 3, vy: (Math.random() - 0.5) * 3,
   });
 }
@@ -468,7 +525,8 @@ function updateDrops(dt) {
     if (p) {
       const dd = dist(d.x, d.y, p.x, p.y);
       if (dd < 0.55) {
-        const left = addItem(p, d.item, d.n);
+        // 帶強化等級的裝備(max:1)不能走一般堆疊邏輯合併,否則等級會被吃掉
+        const left = d.lv ? addEnhancedItem(p, d.item, d.lv) : addItem(p, d.item, d.n);
         if (left === 0) {
           G.drops.splice(i, 1);
           emitFx({ k: 'sfx', s: 'pickup' });
@@ -516,6 +574,59 @@ function updateTowers(dt) {
       emitFx({ k: 'ft', x: tx, y: ty - 0.6, txt: '⚡', color: '#7ef0ff' });
     }
   }
+}
+
+// ===== 箭塔(房主):要玩家補箭矢才會開火,彈藥打完自動停火;可手動開關省彈藥 =====
+function updateArcherTowers(dt) {
+  for (const [i, o] of G.objects) {
+    if (o.type !== 'archer_tower') continue;
+    o.shootT = (o.shootT ?? 0) - dt;
+    if (o.off || o.shootT > 0 || !o.ammo) continue;
+    const tx = (i % MAP_W) + 0.5, ty = ((i / MAP_W) | 0) + 0.5;
+    let best = null, bd = ARCHER_TOWER_CFG.range;
+    for (const e of G.enemies) {
+      const d = dist(tx, ty, e.x, e.y);
+      if (d < bd) { bd = d; best = e; }
+    }
+    if (best) {
+      o.shootT = ARCHER_TOWER_CFG.cd;
+      o.ammo--;
+      const ang = Math.atan2(best.y - ty, best.x - tx);
+      spawnProj({
+        x: tx + Math.cos(ang) * 0.4, y: ty + Math.sin(ang) * 0.4,
+        vx: Math.cos(ang) * 14, vy: Math.sin(ang) * 14,
+        dmg: ARCHER_TOWER_CFG.dmg, from: 'p', owner: null, ttl: 1.2,
+      });
+      emitFx({ k: 'sfx', s: 'shoot' });
+    }
+  }
+}
+
+// 玩家右鍵拿箭矢對準箭塔:補彈藥(最多補到上限,多的箭矢留在背包)
+function doFillTower(p, x, y) {
+  const o = objAt(x, y);
+  if (!o || o.type !== 'archer_tower') return;
+  if (dist(p.x, p.y, x + 0.5, y + 0.5) > 3.8) return;
+  const have = countItem(p, 'arrow');
+  if (have <= 0) { addFloater(x + 0.5, y + 0.5, '沒有箭矢', '#8899aa'); return; }
+  const room = ARCHER_TOWER_CFG.maxAmmo - (o.ammo || 0);
+  if (room <= 0) { addFloater(x + 0.5, y + 0.5, '箭塔彈藥已滿', '#8899aa'); return; }
+  const use = Math.min(have, room);
+  payCost(p, { arrow: use });
+  o.ammo = (o.ammo || 0) + use;
+  addFloater(x + 0.5, y + 0.5, `+${use} 🏹`, '#ffd23f');
+  emitFx({ k: 'sfx', s: 'place' });
+  setObj(x, y, o, false); // 廣播更新後的彈藥狀態給客戶端
+}
+
+// 玩家右鍵空手對箭塔:切換開/關,關閉時不消耗彈藥也不攻擊
+function doToggleTower(p, x, y) {
+  const o = objAt(x, y);
+  if (!o || o.type !== 'archer_tower') return;
+  if (dist(p.x, p.y, x + 0.5, y + 0.5) > 3.8) return;
+  o.off = !o.off;
+  addFloater(x + 0.5, y + 0.5, o.off ? '🏹 已關閉' : '🏹 已啟動', o.off ? '#8899aa' : '#7dff8e');
+  setObj(x, y, o, false);
 }
 
 // ===== 玩家共通狀態(房主) =====

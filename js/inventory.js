@@ -33,6 +33,15 @@ function addItem(p, id, n = 1) {
   return n;
 }
 
+// 帶強化等級的裝備(max:1)只能找空格放,不可與其他堆疊合併(等級會不一致);
+// 回傳 0=放入成功 / 1=背包滿放不下(呼叫端用來決定要不要留在地上)
+function addEnhancedItem(p, id, lv) {
+  for (let i = 0; i < INV_SIZE; i++) {
+    if (!p.inv[i]) { p.inv[i] = { id, count: 1, lv }; p.invDirty = true; return 0; }
+  }
+  return 1;
+}
+
 function countItem(p, id) {
   let c = 0;
   for (const s of p.inv) if (s && s.id === id) c += s.count;
@@ -81,12 +90,12 @@ function swapSlots(p, a, b) {
   p.invDirty = true;
 }
 
-// 自動選最好的工具(徒手也能挖/打,避免卡死)
+// 自動選最好的工具(徒手也能挖/打,避免卡死);挖掘力會套用強化卷軸加成
 function bestPick(p) {
   let best = { tier: 0, power: 0.5, name: '徒手', icon: '✊' };
   for (const s of p.inv) {
     if (s && ITEMS[s.id].pick && ITEMS[s.id].pick.power > best.power)
-      best = { ...ITEMS[s.id].pick, name: ITEMS[s.id].name, icon: ITEMS[s.id].icon };
+      best = { ...ITEMS[s.id].pick, name: ITEMS[s.id].name, icon: ITEMS[s.id].icon, power: ITEMS[s.id].pick.power * enhMult(s) };
   }
   return best;
 }
@@ -96,22 +105,25 @@ function bestSword(p) {
   for (const s of p.inv) {
     const w = s && ITEMS[s.id].sword;
     if (w && !w.manual && w.dmg > best.dmg)
-      best = { ...w, name: ITEMS[s.id].name, icon: ITEMS[s.id].icon };
+      best = { ...w, name: ITEMS[s.id].name, icon: ITEMS[s.id].icon, dmg: w.dmg * enhMult(s) };
   }
   return best;
 }
 
-// 目前使用的武器:快捷欄選中的武器(近戰/遠程)優先,否則自動用最好的劍
+// 目前使用的武器:快捷欄選中的武器(近戰/遠程)優先,否則自動用最好的劍;傷害套用強化卷軸加成
 function weaponOf(p) {
   const s = p.inv[p.sel];
-  if (s && ITEMS[s.id].ranged) return { ...ITEMS[s.id].ranged, name: ITEMS[s.id].name, icon: ITEMS[s.id].icon, ranged: true };
-  if (s && ITEMS[s.id].sword)  return { ...ITEMS[s.id].sword,  name: ITEMS[s.id].name, icon: ITEMS[s.id].icon };
+  if (s && ITEMS[s.id].ranged) return { ...ITEMS[s.id].ranged, name: ITEMS[s.id].name, icon: ITEMS[s.id].icon, ranged: true, dmg: ITEMS[s.id].ranged.dmg * enhMult(s) };
+  if (s && ITEMS[s.id].sword)  return { ...ITEMS[s.id].sword,  name: ITEMS[s.id].name, icon: ITEMS[s.id].icon, dmg: ITEMS[s.id].sword.dmg * enhMult(s) };
   return bestSword(p);
 }
 function bestArmor(p) {
   let best = 0;
   for (const s of p.inv) {
-    if (s && ITEMS[s.id].armor && ITEMS[s.id].armor > best) best = ITEMS[s.id].armor;
+    if (s && ITEMS[s.id].armor) {
+      const v = Math.min(0.8, ITEMS[s.id].armor + enhArmorBonus(s));
+      if (v > best) best = v;
+    }
   }
   return best;
 }

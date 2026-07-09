@@ -61,7 +61,7 @@ const NET = {
       conn.send({
         t: 'init', id: pid,
         tiles: rleEnc(G.tiles), explored: rleEnc(G.explored),
-        objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null]),
+        objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null]),
         core: { energy: G.core.energy, shards: G.core.shards },
         shrines: G.shrines, wave: G.wave, time: G.time,
         players: [...G.players.values()].map(pl => [pl.id, pl.name, pl.x, pl.y, pl.hp, pl.dead ? 1 : 0, pl.lv || 1, pl.xp || 0]),
@@ -84,13 +84,21 @@ const NET = {
       case 'atk': doSwing(p, +d.aim || 0); break;
       case 'shoot': doShoot(p, +d.aim || 0); break;
       case 'place': doPlace(p, d.slot | 0, d.x | 0, d.y | 0); break;
+      case 'fill_tower': doFillTower(p, d.x | 0, d.y | 0); break;
+      case 'toggle_tower': doToggleTower(p, d.x | 0, d.y | 0); break;
       case 'eat': doEat(p, d.slot | 0); break;
       case 'deposit': doDeposit(p); break;
+      case 'drop': doDropItem(p, d.slot | 0); break;
       case 'swap': swapSlots(p, d.a | 0, d.b | 0); break;
       case 'craft': {
         const err = craftRecipe(p, d.ri | 0);
         if (err) this.sendToPid(conn.pid, { t: 'msg', text: '⚠️ ' + err });
         else this.sendToPid(conn.pid, { t: 'fx', f: { k: 'sfx', s: 'craft' } });
+        break;
+      }
+      case 'enh': {
+        const r = doEnh(p, d.slot | 0);
+        if (r.err) this.sendToPid(conn.pid, { t: 'msg', text: '⚠️ ' + r.err });
         break;
       }
       case 'chat': {
@@ -125,7 +133,7 @@ const NET = {
       players: [...G.players.values()].map(p =>
         [p.id, r2(p.x), r2(p.y), r2(p.aim), p.swing > 0 ? 1 : 0, Math.round(p.hp), p.dead ? 1 : 0, Math.ceil(p.respawnT || 0), p.lv || 1, Math.round(p.xp || 0)]),
       enemies: G.enemies.map(e => [e.id, e.type, r2(e.x), r2(e.y), Math.round(e.hp)]),
-      drops: G.drops.map(d => [d.id, d.item, d.n, r2(d.x), r2(d.y)]),
+      drops: G.drops.map(d => [d.id, d.item, d.n, r2(d.x), r2(d.y), d.lv || 0]),
       projs: G.projs.map(pj => [pj.id, r2(pj.x), r2(pj.y), pj.from === 'e' ? 1 : 0]),
       core: { e: r2(G.core.energy), s: G.core.shards },
       wave: { n: G.wave.n, state: G.wave.state, timer: Math.round(G.wave.timer), alive: G.wave.alive || 0, final: G.wave.final },
@@ -166,8 +174,12 @@ const NET = {
         G.explored = rleDec(d.explored, MAP_W * MAP_H, Uint8Array);
         G.dmg = new Float32Array(MAP_W * MAP_H);
         G.objects.clear(); G.mushCount = 0;
-        for (const [i, type, hp] of d.objects) {
-          G.objects.set(i, hp === null ? { type } : { type, hp });
+        for (const [i, type, hp, ammo, off, owner] of d.objects) {
+          const o = hp === null ? { type } : { type, hp };
+          if (ammo !== null && ammo !== undefined) o.ammo = ammo;
+          if (off) o.off = true;
+          if (owner !== null && owner !== undefined) o.owner = owner;
+          G.objects.set(i, o);
           if (type === 'mushroom') G.mushCount++;
         }
         G.core.energy = d.core.energy; G.core.shards = d.core.shards;
@@ -211,7 +223,7 @@ const NET = {
           list.push(e);
         }
         G.enemies = list;
-        G.drops = d.drops.map(([id, item, n, x, y]) => ({ id, item, n, x, y }));
+        G.drops = d.drops.map(([id, item, n, x, y, lv]) => ({ id, item, n, x, y, lv: lv || 0 }));
         G.projs = (d.projs || []).map(([id, x, y, fromE]) => ({ id, x, y, from: fromE ? 'e' : 'p' }));
         G.core.energy = d.core.e; G.core.shards = d.core.s;
         G.wave = d.wave; G.time = d.time;

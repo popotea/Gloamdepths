@@ -34,6 +34,7 @@ function simTick(dt) {
   updateEnemies(dt);
   updateProjs(dt);
   updateTowers(dt);
+  updateArcherTowers(dt);
   updateDrops(dt);
   updateWave(dt);
   updateCore(dt);
@@ -185,7 +186,7 @@ function buildSave() {
     v: 1, seed: G.seed, time: G.time,
     tiles: rleEnc(G.tiles),
     explored: rleEnc(G.explored),
-    objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null]),
+    objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null]),
     drops: G.drops.map(d => [d.item, d.n, d.x, d.y]),
     core: { energy: G.core.energy, shards: G.core.shards },
     wave: { n: G.wave.n, timer: Math.max(45, G.wave.state === 'calm' ? G.wave.timer : 45), final: G.wave.final && G.core.shards < CORE_CFG.needShards ? false : G.wave.final },
@@ -212,13 +213,28 @@ function loadGame(name) {
   let s;
   try { s = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch (e) { return false; }
   if (!s) return false;
+  return applySave(s, name);
+}
+
+// 匯入的存檔檔案(非房主本機 localStorage)套用同一套流程,讓任何人拿到匯出的
+// JSON 檔案都能以新房主身分開房繼續,不受原房主電腦是否在線影響
+function loadGameFromObject(s, name) {
+  if (!s || typeof s !== 'object') return false;
+  try { return applySave(s, name); } catch (e) { return false; }
+}
+
+function applySave(s, name) {
   genWorld(s.seed >>> 0); // 先生成再覆蓋,結構才齊全
   G.tiles = rleDec(s.tiles, MAP_W * MAP_H, Uint8Array);
   G.explored = rleDec(s.explored, MAP_W * MAP_H, Uint8Array);
   G.dmg = new Float32Array(MAP_W * MAP_H);
   G.objects.clear(); G.mushCount = 0;
-  for (const [i, type, hp] of s.objects) {
-    G.objects.set(i, hp === null ? { type } : { type, hp });
+  for (const [i, type, hp, ammo, off, owner] of s.objects) {
+    const o = hp === null ? { type } : { type, hp };
+    if (ammo !== null && ammo !== undefined) o.ammo = ammo;
+    if (off) o.off = true;
+    if (owner !== null && owner !== undefined) o.owner = owner;
+    G.objects.set(i, o);
     if (type === 'mushroom') G.mushCount++;
   }
   G.enemies = []; G.drops = []; G.projs = [];

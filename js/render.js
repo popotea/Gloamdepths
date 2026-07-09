@@ -107,15 +107,24 @@ function render(dt) {
   };
 
   // ---- 物件 ----
-  const OBJ_ICON = { mushroom: '🍄', torch: '🕯️', workbench: '🛠️', furnace: '🔥', tower: '🗼' };
+  const OBJ_ICON = { mushroom: '🍄', torch: '🕯️', workbench: '🛠️', furnace: '🔥', tower: '🗼', archer_tower: '🏹' };
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   for (const [i, o] of G.objects) {
     const tx = i % MAP_W, ty = (i / MAP_W) | 0;
     if (tx < x0 || tx > x1 || ty < y0 || ty > y1) continue;
     if (lightOf(tx + 0.5, ty + 0.5) < 0.05) continue;
     const [sx, sy] = worldToScreen(tx + 0.5, ty + 0.5);
+    ctx.globalAlpha = o.type === 'archer_tower' && o.off ? 0.45 : 1;
     ctx.font = `${TILE * 0.7}px "Segoe UI Emoji"`;
     ctx.fillText(OBJ_ICON[o.type] || '❓', sx, sy);
+    ctx.globalAlpha = 1;
+    if (o.type === 'archer_tower') {
+      const w = TILE * 0.8, ammoR = (o.ammo || 0) / ARCHER_TOWER_CFG.maxAmmo;
+      ctx.fillStyle = '#3336';
+      ctx.fillRect(sx - w / 2, sy + TILE * 0.42, w, 4);
+      ctx.fillStyle = o.off ? '#8899aa' : '#ffd23f';
+      ctx.fillRect(sx - w / 2, sy + TILE * 0.42, w * ammoR, 4);
+    }
   }
 
   // ---- 星核 ----
@@ -163,6 +172,10 @@ function render(dt) {
       ctx.font = 'bold 11px sans-serif';
       ctx.fillStyle = '#fff';
       ctx.fillText('x' + d.n, sx + 10, sy + bob + 10);
+    } else if (d.lv) {
+      ctx.font = 'bold 11px sans-serif';
+      ctx.fillStyle = '#ffd23f';
+      ctx.fillText('+' + d.lv, sx + 10, sy + bob + 10);
     }
   }
 
@@ -227,6 +240,16 @@ function render(dt) {
       ctx.fillRect(sx - w / 2, sy - et.r * TILE - 9, w, 5);
       ctx.fillStyle = '#ff5d5d';
       ctx.fillRect(sx - w / 2, sy - et.r * TILE - 9, w * Math.max(0, e.hp / et.hp), 5);
+    }
+    // 名稱:只在玩家靠近時顯示,避免遠處一堆怪把畫面塞滿文字
+    if (dist(me.x, me.y, e.x, e.y) < 4) {
+      ctx.font = 'bold 12px sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const nameY = sy - et.r * TILE - (e.hp < et.hp ? 18 : 12);
+      ctx.fillStyle = '#000a';
+      ctx.fillText(et.name, sx + 1, nameY + 1);
+      ctx.fillStyle = et.boss ? '#ffd23f' : '#dde4ee';
+      ctx.fillText(et.name, sx, nameY);
     }
   }
 

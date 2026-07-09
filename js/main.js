@@ -30,6 +30,9 @@ function bindInput() {
     else if (k === 'f') {
       if (NET.isHost()) doDeposit(me);
       else NET.act({ t: 'deposit' });
+    } else if (k === 'q' && !UI.panelOpen) {
+      if (NET.isHost()) doDropItem(me, me.sel);
+      else NET.act({ t: 'drop', slot: me.sel });
     }
   });
   addEventListener('keyup', e => INPUT.keys.delete(e.key.toLowerCase()));
@@ -110,20 +113,29 @@ function localControl(me, dt) {
     }
   }
 
-  // 右鍵:放置 / 吃(依快捷欄選中物品)
+  // 右鍵:對準箭塔補箭矢/開關優先,否則依快捷欄選中物品放置/吃
   INPUT.rCD -= dt;
   if (INPUT.r && INPUT.rCD <= 0 && !UI.panelOpen) {
     INPUT.rCD = 0.25;
+    const tx0 = Math.floor(wx), ty0 = Math.floor(wy);
+    const targetObj = objAt(tx0, ty0);
     const s = me.inv[me.sel];
-    if (s) {
+    if (targetObj && targetObj.type === 'archer_tower' && dist(me.x, me.y, tx0 + 0.5, ty0 + 0.5) <= 3.8) {
+      if (s && s.id === 'arrow') {
+        if (NET.isHost()) doFillTower(me, tx0, ty0);
+        else NET.act({ t: 'fill_tower', x: tx0, y: ty0 });
+      } else {
+        if (NET.isHost()) doToggleTower(me, tx0, ty0);
+        else NET.act({ t: 'toggle_tower', x: tx0, y: ty0 });
+      }
+    } else if (s) {
       const it = ITEMS[s.id];
       if (it.food) {
         if (NET.isHost()) doEat(me, me.sel);
         else NET.act({ t: 'eat', slot: me.sel });
       } else if (it.place || it.placeTile !== undefined) {
-        const tx = Math.floor(wx), ty = Math.floor(wy);
-        if (NET.isHost()) doPlace(me, me.sel, tx, ty);
-        else NET.act({ t: 'place', slot: me.sel, x: tx, y: ty });
+        if (NET.isHost()) doPlace(me, me.sel, tx0, ty0);
+        else NET.act({ t: 'place', slot: me.sel, x: tx0, y: ty0 });
       }
     }
   }

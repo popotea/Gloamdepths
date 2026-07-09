@@ -88,6 +88,15 @@ body { font-family: "Microsoft JhengHei", "Noto Sans TC", sans-serif; color: #dd
 #invgrid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; margin-bottom: 10px; }
 #invgrid .slot { width: auto; height: 50px; }
 #invgrid .slot.hotrow { border-bottom-color: #7ef0ff55; }
+#enhPanel { background: #10141fcc; border: 1px solid #3a4152; border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
+#enhPanel .enh-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+#enhPanel .enh-icon { font-size: 22px; }
+#enhPanel .enh-lv { font-size: 12px; color: #9fb0c8; font-weight: normal; }
+#enhPanel .hint { font-weight: normal; font-size: 12px; color: #667; margin: 4px 0; }
+#enhPanel .warn { color: #ffb27d; }
+#enhPanel .btnrow { display: flex; gap: 8px; margin-top: 8px; }
+#enhPanel button { font-size: 13px; padding: 7px 14px; }
+#enhPanel button:disabled { opacity: .4; cursor: not-allowed; }
 #crafttabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
 .ctab { font-size: 12px; padding: 5px 9px; border-radius: 7px; border: 1px solid #2a3040;
   background: #12161f; color: #8892a8; cursor: pointer; }
