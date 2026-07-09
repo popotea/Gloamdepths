@@ -17,7 +17,7 @@ function initUI() {
     shards: $id('shards'), wavebox: $id('wavebox'),
     hotbar: $id('hotbar'), msglog: $id('msglog'),
     chatlog: $id('chatlog'), chatbox: $id('chatbox'), chatInput: $id('chatInput'),
-    invpanel: $id('invpanel'), invgrid: $id('invgrid'), craftlist: $id('craftlist'),
+    invpanel: $id('invpanel'), invgrid: $id('invgrid'), craftlist: $id('craftlist'), crafttabs: $id('crafttabs'),
     overlay: $id('overlay'), minimap: $id('minimap'),
     hostBtn: $id('hostBtn'), roomcode: $id('roomcode'),
     deathbanner: $id('deathbanner'),
@@ -209,6 +209,7 @@ function recipeCat(r) {
 function refreshCraft() {
   const me = myPlayer();
   const list = UI.els.craftlist;
+  const tabs = UI.els.crafttabs;
   if (!list.dataset.built) {
     list.dataset.built = '1';
     UI.recipeEls = RECIPES.map((r, i) => {
@@ -231,26 +232,28 @@ function refreshCraft() {
       };
       return d;
     });
-    UI.catHeaders = {};
+    UI.craftTab = RECIPE_CATS[0].key;
+    tabs.innerHTML = '';
+    UI.tabEls = {};
     for (const c of RECIPE_CATS) {
-      const h = document.createElement('div');
-      h.className = 'rcathead';
-      h.textContent = c.name;
-      UI.catHeaders[c.key] = h;
+      const b = document.createElement('button');
+      b.className = 'ctab';
+      b.textContent = c.name;
+      b.onclick = () => { UI.craftTab = c.key; refreshCraft(); };
+      tabs.appendChild(b);
+      UI.tabEls[c.key] = b;
     }
   }
 
-  // 分類 -> 類別內材料足夠優先,其餘維持原配方順序
   const order = RECIPES.map((r, i) => ({ i, r, cat: recipeCat(r), ok: canAfford(me, r.cost) && stationNear(me, r.station) }));
   for (const o of order) UI.recipeEls[o.i].classList.toggle('ok', o.ok);
 
+  for (const c of RECIPE_CATS) UI.tabEls[c.key].classList.toggle('active', c.key === UI.craftTab);
+
+  // 只顯示目前分頁的配方,類別內材料足夠優先
   list.innerHTML = '';
-  for (const c of RECIPE_CATS) {
-    const items = order.filter(o => o.cat === c.key).sort((a, b) => b.ok - a.ok);
-    if (!items.length) continue;
-    list.appendChild(UI.catHeaders[c.key]);
-    for (const o of items) list.appendChild(UI.recipeEls[o.i]);
-  }
+  const items = order.filter(o => o.cat === UI.craftTab).sort((a, b) => b.ok - a.ok);
+  for (const o of items) list.appendChild(UI.recipeEls[o.i]);
 }
 
 function togglePanel(open) {

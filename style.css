@@ -88,8 +88,11 @@ body { font-family: "Microsoft JhengHei", "Noto Sans TC", sans-serif; color: #dd
 #invgrid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; margin-bottom: 10px; }
 #invgrid .slot { width: auto; height: 50px; }
 #invgrid .slot.hotrow { border-bottom-color: #7ef0ff55; }
-.rcathead { font-size: 12px; color: #8892a8; margin: 10px 0 4px; padding-left: 2px; }
-.rcathead:first-child { margin-top: 0; }
+#crafttabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.ctab { font-size: 12px; padding: 5px 9px; border-radius: 7px; border: 1px solid #2a3040;
+  background: #12161f; color: #8892a8; cursor: pointer; }
+.ctab:hover { background: #1a2230; }
+.ctab.active { background: #23381abb; border-color: #4a5a40; color: #dfe6f0; }
 .recipe { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 8px;
   border: 1px solid #2a3040; margin-bottom: 4px; cursor: pointer; opacity: .45; }
 .recipe.ok { opacity: 1; border-color: #4a5a40; background: #16240faa; }
