@@ -2,6 +2,7 @@
 const UI = {
   mmDirty: true, invDirty: true,
   pendingSwap: -1, panelOpen: false,
+  menuOpen: false, menuView: 'main',
   els: {}, mmImage: null, mmT: 0, craftT: 0,
 };
 
@@ -17,6 +18,7 @@ function initUI() {
     overlay: $id('overlay'), minimap: $id('minimap'),
     hostBtn: $id('hostBtn'), roomcode: $id('roomcode'),
     deathbanner: $id('deathbanner'),
+    menuPanel: $id('menuPanel'),
   };
   // 快捷欄 8 格
   for (let i = 0; i < 8; i++) {
@@ -170,6 +172,77 @@ function togglePanel(open) {
   UI.els.invpanel.classList.toggle('hidden', !UI.panelOpen);
   UI.pendingSwap = -1;
   if (UI.panelOpen) { refreshSlots(); UI.craftT = 0; }
+}
+
+// ===== ESC 選單(設定 / 存檔資訊)=====
+function toggleMenu(open) {
+  UI.menuOpen = open === undefined ? !UI.menuOpen : open;
+  UI.els.menuPanel.classList.toggle('hidden', !UI.menuOpen);
+  if (UI.menuOpen) { UI.menuView = 'main'; renderMenu(); }
+}
+
+function saveSizeText() {
+  let raw = null;
+  try { raw = localStorage.getItem(SAVE_KEY); } catch (e) { }
+  if (!raw) return '目前尚無存檔';
+  return `約 ${(raw.length / 1024).toFixed(1)} KB`;
+}
+
+function renderMenu() {
+  const panel = UI.els.menuPanel;
+  if (UI.menuView === 'main') {
+    panel.innerHTML = `
+      <h2>選單</h2>
+      <div class="btnrow col">
+        <button id="mResume">▶️ 返回遊戲</button>
+        <button id="mSettings">⚙️ 設定</button>
+      </div>`;
+    $id('mResume').onclick = () => toggleMenu(false);
+    $id('mSettings').onclick = () => { UI.menuView = 'settings'; renderMenu(); };
+    return;
+  }
+  // ---- 設定 ----
+  const isHost = NET.isHost();
+  let originNote;
+  if (location.protocol === 'file:') {
+    originNote = `目前是用「雙擊開啟檔案」的方式遊玩,存檔會存在瀏覽器對這個資料夾路徑的
+      本機儲存空間裡,並不是一般看得到的檔案(不在 D:\\game 資料夾內),換瀏覽器或清瀏覽器資料會遺失。`;
+  } else {
+    originNote = `存檔存在<b>瀏覽器的 localStorage</b>裡,綁定於網址
+      <code>${location.origin}</code>,不是電腦裡看得到的檔案,換瀏覽器、換裝置、
+      或清除該瀏覽器的「網站資料/瀏覽資料」都會遺失存檔。`;
+  }
+  let body;
+  if (isHost) {
+    body = `
+      <p>💾 <b>地圖存檔存在房主(你)的電腦裡</b>,每 30 秒自動存一次,關閉分頁前也會存一次。</p>
+      <p>${originNote}</p>
+      <p>存檔識別碼(key):<code>${SAVE_KEY}</code><br>目前存檔大小:${saveSizeText()}</p>
+      <div class="btnrow">
+        <button id="mSaveNow">💾 立即存檔</button>
+        <button id="mClearSave">🗑️ 清除存檔</button>
+      </div>`;
+  } else {
+    body = `
+      <p>你是以<b>連線客戶端</b>身分遊玩,存檔只會存在<b>房主</b>的電腦裡,不會存在你這台電腦。</p>
+      <p>你的背包會以你的名字保存在房主那邊,下次用<b>同樣的名字</b>加入同一位房主的房間,
+      就能拿回目前的裝備與血量。</p>`;
+  }
+  panel.innerHTML = `
+    <h2>設定</h2>
+    ${body}
+    <div class="btnrow"><button id="mBack">← 返回</button></div>`;
+  $id('mBack').onclick = () => { UI.menuView = 'main'; renderMenu(); };
+  if (isHost) {
+    $id('mSaveNow').onclick = () => { saveGame(); renderMenu(); };
+    $id('mClearSave').onclick = () => {
+      if (confirm('確定要清除自動存檔嗎?這個動作無法復原。')) {
+        try { localStorage.removeItem(SAVE_KEY); } catch (e) { }
+        showMsg('🗑️ 存檔已清除');
+        renderMenu();
+      }
+    };
+  }
 }
 
 // ===== 小地圖 =====

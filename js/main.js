@@ -13,8 +13,13 @@ function bindInput() {
     INPUT.keys.add(k);
     const me = myPlayer();
     if (!G.started || !me) return;
+    if (k === 'escape') {
+      if (UI.panelOpen) togglePanel(false);
+      else toggleMenu();
+      return;
+    }
+    if (UI.menuOpen) return;
     if (k === 'e') togglePanel();
-    else if (k === 'escape') togglePanel(false);
     else if (k >= '1' && k <= '8') { me.sel = +k - 1; UI.invDirty = true; }
     else if (k === 'f') {
       if (NET.isHost()) doDeposit(me);
@@ -46,7 +51,7 @@ function bindInput() {
 
 // 本地玩家控制(房主與客戶端共用;客戶端做本地預測)
 function localControl(me, dt) {
-  if (me.dead) return;
+  if (me.dead || UI.menuOpen) return;
   // 移動
   let dx = 0, dy = 0;
   if (INPUT.keys.has('w') || INPUT.keys.has('arrowup')) dy -= 1;

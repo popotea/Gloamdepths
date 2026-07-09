@@ -42,6 +42,17 @@ body { font-family: "Microsoft JhengHei", "Noto Sans TC", sans-serif; color: #dd
 #deathbanner { position: absolute; top: 35%; left: 50%; transform: translate(-50%, -50%);
   font-size: 26px; background: #300a; border: 2px solid #ff5d5d; border-radius: 12px; padding: 14px 30px; }
 
+/* ESC 選單(設定/存檔資訊) */
+.menu-panel { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: 420px; max-width: 90vw; background: #0a0d14f2; border: 2px solid #3a4152; border-radius: 14px;
+  padding: 22px 26px; box-shadow: 0 12px 40px #000a; }
+.menu-panel h2 { font-size: 20px; color: #9ff4ff; margin-bottom: 14px; text-align: center; }
+.menu-panel p { font-size: 13px; line-height: 1.8; color: #b7c2d4; margin-bottom: 10px; }
+.menu-panel code { background: #1b2230; padding: 1px 6px; border-radius: 4px; color: #7ef0ff; }
+.menu-panel .btnrow { display: flex; gap: 10px; justify-content: center; margin-top: 8px; }
+.menu-panel .btnrow.col { flex-direction: column; }
+.menu-panel .btnrow.col button { width: 100%; }
+
 /* 快捷欄 */
 #hotbar { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; }
 .slot { position: relative; width: 52px; height: 52px; background: #0a0d14cc; border: 2px solid #3a4152;
