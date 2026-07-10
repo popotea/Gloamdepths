@@ -17,12 +17,13 @@ const G = {
 
   core: { x: CX + 0.5, y: CY + 0.5, energy: CORE_CFG.maxE, shards: 0 },
   wave: { n: 0, state: 'calm', timer: WAVE_CFG.first, final: false },
-  shrines: [],          // [{x,y,dead}]
+  shrines: [],          // [{x,y,dead,boss}]  boss = ENEMY_TYPES 的 key,固定分配三座神殿各自守哪隻 Boss
   traders: [],          // [{x,y}] 中層區域固定攤位,不會動,不進 snap(靠 init/存讀檔同步)
   playersByName: {},    // 離線好友的背包(以名字為鍵,由房主保存)
   time: 0, seed: 0, over: null, started: false,
   mushCount: 0, warned: {},
   paused: false,  // 只有單機模式能暫停(多人共享同一個模擬,暫停會卡住其他人)
+  killCount: 0,   // 統計面板用:全隊累計擊殺數(killEnemy 累加,存讀檔保留)
 };
 
 function idx(x, y) { return y * MAP_W + x; }
@@ -131,7 +132,7 @@ function genWorld(seed) {
   G.objects.clear(); G.lights.clear(); G.cracks.clear();
   G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.cropIdx.clear();
   G.enemies = []; G.drops = []; G.floaters = []; G.projs = []; G.animals = [];
-  G.shrines = []; G.traders = []; G.mushCount = 0; G.warned = {};
+  G.shrines = []; G.traders = []; G.mushCount = 0; G.warned = {}; G.killCount = 0;
   G.core = { x: CX + 0.5, y: CY + 0.5, energy: CORE_CFG.maxE, shards: 0 };
   G.wave = { n: 0, state: 'calm', timer: WAVE_CFG.first, final: false };
   G.time = 0; G.over = null;
@@ -231,7 +232,10 @@ function genWorld(seed) {
     }
   }
 
-  // 6) 三座守衛神殿(外圈,120 度間隔)
+  // 6) 三座守衛神殿(外圈,120 度間隔),各自固定分配不同屬性 Boss(呼應元素相剋系統)
+  // 目前只有 1 隻新 Boss(fire_boss),其餘 2 座暫時仍用 sentinel 頂位;
+  // 之後補冰系/穿牆系只要把這個陣列改成 3 個不同 key,不用動生成迴圈本身
+  const SHRINE_BOSSES = ['fire_boss', 'sentinel', 'sentinel'];
   const baseAng = rnd() * TAU;
   for (let k = 0; k < 3; k++) {
     const ang = baseAng + k * TAU / 3;
@@ -248,7 +252,7 @@ function genWorld(seed) {
         else { G.tiles[idx(x, y)] = T.FLOOR; G.objects.delete(idx(x, y)); }
       }
     }
-    G.shrines.push({ x: sx + 0.5, y: sy + 0.5, dead: false });
+    G.shrines.push({ x: sx + 0.5, y: sy + 0.5, dead: false, boss: SHRINE_BOSSES[k] });
   }
 
   // 6.5) NPC 商人:中層區域(zone 1,距中心 42~72 格)隨機找一格空地板放置

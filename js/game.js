@@ -14,15 +14,17 @@ function startNewGame(name) {
   G.myId = 0;
   const p = makePlayer(0, name);
   G.players.set(0, p);
-  spawnSentinels();
+  spawnShrineBosses();
   G.started = true;
   showMsg('🌑 星核能量正在流失,挖光晶(藍色礦脈)按 F 餵它!');
   showMsg('⛏️ 左鍵挖牆/攻擊、右鍵放置、E 開背包');
 }
 
-function spawnSentinels() {
+// 依 G.shrines 各自的 boss 欄位生成對應神殿守衛(舊存檔沒有 boss 欄位時退回 sentinel,
+// 讓「重構前存的檔」讀進來也不會生不出怪)
+function spawnShrineBosses() {
   for (const s of G.shrines) {
-    if (!s.dead) spawnEnemy('sentinel', s.x, s.y, { home: { x: s.x, y: s.y } });
+    if (!s.dead) spawnEnemy(s.boss || 'sentinel', s.x, s.y, { home: { x: s.x, y: s.y } });
   }
 }
 
@@ -201,7 +203,7 @@ function buildSave() {
     G.playersByName[p.name] = { inv: p.inv, hp: p.hp, x: p.x, y: p.y, lv: p.lv, xp: p.xp, talents: p.talents };
   }
   return {
-    v: 1, seed: G.seed, time: G.time,
+    v: 1, seed: G.seed, time: G.time, killCount: G.killCount,
     tiles: rleEnc(G.tiles),
     explored: rleEnc(G.explored),
     objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null, o.stage ?? null, o.t ?? null, o.nestType ?? null]),
@@ -210,7 +212,7 @@ function buildSave() {
     animals: G.animals.map(a => [a.type, Math.round(a.x * 10) / 10, Math.round(a.y * 10) / 10, Math.round(a.hp), Math.round(a.fedT || 0)]),
     core: { energy: G.core.energy, shards: G.core.shards },
     wave: { n: G.wave.n, timer: Math.max(45, G.wave.state === 'calm' ? G.wave.timer : 45), final: G.wave.final && G.core.shards < CORE_CFG.needShards ? false : G.wave.final },
-    shrines: G.shrines.map(s => ({ x: s.x, y: s.y, dead: s.dead })),
+    shrines: G.shrines.map(s => ({ x: s.x, y: s.y, dead: s.dead, boss: s.boss })),
     traders: G.traders.map(t => ({ x: t.x, y: t.y })),
     playersByName: G.playersByName,
     hostName: G.players.get(G.myId)?.name || '',
@@ -280,9 +282,10 @@ function applySave(s, name) {
   G.traders = s.traders || G.traders;
   G.playersByName = s.playersByName || {};
   G.time = s.time || 0;
+  G.killCount = s.killCount || 0;
   G.over = s.won ? 'win' : null;
   rebuildLights();
-  spawnSentinels();
+  spawnShrineBosses();
   if (s.core.shards >= CORE_CFG.needShards && !s.won) G.wave = { n: s.wave.n, state: 'warn', timer: 20, final: true };
 
   // 用名字還原玩家背包

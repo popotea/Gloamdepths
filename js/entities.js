@@ -152,6 +152,7 @@ function hurtEnemy(e, dmg, src, kbF, atkElem) {
 function killEnemy(e, killer) {
   const i = G.enemies.indexOf(e);
   if (i >= 0) G.enemies.splice(i, 1);
+  G.killCount++;
   emitFx({ k: 'sfx', s: 'break_' });
   if (killer) grantXp(killer, (ENEMY_XP[e.type] || 0) * (e.elite ? ELITE_CFG.xpMult : 1));
   // 精英怪(來自精英巢穴):額外保底掉卷軸+光晶,補償比一般怪更強的戰鬥難度
@@ -170,21 +171,24 @@ function killEnemy(e, killer) {
     spawnDrop('lumite', 2, e.x, e.y);
     if (Math.random() < 0.25) spawnDrop('gold_ore', 1, e.x, e.y);
   }
-  else if (e.type === 'sentinel') {
+  else if (e.type === 'sentinel' && !e.home) {
+    // 暗潮最終波的裸體石像守衛(game.js):不是神殿 Boss,維持原掉落,不進神殿死亡流程
+    spawnDrop('lumite', 4, e.x, e.y);
+  }
+  else if (e.home) {
+    // 神殿 Boss 共用死亡流程:任何有 e.home 的敵人都是某座神殿的守衛,
+    // 之後新增冰系/穿牆系 Boss 只要 spawnShrineBosses() 生成時帶 home,這裡完全不用再改
+    const et = ENEMY_TYPES[e.type];
     spawnDrop('enh_scroll', 2, e.x, e.y);   // 守衛必掉 2 張卷軸
-    if (e.home) {
-      // 神殿守衛:碎片直接給擊殺者,避免撿不到
-      const owner = killer || nearestAlivePlayer(e.x, e.y, 999) || [...G.players.values()][0];
-      const shrine = G.shrines.find(s => s.x === e.home.x && s.y === e.home.y);
-      if (shrine) shrine.dead = true;
-      if (owner) {
-        if (addItem(owner, 'shard', 1) > 0) spawnDrop('shard', 1, e.x, e.y);
-        msgAll(`⚔️ ${owner.name} 擊敗了石像守衛,取得星核碎片!帶回星核吧!`);
-      }
-      spawnDrop('gold_ore', 3, e.x, e.y);
-    } else {
-      spawnDrop('lumite', 4, e.x, e.y);
+    const owner = killer || nearestAlivePlayer(e.x, e.y, 999) || [...G.players.values()][0];
+    const shrine = G.shrines.find(s => s.x === e.home.x && s.y === e.home.y);
+    if (shrine) shrine.dead = true;
+    if (owner) {
+      if (addItem(owner, 'shard', 1) > 0) spawnDrop('shard', 1, e.x, e.y);
+      msgAll(`⚔️ ${owner.name} 擊敗了${et.name},取得星核碎片!帶回星核吧!`);
     }
+    const loot = SHRINE_BOSS_LOOT[e.type] || SHRINE_BOSS_LOOT.sentinel;
+    for (const id in loot) spawnDrop(id, loot[id], e.x, e.y);
   }
 }
 
@@ -275,6 +279,7 @@ function updateEnemies(dt) {
           x: e.x + Math.cos(ang) * 0.4, y: e.y + Math.sin(ang) * 0.4,
           vx: Math.cos(ang) * et.ranged.speed, vy: Math.sin(ang) * et.ranged.speed,
           dmg: enemyDmg(e, et.ranged.dmg), from: 'e', ttl: 1.4, kind: 0,
+          aoe: et.ranged.aoe || null,
         });
         emitFx({ k: 'sfx', s: 'shoot' });
       }
@@ -352,7 +357,8 @@ function updateEnemies(dt) {
 function spawnProj(o) {
   const pj = { id: nextPjid++, x: o.x, y: o.y, vx: o.vx, vy: o.vy,
     dmg: o.dmg, from: o.from, ttl: o.ttl ?? 1.4, pierce: !!o.pierce,
-    elem: o.elem || null, owner: o.owner || null, hitSet: o.pierce ? new Set() : null };
+    elem: o.elem || null, owner: o.owner || null, hitSet: o.pierce ? new Set() : null,
+    aoe: o.aoe || null };   // {r, wallDmg}:命中/飛行結束時觸發範圍爆炸(火球用),其餘彈道維持 null
   G.projs.push(pj);
   return pj;
 }
@@ -379,12 +385,17 @@ function updateProjs(dt) {
         for (const p of G.players.values()) {
           if (p.dead || p.iframe > 0) continue;
           if (dist(pj.x, pj.y, p.x, p.y) < p.r + 0.18) {
-            damagePlayer(p, pj.dmg);
+            if (!pj.aoe) damagePlayer(p, pj.dmg); // 無 aoe 的一般暗影彈:維持原本直接命中扣血
             dead = true;
             break;
           }
         }
       }
+    }
+    // 敵方彈道帶 aoe(火球):不論是撞到玩家死、還是撞牆/出圖自然死,
+    // 落地那一刻都炸一次範圍傷害(直擊玩家改由爆炸傷害統一處理,避免命中+爆炸疊加兩次傷害)
+    if (dead && pj.aoe && pj.from === 'e') {
+      explodeAt(pj.x, pj.y, { r: pj.aoe.r, dmg: pj.dmg, wallDmg: pj.aoe.wallDmg, core: 0 });
     }
     if (dead) G.projs.splice(i, 1);
   }

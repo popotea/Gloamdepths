@@ -164,6 +164,7 @@ const NET = {
       projs: G.projs.map(pj => [pj.id, r2(pj.x), r2(pj.y), pj.from === 'e' ? 1 : 0]),
       core: { e: r2(G.core.energy), s: G.core.shards },
       wave: { n: G.wave.n, state: G.wave.state, timer: Math.round(G.wave.timer), alive: G.wave.alive || 0, final: G.wave.final },
+      kills: G.killCount,
     };
     for (const [pid, c] of this.conns) {
       const p = G.players.get(pid);
@@ -269,7 +270,7 @@ const NET = {
         G.drops = d.drops.map(([id, item, n, x, y, lv]) => ({ id, item, n, x, y, lv: lv || 0 }));
         G.projs = (d.projs || []).map(([id, x, y, fromE]) => ({ id, x, y, from: fromE ? 'e' : 'p' }));
         G.core.energy = d.core.e; G.core.shards = d.core.s;
-        G.wave = d.wave; G.time = d.time;
+        G.wave = d.wave; G.time = d.time; G.killCount = d.kills || 0;
         if (d.me) {
           const me = G.players.get(G.myId);
           if (me) {

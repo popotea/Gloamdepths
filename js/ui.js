@@ -728,11 +728,31 @@ function renderMenu() {
       <div class="btnrow col">
         <button id="mResume">▶️ 返回遊戲</button>
         ${canPause ? `<button id="mPause">${G.paused ? '▶️ 繼續遊戲' : '⏸️ 暫停遊戲'}</button>` : ''}
+        <button id="mStats">📊 統計</button>
         <button id="mSettings">⚙️ 設定</button>
       </div>`;
     $id('mResume').onclick = () => toggleMenu(false);
     if (canPause) $id('mPause').onclick = () => { G.paused = !G.paused; renderMenu(); };
+    $id('mStats').onclick = () => { UI.menuView = 'stats'; renderMenu(); };
     $id('mSettings').onclick = () => { UI.menuView = 'settings'; renderMenu(); };
+    return;
+  }
+  // ---- 統計 ----
+  if (UI.menuView === 'stats') {
+    const t = Math.floor(G.time);
+    const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
+    const timeText = h > 0
+      ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+      : `${m}:${String(s).padStart(2, '0')}`;
+    panel.innerHTML = `
+      <h2>📊 統計</h2>
+      <div class="btnrow col" style="align-items:stretch;text-align:left;gap:4px;">
+        <p>⚔️ 累計擊殺:<b>${G.killCount || 0}</b></p>
+        <p>⏱️ 存活時間:<b>${timeText}</b></p>
+        <p>🌊 暗潮波數:<b>${G.wave.n || 0}</b></p>
+      </div>
+      <div class="btnrow"><button id="mStatsBack">← 返回</button></div>`;
+    $id('mStatsBack').onclick = () => { UI.menuView = 'main'; renderMenu(); };
     return;
   }
   // ---- 設定 ----

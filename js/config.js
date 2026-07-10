@@ -31,7 +31,13 @@ const LEVEL_CFG = {
 // 各怪物擊殺經驗值
 const ENEMY_XP = {
   imp: 4, spore: 2, hunter: 9, spitter: 7, bomber: 6,
-  phantom: 8, breaker: 20, abyss: 16, sentinel: 60,
+  phantom: 8, breaker: 20, abyss: 16, sentinel: 60, fire_boss: 65,
+};
+
+// 神殿 Boss 額外掉落(除了必掉 2 張強化卷軸 + 1 顆星核碎片給擊殺者之外的加碼獎勵)
+const SHRINE_BOSS_LOOT = {
+  sentinel:  { gold_ore: 3 },
+  fire_boss: { gold_ore: 2, lumite: 4 },   // 火系加碼一點光晶,呼應「火」與能量的意象
 };
 function xpToNext(lv) { return LEVEL_CFG.xpNeed(lv); }
 
@@ -315,6 +321,10 @@ const ENEMY_TYPES = {
   breaker:  { name: '裂地者',   hp: 130, dmg: 14, r: 0.55, speed: 3.6, hopCD: 1.9, color: '#6b6250', eye: '#ffd23f', shape: 'tank',  elem: 'earth', wallMult: 4, icon: 'breaker.png' },
   abyss:    { name: '深淵蝕影', hp: 75,  dmg: 20, r: 0.50, speed: 4.6, hopCD: 1.2, color: '#742e42', eye: '#ff5d5d', shape: 'spike', elem: 'dark', icon: 'abyss.png' },
   sentinel: { name: '石像守衛', hp: 350, dmg: 25, r: 0.90, speed: 5.5, hopCD: 2.0, color: '#767c94', eye: '#ffd23f', shape: 'tank',  elem: 'earth', boss: true, icon: 'sentinel.png' },
+  fire_boss: { name: '熔岩魔像', hp: 380, dmg: 22, r: 0.90, speed: 4.8, hopCD: 2.0,
+               color: '#b8442a', eye: '#ffb35c', shape: 'tank', elem: 'fire', boss: true, icon: 'fire_boss.png',
+               ranged: { range: 6.5, cd: 2.6, dmg: 16, speed: 6.5,
+                          aoe: { r: 1.8, wallDmg: 30 } } },
 };
 
 // ── 屬性相剋:attackElem → enemyElem → 倍率(未列 = 1.0)──

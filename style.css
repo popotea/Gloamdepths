@@ -36,7 +36,8 @@ button:disabled { opacity: .4; cursor: default; }
 
 #game { position: absolute; inset: 0; display: block; cursor: crosshair; }
 #hud { position: absolute; inset: 0; pointer-events: none; }
-#hud button, #hud input, #hud .slot, #hud .recipe, #hud #roomcode, #hud #minimap { pointer-events: auto; }
+#hud button, #hud input, #hud .slot, #hud .recipe, #hud #roomcode, #hud #minimap,
+#hud .menu-panel, #hud .panel-glass, #hud #invpanel, #hud #towerPanel { pointer-events: auto; }
 
 .hidden { display: none !important; }
 

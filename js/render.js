@@ -430,8 +430,9 @@ function render(dt) {
       ctx.beginPath();
       ctx.ellipse(sx, sy, er * TILE * squash, er * TILE / squash, 0, 0, TAU);
       ctx.fill();
-      if (e.type === 'sentinel') {
-        ctx.strokeStyle = '#8a90a5'; ctx.lineWidth = 3; ctx.stroke();
+      if (et.boss) {
+        ctx.strokeStyle = e.type === 'fire_boss' ? '#ff8f4a' : '#8a90a5';
+        ctx.lineWidth = 3; ctx.stroke();
       }
       // 發光的眼睛(黑暗氛圍重點)
       ctx.fillStyle = et.eye;
