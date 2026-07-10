@@ -18,7 +18,38 @@ const MIME = {
   '.ico': 'image/x-icon',
 };
 
+// AI Hub「存入遊戲」用:把生成圖寫進 assets/ 底下的分類資料夾
+// 只收白名單資料夾 + 嚴格檔名,避免被當成任意寫檔的後門(雖然只聽 127.0.0.1,仍防萬一)
+const SAVE_DIRS = new Set(['monsters', 'tiles', 'items', 'animals']);
+function saveAsset(req, res) {
+  let body = '';
+  req.on('data', c => { body += c; if (body.length > 15e6) req.destroy(); }); // 15MB 上限,擋異常請求
+  req.on('end', () => {
+    const json = h => { res.writeHead(h, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' }); };
+    try {
+      const { dir, name, b64, overwrite } = JSON.parse(body);
+      if (!SAVE_DIRS.has(dir)) { json(400); res.end(JSON.stringify({ error: '不允許的資料夾: ' + dir })); return; }
+      if (!/^[a-z0-9\-_]+\.png$/i.test(name || '')) { json(400); res.end(JSON.stringify({ error: '檔名只能是英數-_.png: ' + name })); return; }
+      const folder = path.join(ROOT, 'assets', dir);
+      fs.mkdirSync(folder, { recursive: true });
+      const file = path.join(folder, name);
+      if (fs.existsSync(file) && !overwrite) { json(409); res.end(JSON.stringify({ exists: true })); return; }
+      fs.writeFileSync(file, Buffer.from(b64, 'base64'));
+      const rel = 'assets/' + dir + '/' + name;
+      console.log('💾 已儲存 ' + rel);
+      json(200); res.end(JSON.stringify({ ok: true, path: rel }));
+    } catch (e) { json(500); res.end(JSON.stringify({ error: e.message })); }
+  });
+}
+
 const server = http.createServer((req, res) => {
+  // AI Hub 可能用 file:// 開啟,跨來源呼叫存檔 API 需要 CORS 放行(只聽 127.0.0.1,風險可控)
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, { 'Access-Control-Allow-Methods': 'GET,POST,OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' });
+    res.end(); return;
+  }
+  if (req.method === 'POST' && req.url.split('?')[0] === '/api/save-asset') { saveAsset(req, res); return; }
   // 檔名可能含空白或中文,要先解碼;並擋住跳脫到專案外的路徑
   let urlPath = decodeURIComponent(req.url.split('?')[0]);
   if (urlPath === '/') urlPath = '/index.html';

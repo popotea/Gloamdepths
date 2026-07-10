@@ -28,6 +28,32 @@ function monsterImg(type) {
   return entry.ready ? entry.img : null;
 }
 
+// ---- 地形貼圖快取 ----
+// 依 TILE_INFO[t].tex 從 assets/tiles/ 載入;載入後先預縮成 TILE 大小的離屏 canvas,
+// 地形迴圈每幀畫上千格,直接畫小圖才不會每格都做大圖縮放。失敗自動退回色塊畫法
+const TILE_TEX = new Map();
+function tileTexFile(file) {
+  let e = TILE_TEX.get(file); // 用檔名當 key:GLOW 與 FLOOR 共用 floor.png,只載一次
+  if (!e) {
+    e = { cv: null, failed: false };
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = c.height = TILE + 1; // +1 跟色塊畫法一致,蓋住格線縫
+      c.getContext('2d').drawImage(img, 0, 0, TILE + 1, TILE + 1);
+      e.cv = c;
+    };
+    img.onerror = () => { e.failed = true; };
+    img.src = `assets/tiles/${file}`;
+    TILE_TEX.set(file, e);
+  }
+  return e.cv;
+}
+function tileTex(t) {
+  const info = TILE_INFO[t];
+  return info && info.tex ? tileTexFile(info.tex) : null;
+}
+
 function worldToScreen(x, y) { return [(x - camX) * TILE, (y - camY) * TILE]; }
 function screenToWorld(sx, sy) { return [sx / TILE + camX, sy / TILE + camY]; }
 
@@ -59,24 +85,36 @@ function render(dt) {
       const t = G.tiles[i];
       const info = TILE_INFO[t];
       const [sx, sy] = worldToScreen(tx, ty);
+      const tex = tileTex(t); // 有貼圖畫貼圖,沒有(未生產/載入失敗)退回原本色塊
       if (info.liquid) {
-        // 幽光水池:深藍底 + 相位錯開的波光(用格子座標當相位,不用另存動畫狀態)
-        ctx.fillStyle = info.c1;
-        ctx.fillRect(sx, sy, TILE + 1, TILE + 1);
+        // 幽光水池:深藍底 + 相位錯開的波光(用格子座標當相位,不用另存動畫狀態);波光疊在貼圖上照樣有動態感
+        if (tex) ctx.drawImage(tex, sx, sy);
+        else { ctx.fillStyle = info.c1; ctx.fillRect(sx, sy, TILE + 1, TILE + 1); }
         const ph = performance.now() / 700 + tx * 1.7 + ty * 2.3;
         ctx.fillStyle = `rgba(126,220,255,${0.13 + 0.1 * Math.sin(ph)})`;
         ctx.fillRect(sx + TILE * 0.12, sy + TILE * 0.22, TILE * 0.34, TILE * 0.1);
         ctx.fillRect(sx + TILE * 0.52, sy + TILE * 0.62, TILE * 0.3, TILE * 0.09);
       } else if (!info.solid) {
-        // 地板(依區域變色)
-        const z = zoneOf(tx + 0.5, ty + 0.5);
-        ctx.fillStyle = t === T.GLOW ? '#2e4a52' : t === T.FARMLAND ? '#3f2e18' : z === 0 ? '#2b2118' : z === 1 ? '#232329' : '#1b1826';
-        ctx.fillRect(sx, sy, TILE + 1, TILE + 1);
+        // 地板貼圖跟色塊一樣分層:外圈用 floor.png,中層/深層有專屬貼圖就換,沒有就共用外圈的
+        let ftex = tex;
+        if (t === T.FLOOR || t === T.GLOW) {
+          const z = zoneOf(tx + 0.5, ty + 0.5);
+          if (z === 1) ftex = tileTexFile('floor_mid.png') || ftex;
+          else if (z === 2) ftex = tileTexFile('floor_deep.png') || ftex;
+        }
+        if (ftex) ctx.drawImage(ftex, sx, sy);
+        else {
+          // 地板(依區域變色)
+          const z = zoneOf(tx + 0.5, ty + 0.5);
+          ctx.fillStyle = t === T.GLOW ? '#2e4a52' : t === T.FARMLAND ? '#3f2e18' : z === 0 ? '#2b2118' : z === 1 ? '#232329' : '#1b1826';
+          ctx.fillRect(sx, sy, TILE + 1, TILE + 1);
+        }
         if (t === T.GLOW) {
+          // 光斑不管有沒有貼圖都疊,發光地板的辨識靠它
           ctx.fillStyle = 'rgba(126,240,255,0.25)';
           ctx.fillRect(sx + TILE * 0.4, sy + TILE * 0.4, TILE * 0.2, TILE * 0.2);
-        } else if (t === T.FARMLAND) {
-          // 翻土紋路:三條深色橫紋,一眼認得出是農地
+        } else if (t === T.FARMLAND && !tex) {
+          // 翻土紋路:三條深色橫紋,一眼認得出是農地(貼圖版的紋路由圖自己畫)
           ctx.strokeStyle = '#2a1c0f'; ctx.lineWidth = 2;
           for (let row = 0.25; row < 1; row += 0.25) {
             ctx.beginPath();
@@ -88,30 +126,39 @@ function render(dt) {
       } else {
         if (info.fence) {
           // 圍籬:地板打底 + 木柵欄(視覺上矮一截),跟整格實心的木牆做出區隔;裂痕沿用下方共用邏輯
-          const z = zoneOf(tx + 0.5, ty + 0.5);
-          ctx.fillStyle = z === 0 ? '#2b2118' : z === 1 ? '#232329' : '#1b1826';
-          ctx.fillRect(sx, sy, TILE + 1, TILE + 1);
-          ctx.strokeStyle = info.c1; ctx.lineWidth = 4;
-          ctx.beginPath();
-          for (const fx of [0.22, 0.5, 0.78]) {
-            ctx.moveTo(sx + TILE * fx, sy + TILE * 0.18);
-            ctx.lineTo(sx + TILE * fx, sy + TILE * 0.92);
+          const floorTex = tileTex(T.FLOOR);
+          if (floorTex) ctx.drawImage(floorTex, sx, sy);
+          else {
+            const z = zoneOf(tx + 0.5, ty + 0.5);
+            ctx.fillStyle = z === 0 ? '#2b2118' : z === 1 ? '#232329' : '#1b1826';
+            ctx.fillRect(sx, sy, TILE + 1, TILE + 1);
           }
-          ctx.stroke();
-          ctx.strokeStyle = info.c2; ctx.lineWidth = 3;
-          ctx.beginPath();
-          for (const fy of [0.35, 0.68]) {
-            ctx.moveTo(sx + TILE * 0.06, sy + TILE * fy);
-            ctx.lineTo(sx + TILE * 0.94, sy + TILE * fy);
+          if (tex) ctx.drawImage(tex, sx, sy); // 圍籬貼圖須帶透明背景,否則會整格蓋掉地板
+          else {
+            ctx.strokeStyle = info.c1; ctx.lineWidth = 4;
+            ctx.beginPath();
+            for (const fx of [0.22, 0.5, 0.78]) {
+              ctx.moveTo(sx + TILE * fx, sy + TILE * 0.18);
+              ctx.lineTo(sx + TILE * fx, sy + TILE * 0.92);
+            }
+            ctx.stroke();
+            ctx.strokeStyle = info.c2; ctx.lineWidth = 3;
+            ctx.beginPath();
+            for (const fy of [0.35, 0.68]) {
+              ctx.moveTo(sx + TILE * 0.06, sy + TILE * fy);
+              ctx.lineTo(sx + TILE * 0.94, sy + TILE * fy);
+            }
+            ctx.stroke();
           }
-          ctx.stroke();
+        } else if (tex) {
+          ctx.drawImage(tex, sx, sy); // 礦脈貼圖自帶礦點,不再疊圓點
         } else {
           ctx.fillStyle = info.c1;
           ctx.fillRect(sx, sy, TILE + 1, TILE + 1);
           ctx.fillStyle = info.c2;
           ctx.fillRect(sx, sy + TILE * 0.75, TILE + 1, TILE * 0.25); // 底部陰影,立體感
         }
-        if (info.ore) {
+        if (info.ore && !tex) {
           ctx.fillStyle = info.ore;
           const rr = TILE * 0.11;
           ctx.beginPath();

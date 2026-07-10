@@ -79,29 +79,30 @@ const T = {
 // 配色原則:每種牆用「不同色相」拉開辨識度(泥土=暖棕、石=冷灰藍、黑曜=紫、
 // 木根=亮木色);整體提高明度與飽和度(亮處要一眼分得出來,暗處靠遮罩壓暗);
 // 礦脈底色比同區牆亮一階 + 礦點高飽和 + sparkle 白點(render 畫)
+// tex=貼圖檔名(放 assets/tiles/,由 AI Hub 生產);檔案不存在自動退回 c1/c2 色塊畫法
 const TILE_INFO = {
-  [T.FLOOR]:    { solid: false },
-  [T.GLOW]:     { solid: false, light: 4 },
-  [T.FARMLAND]: { solid: false, name: '翻好的農地' }, // 鏟子翻土產生;渲染在 render.js 特判(不是牆,不用 c1/c2)
-  [T.DIRT]:     { solid: true, hp: 3,  tier: 0, name: '泥土牆',   drop: null,                      c1: '#96683c', c2: '#6e4a24' },
-  [T.STONE]:    { solid: true, hp: 10, tier: 0, name: '石牆',     drop: { id: 'stone', n: 1 },      c1: '#8d92aa', c2: '#666b80' },
-  [T.OBSIDIAN]: { solid: true, hp: 22, tier: 2, name: '黑曜岩',   drop: { id: 'stone', n: 1 },      c1: '#6b529e', c2: '#4a3870' },
-  [T.COPPER]:   { solid: true, hp: 6,  tier: 0, name: '銅礦脈',   drop: { id: 'copper_ore', n: 1 }, c1: '#a06a38', c2: '#784e24', ore: '#ff9040' },
-  [T.IRON]:     { solid: true, hp: 16, tier: 1, name: '鐵礦脈',   drop: { id: 'iron_ore', n: 1 },   c1: '#9aa0b8', c2: '#70768c', ore: '#f4f8ff' },
-  [T.GOLD]:     { solid: true, hp: 24, tier: 2, name: '金礦脈',   drop: { id: 'gold_ore', n: 1 },   c1: '#7a62b0', c2: '#564584', ore: '#ffd23f' },
-  [T.LUMITE]:   { solid: true, hp: 8,  tier: 0, name: '光晶礦脈', drop: { id: 'lumite', n: 2 },     c1: '#3e6c94', c2: '#2c4e6c', ore: '#7ef0ff', light: 2.5 },
-  [T.ROOT]:     { solid: true, hp: 4,  tier: 0, name: '木根',     drop: { id: 'wood', n: 2 },       c1: '#b08a48', c2: '#886a34', ore: '#e0b878' },
-  [T.GRAVEL]:   { solid: true, hp: 4,  tier: 0, name: '砂礫',     drop: { id: 'stone', n: 1 },      c1: '#8a8478', c2: '#645e52' },
-  [T.COAL]:     { solid: true, hp: 7,  tier: 0, name: '煤礦脈',   drop: { id: 'coal', n: 1 },       c1: '#585850', c2: '#3a3a34', ore: '#26262a' },
-  [T.DIAMOND]:  { solid: true, hp: 30, tier: 3, name: '鑽石礦脈', drop: { id: 'diamond', n: 1 },    c1: '#5a4a8e', c2: '#3c3068', ore: '#6cf7ff' },
-  [T.BEDROCK]:  { solid: true, hp: Infinity, tier: 99, name: '基岩', c1: '#16161c', c2: '#0e0e12' },
-  [T.WOODWALL]: { solid: true, hp: 40, tier: 0, name: '木牆', drop: { id: 'wood_wall', n: 1 },  c1: '#c09454', c2: '#96743e', built: 'plank' },
-  [T.STONEWALL]:{ solid: true, hp: 90, tier: 0, name: '石牆(建)', drop: { id: 'stone_wall', n: 1 }, c1: '#b4b4c4', c2: '#8e8e9e', built: 'brick' },
+  [T.FLOOR]:    { solid: false, tex: 'floor.png' },
+  [T.GLOW]:     { solid: false, light: 4, tex: 'floor.png' }, // 底圖同地板,光斑在 render 疊加
+  [T.FARMLAND]: { solid: false, name: '翻好的農地', tex: 'farmland.png' }, // 鏟子翻土產生;渲染在 render.js 特判(不是牆,不用 c1/c2)
+  [T.DIRT]:     { solid: true, hp: 3,  tier: 0, name: '泥土牆',   drop: null,                      c1: '#96683c', c2: '#6e4a24', tex: 'dirt.png' },
+  [T.STONE]:    { solid: true, hp: 10, tier: 0, name: '石牆',     drop: { id: 'stone', n: 1 },      c1: '#8d92aa', c2: '#666b80', tex: 'stone.png' },
+  [T.OBSIDIAN]: { solid: true, hp: 22, tier: 2, name: '黑曜岩',   drop: { id: 'stone', n: 1 },      c1: '#6b529e', c2: '#4a3870', tex: 'obsidian.png' },
+  [T.COPPER]:   { solid: true, hp: 6,  tier: 0, name: '銅礦脈',   drop: { id: 'copper_ore', n: 1 }, c1: '#a06a38', c2: '#784e24', ore: '#ff9040', tex: 'copper_vein.png' },
+  [T.IRON]:     { solid: true, hp: 16, tier: 1, name: '鐵礦脈',   drop: { id: 'iron_ore', n: 1 },   c1: '#9aa0b8', c2: '#70768c', ore: '#f4f8ff', tex: 'iron_vein.png' },
+  [T.GOLD]:     { solid: true, hp: 24, tier: 2, name: '金礦脈',   drop: { id: 'gold_ore', n: 1 },   c1: '#7a62b0', c2: '#564584', ore: '#ffd23f', tex: 'gold_vein.png' },
+  [T.LUMITE]:   { solid: true, hp: 8,  tier: 0, name: '光晶礦脈', drop: { id: 'lumite', n: 2 },     c1: '#3e6c94', c2: '#2c4e6c', ore: '#7ef0ff', light: 2.5, tex: 'lumite_vein.png' },
+  [T.ROOT]:     { solid: true, hp: 4,  tier: 0, name: '木根',     drop: { id: 'wood', n: 2 },       c1: '#b08a48', c2: '#886a34', ore: '#e0b878', tex: 'root.png' },
+  [T.GRAVEL]:   { solid: true, hp: 4,  tier: 0, name: '砂礫',     drop: { id: 'stone', n: 1 },      c1: '#8a8478', c2: '#645e52', tex: 'gravel.png' },
+  [T.COAL]:     { solid: true, hp: 7,  tier: 0, name: '煤礦脈',   drop: { id: 'coal', n: 1 },       c1: '#585850', c2: '#3a3a34', ore: '#26262a', tex: 'coal_vein.png' },
+  [T.DIAMOND]:  { solid: true, hp: 30, tier: 3, name: '鑽石礦脈', drop: { id: 'diamond', n: 1 },    c1: '#5a4a8e', c2: '#3c3068', ore: '#6cf7ff', tex: 'diamond_vein.png' },
+  [T.BEDROCK]:  { solid: true, hp: Infinity, tier: 99, name: '基岩', c1: '#16161c', c2: '#0e0e12', tex: 'bedrock.png' },
+  [T.WOODWALL]: { solid: true, hp: 40, tier: 0, name: '木牆', drop: { id: 'wood_wall', n: 1 },  c1: '#c09454', c2: '#96743e', built: 'plank', tex: 'wall_wood.png' },
+  [T.STONEWALL]:{ solid: true, hp: 90, tier: 0, name: '石牆(建)', drop: { id: 'stone_wall', n: 1 }, c1: '#b4b4c4', c2: '#8e8e9e', built: 'brick', tex: 'wall_stone.png' },
   // 水:solid 擋移動(人/怪都不能走進去,幽影照樣穿),liquid+low 讓投射物飛得過、鎬敲不掉;
   // 自帶微光呼應「幽光水池」,順便讓怪不會貼著水邊生成
-  [T.WATER]:    { solid: true, liquid: true, low: true, hp: Infinity, tier: 99, name: '幽光水池', light: 2, c1: '#16455f', c2: '#0e2c40' },
+  [T.WATER]:    { solid: true, liquid: true, low: true, hp: Infinity, tier: 99, name: '幽光水池', light: 2, c1: '#16455f', c2: '#0e2c40', tex: 'water.png' },
   // 圍籬:矮牆,擋移動但箭矢/光束/暗影彈都飛得過(low);比木牆脆,定位是圈農地/牧場不是防線
-  [T.FENCE]:    { solid: true, low: true, fence: true, hp: 25, tier: 0, name: '木圍籬', drop: { id: 'fence', n: 1 }, c1: '#c09454', c2: '#96743e' },
+  [T.FENCE]:    { solid: true, low: true, fence: true, hp: 25, tier: 0, name: '木圍籬', drop: { id: 'fence', n: 1 }, c1: '#c09454', c2: '#96743e', tex: 'fence_tile.png' },
 };
 
 // ── 箭塔:玩家手動補箭矢的防禦建築,彈藥打完就停火,靠玩家回來補給形成天然上限 ──
