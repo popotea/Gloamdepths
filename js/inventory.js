@@ -13,6 +13,23 @@ function makeStartInv() {
 
 function stackMax(id) { return ITEMS[id].max || 99; }
 
+// ===== 耐久度 =====
+// 格子物件的 dur 欄位 = 目前耐久;undefined 一律視為全滿(合成/撿取/舊存檔不用特別初始化),
+// 只有磨損過才寫入,歸零鎖在 0(損壞停用,永不消失)
+function maxDur(s) {
+  const base = ITEMS[s.id].dur;
+  return base ? Math.round(base * (1 + 0.15 * (s.lv || 0))) : 0; // 衝裝每級 +15% 耐久上限
+}
+function isBroken(s) { return !!(s && ITEMS[s.id].dur && s.dur === 0); }
+// 修理成本 = 合成成本的一半(向上取整);沒有配方的初始裝備(木鎬/木劍)修理只要木材
+function repairCostOf(id) {
+  const r = RECIPES.find(r => r.out === id);
+  if (!r) return { wood: 2 };
+  const cost = {};
+  for (const k in r.cost) cost[k] = Math.ceil(r.cost[k] / 2);
+  return cost;
+}
+
 // 回傳放不下的數量(0=全部放入)
 function addItem(p, id, n = 1) {
   const mx = stackMax(id);
@@ -33,11 +50,16 @@ function addItem(p, id, n = 1) {
   return n;
 }
 
-// 帶強化等級的裝備(max:1)只能找空格放,不可與其他堆疊合併(等級會不一致);
+// 帶強化等級/耐久狀態的裝備(max:1)只能找空格放,不可與其他堆疊合併(等級/耐久會不一致);
 // 回傳 0=放入成功 / 1=背包滿放不下(呼叫端用來決定要不要留在地上)
-function addEnhancedItem(p, id, lv) {
+function addEnhancedItem(p, id, lv, dur) {
   for (let i = 0; i < INV_SIZE; i++) {
-    if (!p.inv[i]) { p.inv[i] = { id, count: 1, lv }; p.invDirty = true; return 0; }
+    if (!p.inv[i]) {
+      p.inv[i] = { id, count: 1, lv };
+      if (dur !== undefined && dur !== null) p.inv[i].dur = dur;
+      p.invDirty = true;
+      return 0;
+    }
   }
   return 1;
 }
@@ -131,22 +153,23 @@ function splitStack(p, slot) {
   p.invDirty = true;
 }
 
-// 自動選最好的工具(徒手也能挖/打,避免卡死);挖掘力會套用強化卷軸加成
+// 自動選最好的工具(徒手也能挖/打,避免卡死);挖掘力會套用強化卷軸加成。
+// 損壞(dur=0)的一律跳過(自然退回次級裝備或徒手);slot 欄位帶回格子物件,磨損要用
 function bestPick(p) {
-  let best = { tier: 0, power: 0.5, name: '徒手', icon: '✊' };
+  let best = { tier: 0, power: 0.5, name: '徒手', icon: '✊', slot: null };
   for (const s of p.inv) {
-    if (s && ITEMS[s.id].pick && ITEMS[s.id].pick.power > best.power)
-      best = { ...ITEMS[s.id].pick, name: ITEMS[s.id].name, icon: ITEMS[s.id].icon, power: ITEMS[s.id].pick.power * enhMult(s) };
+    if (s && ITEMS[s.id].pick && !isBroken(s) && ITEMS[s.id].pick.power > best.power)
+      best = { ...ITEMS[s.id].pick, name: ITEMS[s.id].name, icon: ITEMS[s.id].icon, power: ITEMS[s.id].pick.power * enhMult(s), slot: s };
   }
   return best;
 }
 function bestSword(p) {
   // 只自動選「劍」;矛/鎚(manual)要放快捷欄選中才會用,保留武器選擇的意義
-  let best = { dmg: 4, name: '徒手', icon: '✊' };
+  let best = { dmg: 4, name: '徒手', icon: '✊', slot: null };
   for (const s of p.inv) {
     const w = s && ITEMS[s.id].sword;
-    if (w && !w.manual && w.dmg > best.dmg)
-      best = { ...w, name: ITEMS[s.id].name, icon: ITEMS[s.id].icon, dmg: w.dmg * enhMult(s) };
+    if (w && !w.manual && !isBroken(s) && w.dmg > best.dmg)
+      best = { ...w, name: ITEMS[s.id].name, icon: ITEMS[s.id].icon, dmg: w.dmg * enhMult(s), slot: s };
   }
   return best;
 }
@@ -157,9 +180,9 @@ const SWORD_DEFAULT_RANGE = 1.8, SWORD_DEFAULT_ARC = 1.1;
 function meleeWeaponOf(p) {
   const s = p.inv[p.sel];
   const w = s && ITEMS[s.id].sword;
-  if (w && w.manual) {
+  if (w && w.manual && !isBroken(s)) { // 損壞的矛/鎚不能用,退回自動選劍
     return { ...w, name: ITEMS[s.id].name, icon: ITEMS[s.id].icon, dmg: w.dmg * enhMult(s),
-      range: w.range ?? SWORD_DEFAULT_RANGE, arc: w.arc ?? SWORD_DEFAULT_ARC };
+      range: w.range ?? SWORD_DEFAULT_RANGE, arc: w.arc ?? SWORD_DEFAULT_ARC, slot: s };
   }
   const best = bestSword(p);
   return { ...best, range: SWORD_DEFAULT_RANGE, arc: SWORD_DEFAULT_ARC };

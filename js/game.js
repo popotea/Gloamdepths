@@ -205,7 +205,8 @@ function buildSave() {
     tiles: rleEnc(G.tiles),
     explored: rleEnc(G.explored),
     objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null, o.stage ?? null, o.t ?? null, o.nestType ?? null]),
-    drops: G.drops.map(d => [d.item, d.n, d.x, d.y]),
+    // lv/dur 一起存:掉在地上的強化裝備讀檔回來不能被洗白(0 與 undefined 用 null 佔位)
+    drops: G.drops.map(d => [d.item, d.n, d.x, d.y, d.lv || 0, d.dur ?? null]),
     animals: G.animals.map(a => [a.type, Math.round(a.x * 10) / 10, Math.round(a.y * 10) / 10, Math.round(a.hp), Math.round(a.fedT || 0)]),
     core: { energy: G.core.energy, shards: G.core.shards },
     wave: { n: G.wave.n, timer: Math.max(45, G.wave.state === 'calm' ? G.wave.timer : 45), final: G.wave.final && G.core.shards < CORE_CFG.needShards ? false : G.wave.final },
@@ -261,7 +262,7 @@ function applySave(s, name) {
     const key = TOWER_IDX_SETS[type]; if (key) G[key].add(i);
   }
   G.enemies = []; G.drops = []; G.projs = [];
-  for (const [item, n, x, y] of s.drops || []) spawnDrop(item, n, x, y);
+  for (const [item, n, x, y, lv, dur] of s.drops || []) spawnDrop(item, n, x, y, lv || 0, dur === null ? undefined : dur);
   // 動物:清掉 genWorld 剛散布的野生個體,還原存檔裡的(舊版存檔沒這欄位就留著新散布的)
   if (s.animals) {
     G.animals = [];

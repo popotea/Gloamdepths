@@ -86,6 +86,11 @@ body { font-family: "Microsoft JhengHei", "Noto Sans TC", sans-serif; color: #dd
 .power-btn:hover { background: #1a2230; border-color: #4a5a68; }
 .power-btn code { font-size: 10px; color: #7ef0ff99; background: none; padding: 0; }
 
+/* 耐久條:格子底部細條,滿的不顯示;損壞整格轉灰紅 */
+.slot .dur { position: absolute; left: 6px; bottom: 4px; height: 3px; border-radius: 2px; display: none; }
+.slot.broken { border-color: #ff5d5d; }
+.slot.broken .icon { opacity: .4; filter: grayscale(1); }
+
 /* 天賦:HUD 提示徽章(有未花點數才出現)與分配面板 */
 #talentbadge { pointer-events: auto; cursor: pointer; margin-top: 6px; display: inline-block;
   background: #2a2410cc; border: 1px solid #ffd23f; border-radius: 10px;

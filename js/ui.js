@@ -38,7 +38,7 @@ function initUI() {
     const d = document.createElement('div');
     d.className = 'slot';
     d.dataset.i = i;
-    d.innerHTML = `<span class="key">${i + 1}</span><span class="icon"></span><span class="cnt"></span>`;
+    d.innerHTML = `<span class="key">${i + 1}</span><span class="icon"></span><span class="cnt"></span><span class="dur"></span>`;
     d.onclick = () => { const me = myPlayer(); if (me) { me.sel = i; UI.invDirty = true; } };
     UI.els.hotbar.appendChild(d);
   }
@@ -48,7 +48,7 @@ function initUI() {
     d.className = 'slot' + (i < 8 ? ' hotrow' : '');
     d.dataset.i = i;
     d.draggable = true;
-    d.innerHTML = `<span class="icon"></span><span class="cnt"></span>`;
+    d.innerHTML = `<span class="icon"></span><span class="cnt"></span><span class="dur"></span>`;
     d.onclick = (ev) => onInvClick(i, ev.shiftKey);
     d.oncontextmenu = (ev) => { ev.preventDefault(); openEnhPanel(i); };
     d.ondragstart = (ev) => {
@@ -404,7 +404,23 @@ function slotHTML(el, s, selected, pending) {
   el.style.background = s && ITEMS[s.id].tint ? ITEMS[s.id].tint : '';
   el.classList.toggle('sel', !!selected);
   el.classList.toggle('pending', !!pending);
-  el.title = s ? ITEMS[s.id].name + (s.lv ? ` +${s.lv}` : '') + (ITEMS[s.id].desc ? '\n' + ITEMS[s.id].desc : '') : '';
+  // 耐久條:滿的不畫(乾淨),磨損才出現;歸零整格變紅+圖示轉灰(損壞停用)
+  const durEl = el.querySelector('.dur');
+  let durTip = '';
+  let broken = false;
+  if (durEl) {
+    const max = s && ITEMS[s.id].dur ? maxDur(s) : 0;
+    const cur = max ? (s.dur ?? max) : 0;
+    if (max && cur < max) {
+      durEl.style.display = 'block';
+      durEl.style.width = Math.max(4, Math.round(cur / max * 76)) + '%';
+      durEl.style.background = cur === 0 ? '#ff5d5d' : cur / max < 0.3 ? '#ffb35c' : '#7dff8e';
+      durTip = `\n耐久 ${cur}/${max}` + (cur === 0 ? '(已損壞,右鍵開面板修理)' : '');
+      broken = cur === 0;
+    } else durEl.style.display = 'none';
+  }
+  el.classList.toggle('broken', broken);
+  el.title = s ? ITEMS[s.id].name + (s.lv ? ` +${s.lv}` : '') + durTip + (ITEMS[s.id].desc ? '\n' + ITEMS[s.id].desc : '') : '';
 }
 
 function refreshSlots() {
@@ -501,18 +517,43 @@ function renderEnhPanel() {
   const have = countItem(me, 'enh_scroll');
   const rate = maxed ? 0 : Math.round(ENH_CFG.rate[lv] * 100);
   const bonus = it.armor ? `護甲 +${Math.round(ENH_CFG.armorPer * 100)}%/級` : `攻擊力 +${Math.round(ENH_CFG.dmgPer * 100)}%/級`;
+  // 耐久/修理區:只有帶 dur 的裝備顯示;修理成本 = 合成成本一半,靠近工作台才能修
+  let durHTML = '';
+  const dMax = it.dur ? maxDur(s) : 0;
+  if (dMax) {
+    const dCur = s.dur ?? dMax;
+    const cost = repairCostOf(s.id);
+    const costText = Object.entries(cost).map(([k, n]) => `${ITEMS[k].icon}×${n}`).join(' ');
+    const canRepair = dCur < dMax && near && canAfford(me, cost);
+    durHTML = `
+    <p>🛡️ 耐久 <b${dCur === 0 ? ' class="warn"' : ''}>${dCur} / ${dMax}</b>${dCur === 0 ? '(已損壞,修好前無法使用)' : ''}
+      · 修理費用 ${costText}${near ? '' : '<span class="warn"> · 需靠近工作台</span>'}</p>
+    <div class="btnrow"><button id="enhRepair" ${canRepair ? '' : 'disabled'}>🔧 修理(耐久回滿)</button></div>`;
+  }
   panel.innerHTML = `
     <div class="enh-row">
       <span class="enh-icon">${it.icon}</span>
       <b>${it.name}</b> <span class="enh-lv">目前 +${lv}${maxed ? '(已滿級)' : ` / 上限 +${ENH_CFG.maxLv}`}</span>
     </div>
-    <p class="hint">${bonus};成功只消耗卷軸不會讓裝備變差。</p>
+    <p class="hint">${bonus}${it.dur ? `,耐久上限 +15%/級` : ''};成功只消耗卷軸不會讓裝備變差。</p>
     ${maxed ? '' : `<p>需要 <b>${need}</b> 張強化卷軸(目前有 ${have} 張),成功率 <b>${rate}%</b>${near ? '' : '<span class="warn"> · 需靠近工作台</span>'}</p>`}
+    ${durHTML}
     <div class="btnrow">
       <button id="enhGo" ${maxed || !near || have < need ? 'disabled' : ''}>✨ 強化 (+${lv} → +${lv + 1})</button>
       <button id="enhClose">✖ 關閉</button>
     </div>`;
   $id('enhClose').onclick = () => { UI.enhSlot = -1; panel.classList.add('hidden'); };
+  if (dMax) {
+    $id('enhRepair').onclick = () => {
+      if (NET.isHost()) {
+        const r = doRepair(me, UI.enhSlot);
+        if (r.err) showMsg('⚠️ ' + r.err);
+        UI.invDirty = true;
+      } else {
+        NET.act({ t: 'repair', slot: UI.enhSlot });
+      }
+    };
+  }
   if (!maxed) {
     $id('enhGo').onclick = () => {
       if (NET.isHost()) {

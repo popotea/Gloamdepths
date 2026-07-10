@@ -506,16 +506,55 @@ function runPowerCmd(p, action, arg, num) {
   }
 }
 
+// ===== 耐久度:磨損與修理(房主端) =====
+// 只在「成功命中/成功挖掘」時扣;歸零鎖 0 = 損壞停用(自動選具會跳過),永不消失。
+// /power infinite 開著不磨損(跟免扣材料同一個除錯精神)
+function wearItem(p, s, n = 1) {
+  if (!s || p.infinite) return;
+  const it = ITEMS[s.id];
+  if (!it || !it.dur || s.dur === 0) return;
+  const max = maxDur(s);
+  s.dur = (s.dur ?? max) - n;
+  if (s.dur <= 0) {
+    s.dur = 0;
+    addFloater(p.x, p.y - 0.8, `💥 ${it.name}損壞了!背包右鍵它修理`, '#ff9d5c');
+    emitFx({ k: 'sfx', s: 'break_' });
+  }
+  p.invDirty = true;
+}
+
+// 修理:靠近工作台,花該裝備合成成本的一半(repairCostOf),耐久回滿
+function doRepair(p, slot) {
+  if (p.dead) return { err: '你已倒下' };
+  if (!stationNear(p, 'workbench')) return { err: '需要靠近工作台' };
+  const s = p.inv[slot];
+  const it = s && ITEMS[s.id];
+  if (!s || !it.dur) return { err: '這個物品不需要修理' };
+  const max = maxDur(s);
+  if ((s.dur ?? max) >= max) return { err: '耐久已滿' };
+  const cost = repairCostOf(s.id);
+  if (!canAfford(p, cost))
+    return { err: '修理材料不足:需要 ' + Object.entries(cost).map(([k, n]) => `${ITEMS[k].name}×${n}`).join('、') };
+  payCost(p, cost);
+  s.dur = max;
+  p.invDirty = true;
+  addFloater(p.x, p.y - 0.6, `🔧 ${it.name}修好了`, '#7dff8e');
+  emitFx({ k: 'sfx', s: 'craft' });
+  return { ok: true };
+}
+
 // ===== 玩家動作(房主端執行;客戶端透過網路請求) =====
 function doSwing(p, aim) {
   if (p.dead || p.atkCD > 0) return;
   const w = meleeWeaponOf(p);
   p.atkCD = w.cd ?? 0.35; p.swing = w.manual ? 0.22 : 0.22; p.aim = aim; p.action = 'atk';
   const dmg = w.dmg * playerDmgMult(p);
+  let hits = 0;
   for (const e of [...G.enemies]) {
     const d = dist(p.x, p.y, e.x, e.y);
     if (d < w.range + ENEMY_TYPES[e.type].r && angDiff(Math.atan2(e.y - p.y, e.x - p.x), aim) < w.arc) {
       hurtEnemy(e, dmg, p, w.kb, w.elem);
+      hits++;
     }
   }
   // 宰殺牲畜:只有近戰打得到(箭/塔刻意打不到,避免流彈把牧場屠了)
@@ -523,8 +562,10 @@ function doSwing(p, aim) {
     const d = dist(p.x, p.y, a.x, a.y);
     if (d < w.range + ANIMAL_TYPES[a.type].r && angDiff(Math.atan2(a.y - p.y, a.x - p.x), aim) < w.arc) {
       hurtAnimal(a, dmg, p);
+      hits++;
     }
   }
+  if (hits > 0 && w.slot) wearItem(p, w.slot); // 揮空不磨損,命中才扣(一次揮擊只扣 1 不論打到幾隻)
 }
 
 // 遠程武器發射(選中弓/弩/法杖時觸發);消耗對應彈藥,沒彈藥就不發射
@@ -533,10 +574,16 @@ function doShoot(p, aim) {
   const s = p.inv[p.sel];
   const w = s && ITEMS[s.id].ranged;
   if (!w) return;
+  if (isBroken(s)) {
+    addFloater(p.x, p.y - 0.6, `${ITEMS[s.id].name}已損壞,先修理`, '#ff9d5c');
+    p.atkCD = 0.4;
+    return;
+  }
   if (!removeOne(p, w.ammo)) {
     addFloater(p.x, p.y - 0.6, `沒有${ITEMS[w.ammo].name}了`, '#8899aa');
     return;
   }
+  wearItem(p, s);
   p.atkCD = w.cd; p.swing = 0.18; p.aim = aim; p.action = 'atk';
   const dmg = w.dmg * enhMult(s) * playerDmgMult(p);
   spawnProj({
@@ -566,7 +613,9 @@ function doMine(p, x, y) {
   const info = TILE_INFO[G.tiles[i]];
   if (o && o.type !== 'mushroom' && o.type !== 'crop' && !info.solid) {
     // 敲回收已放置物件
-    o.hp = (o.hp ?? OBJ_HP[o.type]) - bestPick(p).power * 4 * buffMult(p, 'mine');
+    const pk = bestPick(p);
+    o.hp = (o.hp ?? OBJ_HP[o.type]) - pk.power * 4 * buffMult(p, 'mine');
+    wearItem(p, pk.slot);
     emitFx({ k: 'sfx', s: 'mine' });
     if (o.hp <= 0) {
       // 寶箱/巢穴不是可攜帶物品,拆掉直接開獎勵,不走「物件變回背包道具」那條路
@@ -587,6 +636,7 @@ function doMine(p, x, y) {
   }
   // 挖掘力加成:料理礦勁 buff × 礦脈直覺天賦
   G.dmg[i] += pick.power * buffMult(p, 'mine') * (1 + TALENTS.miner.val * talRank(p, 'miner'));
+  wearItem(p, pick.slot); // 有效敲擊才磨損(tier 不夠的「太硬了」在上面就 return 了)
   emitFx({ k: 'sfx', s: 'mine' });
   if (G.dmg[i] >= info.hp) breakTile(x, y);
   else emitFx({ k: 'crack', i, r: G.dmg[i] / info.hp });
@@ -728,7 +778,7 @@ function doDropItem(p, slot) {
   if (!s) return;
   const ang = p.aim + (Math.random() - 0.5) * 0.6;
   const dx = Math.cos(ang) * 0.8, dy = Math.sin(ang) * 0.8;
-  spawnDrop(s.id, 1, p.x + dx, p.y + dy, s.lv || 0);
+  spawnDrop(s.id, 1, p.x + dx, p.y + dy, s.lv || 0, s.dur);
   consumeSlot(p, slot);
   emitFx({ k: 'sfx', s: 'place' });
 }
@@ -748,7 +798,7 @@ function doDropAt(p, slot, x, y) {
     y = p.y + (y - p.y) * t;
   }
   if (isSolid(Math.floor(x), Math.floor(y))) { x = p.x; y = p.y; }
-  spawnDrop(s.id, 1, x, y, s.lv || 0);
+  spawnDrop(s.id, 1, x, y, s.lv || 0, s.dur);
   consumeSlot(p, slot);
   emitFx({ k: 'sfx', s: 'place' });
 }
@@ -767,10 +817,11 @@ function doDeposit(p) {
 }
 
 // ===== 掉落物 =====
-// lv:強化等級(只有裝備類會帶,撿回背包時要一併還原,避免丟裝備遺失強化)
-function spawnDrop(item, n, x, y, lv) {
+// lv:強化等級 / dur:目前耐久(只有裝備類會帶,撿回背包時要一併還原,
+// 否則「丟出去再撿回來」會變成免費修理/洗掉強化)
+function spawnDrop(item, n, x, y, lv, dur) {
   G.drops.push({
-    id: nextDid++, item, n, x, y, lv: lv || 0,
+    id: nextDid++, item, n, x, y, lv: lv || 0, dur,
     vx: (Math.random() - 0.5) * 3, vy: (Math.random() - 0.5) * 3,
   });
 }
@@ -786,8 +837,9 @@ function updateDrops(dt) {
     if (p) {
       const dd = dist(d.x, d.y, p.x, p.y);
       if (dd < 0.55) {
-        // 帶強化等級的裝備(max:1)不能走一般堆疊邏輯合併,否則等級會被吃掉
-        const left = d.lv ? addEnhancedItem(p, d.item, d.lv) : addItem(p, d.item, d.n);
+        // 帶強化等級/耐久狀態的裝備(max:1)不能走一般堆疊邏輯合併,否則等級/耐久會被吃掉
+        const left = (d.lv || d.dur !== undefined && d.dur !== null)
+          ? addEnhancedItem(p, d.item, d.lv, d.dur) : addItem(p, d.item, d.n);
         if (left === 0) {
           G.drops.splice(i, 1);
           emitFx({ k: 'sfx', s: 'pickup' });

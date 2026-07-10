@@ -92,6 +92,11 @@ const NET = {
       case 'fish': doFish(p, d.x | 0, d.y | 0); break;
       case 'feed': doFeed(p, d.id | 0, d.slot | 0); break;
       case 'talent': applyTalent(p, String(d.id || '')); break;
+      case 'repair': {
+        const r = doRepair(p, d.slot | 0);
+        if (r.err) this.sendToPid(conn.pid, { t: 'msg', text: '⚠️ ' + r.err });
+        break;
+      }
       case 'fill_tower': doFillTower(p, d.x | 0, d.y | 0); break;
       case 'toggle_tower': doToggleTower(p, d.x | 0, d.y | 0); break;
       case 'eat': doEat(p, d.slot | 0); break;
