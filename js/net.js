@@ -64,7 +64,7 @@ const NET = {
         tiles: rleEnc(G.tiles), explored: rleEnc(G.explored),
         objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null, o.stage ?? null, o.t ?? null, o.nestType ?? null]),
         core: { energy: G.core.energy, shards: G.core.shards },
-        shrines: G.shrines, wave: G.wave, time: G.time,
+        shrines: G.shrines, traders: G.traders, wave: G.wave, time: G.time,
         players: [...G.players.values()].map(pl => [pl.id, pl.name, pl.x, pl.y, pl.hp, pl.dead ? 1 : 0, pl.lv || 1, pl.xp || 0]),
         inv: p.inv, over: G.over,
       });
@@ -120,6 +120,11 @@ const NET = {
       case 'enh': {
         const r = doEnh(p, d.slot | 0);
         if (r.err) this.sendToPid(conn.pid, { t: 'msg', text: '⚠️ ' + r.err });
+        break;
+      }
+      case 'trade': {
+        const r = doTrade(p, d.idx | 0);
+        if (r && r.err) this.sendToPid(conn.pid, { t: 'msg', text: '⚠️ ' + r.err });
         break;
       }
       case 'chat': {
@@ -209,7 +214,7 @@ const NET = {
           const key = TOWER_IDX_SETS[type]; if (key) G[key].add(i);
         }
         G.core.energy = d.core.energy; G.core.shards = d.core.shards;
-        G.shrines = d.shrines; G.wave = d.wave; G.time = d.time;
+        G.shrines = d.shrines; G.traders = d.traders || []; G.wave = d.wave; G.time = d.time;
         G.enemies = []; G.drops = []; G.floaters = []; G.cracks.clear(); G.projs = []; G.animals = [];
         G.players.clear();
         for (const [id, name, x, y, hp, dead, lv, xp] of d.players) {

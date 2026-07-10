@@ -28,6 +28,18 @@ function monsterImg(type) {
   return entry.ready ? entry.img : null;
 }
 
+// ---- 商人貼圖快取(跟怪物同一套機制:失敗自動退回 emoji 畫法) ----
+const TRADER_IMG = { img: new Image(), ready: false, failed: false, loaded: false };
+function traderImg() {
+  if (!TRADER_IMG.loaded) {
+    TRADER_IMG.loaded = true;
+    TRADER_IMG.img.onload = () => { TRADER_IMG.ready = true; };
+    TRADER_IMG.img.onerror = () => { TRADER_IMG.failed = true; };
+    TRADER_IMG.img.src = 'assets/npcs/trader.png';
+  }
+  return TRADER_IMG.ready ? TRADER_IMG.img : null;
+}
+
 // ---- 地形貼圖快取 ----
 // 依 TILE_INFO[t].tex 從 assets/tiles/ 載入;載入後先預縮成 TILE 大小的離屏 canvas,
 // 地形迴圈每幀畫上千格,直接畫小圖才不會每格都做大圖縮放。失敗自動退回色塊畫法
@@ -342,6 +354,39 @@ function render(dt) {
       ctx.fillText(label, sx + 1, sy - at.r * TILE - (a.hp < amax ? 18 : 12) + 1);
       ctx.fillStyle = '#c8f0d0';
       ctx.fillText(label, sx, sy - at.r * TILE - (a.hp < amax ? 18 : 12));
+    }
+  }
+
+  // ---- NPC 商人(固定攤位,不會動;貼圖失敗時用 emoji + 底部光暈 fallback) ----
+  for (const t of G.traders) {
+    if (t.x < x0 - 1 || t.x > x1 + 2 || t.y < y0 - 1 || t.y > y1 + 2) continue;
+    if (lightOf(t.x, t.y) < 0.04) continue;
+    const [sx, sy] = worldToScreen(t.x, t.y);
+    const bob = Math.sin(performance.now() / 500) * 2;
+    const img = traderImg();
+    if (img) {
+      const size = TILE * 1.1;
+      ctx.drawImage(img, sx - size / 2, sy - size / 2 + bob, size, size);
+    } else {
+      ctx.fillStyle = 'rgba(255,210,63,0.18)';
+      ctx.beginPath();
+      ctx.arc(sx, sy + TILE * 0.1, TILE * 0.55, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(5,5,10,0.42)';
+      ctx.beginPath();
+      ctx.arc(sx, sy + TILE * 0.42, TILE * 0.32, 0, TAU);
+      ctx.fill();
+      ctx.font = `${TILE * 0.85}px "Segoe UI Emoji"`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(TRADER_CFG.icon, sx, sy + bob);
+    }
+    if (dist(me.x, me.y, t.x, t.y) < 4) {
+      ctx.font = 'bold 12px sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const nameY = sy - TILE * 0.7;
+      const label = `${TRADER_CFG.name}(右鍵交易)`;
+      ctx.fillStyle = '#000a'; ctx.fillText(label, sx + 1, nameY + 1);
+      ctx.fillStyle = '#ffd23f'; ctx.fillText(label, sx, nameY);
     }
   }
 

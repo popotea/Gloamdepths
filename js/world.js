@@ -18,6 +18,7 @@ const G = {
   core: { x: CX + 0.5, y: CY + 0.5, energy: CORE_CFG.maxE, shards: 0 },
   wave: { n: 0, state: 'calm', timer: WAVE_CFG.first, final: false },
   shrines: [],          // [{x,y,dead}]
+  traders: [],          // [{x,y}] 中層區域固定攤位,不會動,不進 snap(靠 init/存讀檔同步)
   playersByName: {},    // 離線好友的背包(以名字為鍵,由房主保存)
   time: 0, seed: 0, over: null, started: false,
   mushCount: 0, warned: {},
@@ -130,7 +131,7 @@ function genWorld(seed) {
   G.objects.clear(); G.lights.clear(); G.cracks.clear();
   G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.cropIdx.clear();
   G.enemies = []; G.drops = []; G.floaters = []; G.projs = []; G.animals = [];
-  G.shrines = []; G.mushCount = 0; G.warned = {};
+  G.shrines = []; G.traders = []; G.mushCount = 0; G.warned = {};
   G.core = { x: CX + 0.5, y: CY + 0.5, energy: CORE_CFG.maxE, shards: 0 };
   G.wave = { n: 0, state: 'calm', timer: WAVE_CFG.first, final: false };
   G.time = 0; G.over = null;
@@ -248,6 +249,17 @@ function genWorld(seed) {
       }
     }
     G.shrines.push({ x: sx + 0.5, y: sy + 0.5, dead: false });
+  }
+
+  // 6.5) NPC 商人:中層區域(zone 1,距中心 42~72 格)隨機找一格空地板放置
+  for (let n = 0; n < TRADER_CFG.count; n++) {
+    for (let tries = 0; tries < 40; tries++) {
+      const ang = rnd() * TAU, d = 42 + rnd() * 30; // 對應 zoneOf() 的 zone 1 範圍
+      const x = Math.floor(CX + Math.cos(ang) * d), y = Math.floor(CY + Math.sin(ang) * d);
+      if (!inMap(x, y) || G.tiles[idx(x, y)] !== T.FLOOR || G.objects.has(idx(x, y))) continue;
+      G.traders.push({ x: x + 0.5, y: y + 0.5 });
+      break;
+    }
   }
 
   // 7) 廢墟(石磚小房+寶箱):在各區隨機找地板挖出 3x3 石磚房間,中央放寶箱

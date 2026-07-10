@@ -668,6 +668,23 @@ function doEnh(p, slot) {
   }
 }
 
+// NPC 商人交易:offerIdx 對應 traderOffers() 目前展開後的索引
+function doTrade(p, offerIdx) {
+  if (p.dead) return { err: '你已倒下' };
+  const trader = G.traders[0];
+  if (!trader || dist(p.x, p.y, trader.x, trader.y) > 3.8) return { err: '離商人太遠了' };
+  const offer = traderOffers()[offerIdx];
+  if (!offer) return { err: '交易項目不存在' };
+  if (!canAfford(p, offer.give)) return { err: '材料不足' };
+  payCost(p, offer.give);
+  for (const id in offer.get) {
+    const left = addItem(p, id, offer.get[id]);
+    if (left > 0) spawnDrop(id, left, p.x, p.y);
+  }
+  emitFx({ k: 'sfx', s: 'craft' });
+  return null;
+}
+
 function doPlace(p, slot, x, y) {
   if (p.dead || !inMap(x, y)) return;
   const s = p.inv[slot];

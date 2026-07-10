@@ -360,6 +360,41 @@ const POI_CFG = {
   pools: 10,  // 幽光水池數(釣魚點)
 };
 
+// ── NPC 商人:中層區域隨機生成的固定攤位,用多餘資源換稀有材料。
+// 解鎖階段 = 星核碎片數(0~3,跟已擊敗神殿數一對一對應,且已經是即時同步資料,不用另外做同步)。
+// 各階 offers 採累加制:低階項目在高階依然存在,不會消失。
+const TRADER_CFG = {
+  count: 1, icon: '🧙', name: '流浪商人',
+  stages: [
+    { need: 0, offers: [
+      { give: { stone: 20 },      get: { lumite: 3 } },
+      { give: { wood: 15 },       get: { coal: 6 } },
+      { give: { copper_ore: 10 }, get: { iron_ore: 4 } },
+    ] },
+    { need: 1, offers: [
+      { give: { iron_bar: 4 },    get: { enh_scroll: 1 } },
+      { give: { lumite: 12 },     get: { gold_ore: 3 } },
+      { give: { coal: 15 },       get: { iron_bar: 3 } },
+    ] },
+    { need: 2, offers: [
+      { give: { gold_bar: 3 },    get: { enh_scroll: 3 } },
+      { give: { gold_ore: 8 },    get: { diamond: 1 } },
+      { give: { arrow: 20 },      get: { lumite: 10 } },
+    ] },
+    { need: 3, offers: [
+      { give: { diamond: 2 },     get: { enh_scroll: 5 } },
+      { give: { gold_bar: 6 },    get: { diamond: 2 } },
+    ] },
+  ],
+};
+// 目前對玩家可見的全部交易項目(依 G.core.shards 累加展開),扁平陣列方便面板用 index 對應
+function traderOffers() {
+  const n = G.core.shards;
+  const list = [];
+  for (const stage of TRADER_CFG.stages) if (stage.need <= n) list.push(...stage.offers);
+  return list;
+}
+
 // 巢穴種類(世界生成時依 weight 加權抽選,見 world.js pickNestType):
 // spawnCD=每次嘗試生怪的間隔秒數 / nearCap=周圍活怪數到此就暫停生 /
 // spawnType 不填=沿用原本依區域決定生什麼怪的邏輯,填了就固定生該種

@@ -85,6 +85,13 @@ body { font-family: "Microsoft JhengHei", "Noto Sans TC", sans-serif; color: #dd
   font-size: 13px; text-align: left; background: #12161f; border: 1px solid #2a3040; }
 .power-btn:hover { background: #1a2230; border-color: #4a5a68; }
 .power-btn code { font-size: 10px; color: #7ef0ff99; background: none; padding: 0; }
+.power-btn:disabled { opacity: .4; cursor: not-allowed; }
+.power-btn:disabled:hover { background: #12161f; border-color: #2a3040; }
+
+/* NPC 商人交易面板(仿秘笈選單,#traderPanel 沿用 .menu-panel 置中彈窗樣式) */
+#traderPanel { width: 640px; max-width: 92vw; max-height: 82vh; overflow-y: auto; text-align: left; }
+#traderPanel h2 { text-align: center; }
+.trade-btn { min-width: 220px; }
 
 /* 耐久條:格子底部細條,滿的不顯示;損壞整格轉灰紅 */
 .slot .dur { position: absolute; left: 6px; bottom: 4px; height: 3px; border-radius: 2px; display: none; }

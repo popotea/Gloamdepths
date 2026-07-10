@@ -211,6 +211,7 @@ function buildSave() {
     core: { energy: G.core.energy, shards: G.core.shards },
     wave: { n: G.wave.n, timer: Math.max(45, G.wave.state === 'calm' ? G.wave.timer : 45), final: G.wave.final && G.core.shards < CORE_CFG.needShards ? false : G.wave.final },
     shrines: G.shrines.map(s => ({ x: s.x, y: s.y, dead: s.dead })),
+    traders: G.traders.map(t => ({ x: t.x, y: t.y })),
     playersByName: G.playersByName,
     hostName: G.players.get(G.myId)?.name || '',
     won: G.over === 'win',
@@ -276,6 +277,7 @@ function applySave(s, name) {
   G.core.energy = s.core.energy; G.core.shards = s.core.shards;
   G.wave = { n: s.wave.n, state: 'calm', timer: s.wave.timer, final: false };
   G.shrines = s.shrines;
+  G.traders = s.traders || G.traders;
   G.playersByName = s.playersByName || {};
   G.time = s.time || 0;
   G.over = s.won ? 'win' : null;

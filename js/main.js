@@ -34,6 +34,7 @@ function bindInput() {
       if (UI.mapOpen) toggleMapPanel(false);
       else if (UI.panelOpen) togglePanel(false);
       else if (UI.towerPos) closeTowerPanel();
+      else if (UI.traderOpen) closeTraderPanel();
       else if (UI.powerOpen) togglePowerPanel(false);
       else if (UI.talentOpen) toggleTalentPanel(false);
       else toggleMenu();
@@ -158,7 +159,10 @@ function localControl(me, dt) {
     const tx0 = Math.floor(wx), ty0 = Math.floor(wy);
     const targetObj = objAt(tx0, ty0);
     const inRange = dist(me.x, me.y, tx0 + 0.5, ty0 + 0.5) <= 3.8;
-    if (targetObj && targetObj.type === 'archer_tower' && inRange) {
+    const trader = G.traders.find(t => dist(t.x, t.y, wx, wy) < 0.8);
+    if (trader && dist(me.x, me.y, trader.x, trader.y) <= 3.8) {
+      openTraderPanel();
+    } else if (targetObj && targetObj.type === 'archer_tower' && inRange) {
       openTowerPanel(tx0, ty0);
     } else if (targetObj && (targetObj.type === 'workbench' || targetObj.type === 'furnace') && inRange) {
       togglePanel(true);

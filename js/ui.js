@@ -10,6 +10,7 @@ const UI = {
   enhSlot: -1,
   towerPos: null, towerT: 0,
   mapOpen: false, mapZoom: 3, mapPanX: 0, mapPanY: 0, mapDrag: null,
+  traderOpen: false, traderT: 0,
 };
 
 function $id(s) { return document.getElementById(s); }
@@ -26,6 +27,7 @@ function initUI() {
     invpanel: $id('invpanel'), invgrid: $id('invgrid'), craftlist: $id('craftlist'), crafttabs: $id('crafttabs'),
     enhPanel: $id('enhPanel'),
     towerPanel: $id('towerPanel'), towerBody: $id('towerBody'),
+    traderPanel: $id('traderPanel'),
     overlay: $id('overlay'), minimap: $id('minimap'),
     mapPanel: $id('mapPanel'), mapCanvas: $id('mapCanvas'), mapTip: $id('mapTip'),
     hostBtn: $id('hostBtn'), roomcode: $id('roomcode'),
@@ -399,6 +401,17 @@ function uiTick(dt) {
     }
   }
 
+  // 商人交易面板(開著才更新,節流;走遠就自動關閉——商人不會動也不會消失,不用檢查存在性)
+  if (UI.traderOpen) {
+    UI.traderT -= dt;
+    if (UI.traderT <= 0) {
+      UI.traderT = 0.3;
+      const trader = G.traders[0];
+      if (!trader || dist(me.x, me.y, trader.x, trader.y) > 4.5) closeTraderPanel();
+      else renderTraderPanel();
+    }
+  }
+
   UI.els.hostBtn.classList.toggle('hidden', !(NET.isHost() && NET.mode === 'single'));
 }
 
@@ -494,6 +507,53 @@ function renderTowerPanel() {
     if (NET.isHost()) doFillTower(me, x, y);
     else NET.act({ t: 'fill_tower', x, y });
   };
+}
+
+// ===== NPC 商人面板:右鍵商人開啟,仿 /power 秘笈選單的點擊式清單(點一下立即成交) =====
+function openTraderPanel() {
+  UI.traderOpen = true;
+  UI.traderT = 0;
+  UI.els.traderPanel.classList.remove('hidden');
+  togglePanel(false); togglePowerPanel(false); toggleTalentPanel(false); closeTowerPanel();
+  renderTraderPanel();
+}
+function closeTraderPanel() {
+  UI.traderOpen = false;
+  UI.els.traderPanel.classList.add('hidden');
+}
+function execTrade(offerIdx) {
+  const me = myPlayer();
+  if (!me) return;
+  if (NET.isHost()) {
+    const r = doTrade(me, offerIdx);
+    if (r && r.err) showMsg('⚠️ ' + r.err);
+    renderTraderPanel();
+  } else {
+    NET.act({ t: 'trade', idx: offerIdx });
+  }
+}
+function renderTraderPanel() {
+  if (!UI.traderOpen) return;
+  const me = myPlayer();
+  if (!me) return;
+  const n = G.core.shards;
+  const offers = traderOffers();
+  let html = `<h2>${TRADER_CFG.icon} ${TRADER_CFG.name}</h2>
+    <p class="hint">已擊敗 ${n}/3 座神殿,擊敗更多神殿解鎖更好的兌換。點一下立即成交(比例固定)。</p>
+    <div class="power-grid">`;
+  offers.forEach((o, i) => {
+    const giveText = Object.entries(o.give).map(([id, c]) => `${ITEMS[id].icon}${ITEMS[id].name}×${c}`).join(' + ');
+    const getText = Object.entries(o.get).map(([id, c]) => `${ITEMS[id].icon}${ITEMS[id].name}×${c}`).join(' + ');
+    const can = canAfford(me, o.give);
+    html += `<button class="power-btn trade-btn" data-idx="${i}" ${can ? '' : 'disabled'}>
+      <span>${giveText}</span><code>→ ${getText}</code></button>`;
+  });
+  html += `</div><div class="btnrow"><button id="traderClose">關閉(Esc)</button></div>`;
+  UI.els.traderPanel.innerHTML = html;
+  UI.els.traderPanel.querySelectorAll('.trade-btn').forEach(btn => {
+    btn.onclick = () => execTrade(+btn.dataset.idx);
+  });
+  $id('traderClose').onclick = closeTraderPanel;
 }
 
 // ===== 衝裝(強化卷軸)面板:右鍵背包格開啟 =====
