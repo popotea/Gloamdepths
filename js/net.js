@@ -42,7 +42,8 @@ const NET = {
     const p = G.players.get(conn.pid);
     this.conns.delete(conn.pid);
     if (p) {
-      G.playersByName[p.name] = { inv: p.inv, hp: p.hp, x: p.x, y: p.y };
+      // 跟 buildSave 存同一組欄位:少了 lv/xp 的話,朋友離線再重連會掉回 1 等
+      G.playersByName[p.name] = { inv: p.inv, hp: p.hp, x: p.x, y: p.y, lv: p.lv, xp: p.xp };
       G.players.delete(conn.pid);
       msgAll(`👋 ${p.name} 離開了遊戲`);
       this.sendAll({ t: 'bye', id: conn.pid });
@@ -78,6 +79,8 @@ const NET = {
         if (!p.dead) {
           p.x = clamp(+d.x || 0, 0, MAP_W); p.y = clamp(+d.y || 0, 0, MAP_H);
           p.aim = +d.aim || 0;
+          // 選中格一起回報:動物的「跟隨拿飼料的人」(feederNear)才知道客戶端手上拿什麼
+          if (d.s !== undefined) p.sel = clamp(d.s | 0, 0, 7);
         }
         break;
       case 'mine': doMine(p, d.x | 0, d.y | 0); break;
@@ -86,6 +89,8 @@ const NET = {
       case 'place': doPlace(p, d.slot | 0, d.x | 0, d.y | 0); break;
       case 'till': doTill(p, d.x | 0, d.y | 0); break;
       case 'plant': doPlant(p, d.slot | 0, d.x | 0, d.y | 0); break;
+      case 'fish': doFish(p, d.x | 0, d.y | 0); break;
+      case 'feed': doFeed(p, d.id | 0, d.slot | 0); break;
       case 'fill_tower': doFillTower(p, d.x | 0, d.y | 0); break;
       case 'toggle_tower': doToggleTower(p, d.x | 0, d.y | 0); break;
       case 'eat': doEat(p, d.slot | 0); break;
@@ -143,6 +148,7 @@ const NET = {
       players: [...G.players.values()].map(p =>
         [p.id, r2(p.x), r2(p.y), r2(p.aim), p.swing > 0 ? 1 : 0, Math.round(p.hp), p.dead ? 1 : 0, Math.ceil(p.respawnT || 0), p.lv || 1, Math.round(p.xp || 0)]),
       enemies: G.enemies.map(e => [e.id, e.type, r2(e.x), r2(e.y), Math.round(e.hp), e.maxhp, e.elite ? 1 : 0]),
+      animals: G.animals.map(a => [a.id, a.type, r2(a.x), r2(a.y), Math.round(a.hp), a.fedT > 0 ? 1 : 0]),
       drops: G.drops.map(d => [d.id, d.item, d.n, r2(d.x), r2(d.y), d.lv || 0]),
       projs: G.projs.map(pj => [pj.id, r2(pj.x), r2(pj.y), pj.from === 'e' ? 1 : 0]),
       core: { e: r2(G.core.energy), s: G.core.shards },
@@ -150,7 +156,7 @@ const NET = {
     };
     for (const [pid, c] of this.conns) {
       const p = G.players.get(pid);
-      try { c.send({ ...snap, me: p ? { inv: p.inv, hp: Math.round(p.hp) } : null }); } catch (e) { }
+      try { c.send({ ...snap, me: p ? { inv: p.inv, hp: Math.round(p.hp), buffs: p.buffs } : null }); } catch (e) { }
     }
   },
 
@@ -198,7 +204,7 @@ const NET = {
         }
         G.core.energy = d.core.energy; G.core.shards = d.core.shards;
         G.shrines = d.shrines; G.wave = d.wave; G.time = d.time;
-        G.enemies = []; G.drops = []; G.floaters = []; G.cracks.clear(); G.projs = [];
+        G.enemies = []; G.drops = []; G.floaters = []; G.cracks.clear(); G.projs = []; G.animals = [];
         G.players.clear();
         for (const [id, name, x, y, hp, dead, lv, xp] of d.players) {
           const p = makePlayer(id, name);
@@ -237,13 +243,25 @@ const NET = {
           list.push(e);
         }
         G.enemies = list;
+        // 動物對帳(同敵人:保留現有座標平滑插值;fed 給渲染畫 ❤ 用)
+        {
+          const byId = new Map(G.animals.map(a => [a.id, a]));
+          const alist = [];
+          for (const [id, type, x, y, hp, fed] of d.animals || []) {
+            let a = byId.get(id);
+            if (!a) a = { id, type, x, y };
+            a.tx = x; a.ty = y; a.hp = hp; a.fed = !!fed;
+            alist.push(a);
+          }
+          G.animals = alist;
+        }
         G.drops = d.drops.map(([id, item, n, x, y, lv]) => ({ id, item, n, x, y, lv: lv || 0 }));
         G.projs = (d.projs || []).map(([id, x, y, fromE]) => ({ id, x, y, from: fromE ? 'e' : 'p' }));
         G.core.energy = d.core.e; G.core.shards = d.core.s;
         G.wave = d.wave; G.time = d.time;
         if (d.me) {
           const me = G.players.get(G.myId);
-          if (me) { me.inv = d.me.inv; me.hp = d.me.hp; UI.invDirty = true; }
+          if (me) { me.inv = d.me.inv; me.hp = d.me.hp; me.buffs = d.me.buffs || {}; UI.invDirty = true; }
         }
         break;
       }
@@ -275,7 +293,7 @@ const NET = {
     this.posT -= dt;
     if (me && this.posT <= 0 && this.conn && this.conn.open) {
       this.posT = 0.08;
-      this.conn.send({ t: 'pos', x: Math.round(me.x * 100) / 100, y: Math.round(me.y * 100) / 100, aim: Math.round(me.aim * 100) / 100 });
+      this.conn.send({ t: 'pos', x: Math.round(me.x * 100) / 100, y: Math.round(me.y * 100) / 100, aim: Math.round(me.aim * 100) / 100, s: me.sel });
     }
     const k = Math.min(1, dt * 12);
     for (const p of G.players.values()) {
@@ -285,6 +303,10 @@ const NET = {
     for (const e of G.enemies) {
       if (e.tx === undefined) continue;
       e.x += (e.tx - e.x) * k; e.y += (e.ty - e.y) * k;
+    }
+    for (const a of G.animals) {
+      if (a.tx === undefined) continue;
+      a.x += (a.tx - a.x) * k; a.y += (a.ty - a.y) * k;
     }
   },
 

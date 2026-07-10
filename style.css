@@ -24,6 +24,10 @@ body { font-family: "Microsoft JhengHei", "Noto Sans TC", sans-serif; color: #dd
 .bar.stamina span { line-height: 14px; font-size: 11px; }
 @keyframes blink { 50% { opacity: .55; } }
 #shards { font-size: 18px; letter-spacing: 3px; text-shadow: 0 0 6px #7ef0ff; }
+/* 料理 buff 列(血條下方):一個 buff 一顆小膠囊,倒數秒數 */
+#buffbar { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }
+#buffbar .buff { background: #12303acc; border: 1px solid #7ec8ff; border-radius: 10px;
+  padding: 1px 8px; font-size: 12px; color: #cfeaff; text-shadow: 0 1px 2px #000; }
 
 /* 上中:暗潮 */
 #wavebox { position: absolute; top: 12px; left: 50%; transform: translateX(-50%);

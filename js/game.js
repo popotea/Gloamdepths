@@ -37,11 +37,13 @@ function simTick(dt) {
   updateArcherTowers(dt);
   updateNests(dt);
   updateCrops(dt);
+  updateAnimals(dt);
   updateDrops(dt);
   updateWave(dt);
   updateCore(dt);
   ambientSpawn(dt);
   mushroomRegrow(dt);
+  animalRegrow(dt);
   // 自動存檔
   saveT += dt;
   if (saveT > 30) { saveT = 0; saveGame(); }
@@ -164,6 +166,20 @@ function mushroomRegrow(dt) {
     setObj(x, y, { type: 'mushroom' });
 }
 
+// 野生動物緩慢補充(被宰太兇也不會絕種;圈養的也算在 cap 內,避免牧場無限膨脹)
+let animalT = 0;
+function animalRegrow(dt) {
+  animalT -= dt;
+  if (animalT > 0) return;
+  animalT = 45;
+  if (G.animals.length >= ANIMAL_CFG.cap) return;
+  const ang = Math.random() * TAU, d = 10 + Math.random() * 30;
+  const x = Math.floor(CX + Math.cos(ang) * d), y = Math.floor(CY + Math.sin(ang) * d);
+  if (!inMap(x, y) || tileAt(x, y) !== T.FLOOR || G.objects.has(idx(x, y))) return;
+  const kinds = Object.keys(ANIMAL_TYPES);
+  spawnAnimal(kinds[(Math.random() * kinds.length) | 0], x + 0.5, y + 0.5);
+}
+
 function gameOver(win) {
   if (G.over) return;
   G.over = win ? 'win' : 'lose';
@@ -190,6 +206,7 @@ function buildSave() {
     explored: rleEnc(G.explored),
     objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null, o.stage ?? null, o.t ?? null, o.nestType ?? null]),
     drops: G.drops.map(d => [d.item, d.n, d.x, d.y]),
+    animals: G.animals.map(a => [a.type, Math.round(a.x * 10) / 10, Math.round(a.y * 10) / 10, Math.round(a.hp), Math.round(a.fedT || 0)]),
     core: { energy: G.core.energy, shards: G.core.shards },
     wave: { n: G.wave.n, timer: Math.max(45, G.wave.state === 'calm' ? G.wave.timer : 45), final: G.wave.final && G.core.shards < CORE_CFG.needShards ? false : G.wave.final },
     shrines: G.shrines.map(s => ({ x: s.x, y: s.y, dead: s.dead })),
@@ -245,6 +262,16 @@ function applySave(s, name) {
   }
   G.enemies = []; G.drops = []; G.projs = [];
   for (const [item, n, x, y] of s.drops || []) spawnDrop(item, n, x, y);
+  // 動物:清掉 genWorld 剛散布的野生個體,還原存檔裡的(舊版存檔沒這欄位就留著新散布的)
+  if (s.animals) {
+    G.animals = [];
+    for (const [type, x, y, hp, fedT] of s.animals) {
+      if (!ANIMAL_TYPES[type]) continue;
+      const a = spawnAnimal(type, x, y);
+      a.hp = Math.min(a.maxhp, hp || a.maxhp);
+      a.fedT = fedT || 0;
+    }
+  }
   G.core.energy = s.core.energy; G.core.shards = s.core.shards;
   G.wave = { n: s.wave.n, state: 'calm', timer: s.wave.timer, final: false };
   G.shrines = s.shrines;

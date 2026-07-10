@@ -103,11 +103,13 @@ function localControl(me, dt) {
     me.dashCD = DASH_CFG.cd;
     emitFx({ k: 'sfx', s: 'dash' });
   }
-  if (me.dashT <= 0) me.stamina = Math.min(100, me.stamina + DASH_CFG.regen * dt);
+  // 精力 buff(奶菇濃湯):體力回復速度倍率
+  if (me.dashT <= 0) me.stamina = Math.min(100, me.stamina + DASH_CFG.regen * buffMult(me, 'vigor') * dt);
 
   if (dx || dy) {
     const len = Math.hypot(dx, dy);
-    const spd = 4.6 * (me.dashT > 0 ? DASH_CFG.mult : 1);
+    // 疾行 buff(料理):客戶端自己的 buffs 由快照的 me.buffs 同步,本地預測才會跟房主一致
+    const spd = 4.6 * (me.dashT > 0 ? DASH_CFG.mult : 1) * buffMult(me, 'speed');
     moveCircle(me, dx / len * spd * dt, dy / len * spd * dt);
   }
   // 瞄準
@@ -158,7 +160,12 @@ function localControl(me, dt) {
       const s = me.inv[me.sel];
       if (s) {
         const it = ITEMS[s.id];
-        if (it.food) {
+        // 餵動物優先於吃/放置:滑鼠指著動物、手上又是牠的飼料才成立(蘑菇既是食物也是飼料)
+        const ani = G.animals.find(a => dist(a.x, a.y, wx, wy) < 0.8);
+        if (ani && ANIMAL_TYPES[ani.type].feed.includes(s.id) && dist(me.x, me.y, ani.x, ani.y) <= 3.8) {
+          if (NET.isHost()) doFeed(me, ani.id, me.sel);
+          else NET.act({ t: 'feed', id: ani.id, slot: me.sel });
+        } else if (it.food) {
           if (NET.isHost()) doEat(me, me.sel);
           else NET.act({ t: 'eat', slot: me.sel });
         } else if (it.place || it.placeTile !== undefined) {
@@ -170,6 +177,9 @@ function localControl(me, dt) {
         } else if (it.seed) {
           if (NET.isHost()) doPlant(me, me.sel, tx0, ty0);
           else NET.act({ t: 'plant', slot: me.sel, x: tx0, y: ty0 });
+        } else if (it.fish && infoAt(tx0, ty0).liquid) {
+          if (NET.isHost()) doFish(me, tx0, ty0);
+          else NET.act({ t: 'fish', x: tx0, y: ty0 });
         }
       }
     }

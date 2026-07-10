@@ -13,6 +13,8 @@ const G = {
   players: new Map(),   // id -> player
   myId: 0,
   enemies: [], drops: [], floaters: [], cracks: new Map(), projs: [],
+  animals: [],          // 被動生物(牲畜),房主模擬、快照同步,跟 enemies 分開的一套
+
   core: { x: CX + 0.5, y: CY + 0.5, energy: CORE_CFG.maxE, shards: 0 },
   wave: { n: 0, state: 'calm', timer: WAVE_CFG.first, final: false },
   shrines: [],          // [{x,y,dead}]
@@ -29,6 +31,15 @@ function infoAt(x, y) { return TILE_INFO[tileAt(x, y)]; }
 function isSolid(x, y) {
   if (!inMap(x, y)) return true;
   if (TILE_INFO[G.tiles[idx(x, y)]].solid) return true;
+  const o = G.objects.get(idx(x, y));
+  return !!(o && OBJ_SOLID[o.type]);
+}
+
+// 投射物專用的阻擋判定:low 地形(水面/矮圍籬)擋得住人卻擋不住飛行物,其餘同 isSolid
+function projHitsWall(x, y) {
+  if (!inMap(x, y)) return true;
+  const info = TILE_INFO[G.tiles[idx(x, y)]];
+  if (info.solid && !info.low) return true;
   const o = G.objects.get(idx(x, y));
   return !!(o && OBJ_SOLID[o.type]);
 }
@@ -118,7 +129,7 @@ function genWorld(seed) {
   G.explored = new Uint8Array(MAP_W * MAP_H);
   G.objects.clear(); G.lights.clear(); G.cracks.clear();
   G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.cropIdx.clear();
-  G.enemies = []; G.drops = []; G.floaters = []; G.projs = [];
+  G.enemies = []; G.drops = []; G.floaters = []; G.projs = []; G.animals = [];
   G.shrines = []; G.mushCount = 0; G.warned = {};
   G.core = { x: CX + 0.5, y: CY + 0.5, energy: CORE_CFG.maxE, shards: 0 };
   G.wave = { n: 0, state: 'calm', timer: WAVE_CFG.first, final: false };
@@ -162,6 +173,28 @@ function genWorld(seed) {
         if (inMap(tx, ty) && G.tiles[idx(tx, ty)] !== T.BEDROCK && G.tiles[idx(tx, ty)] !== T.GLOW &&
             TILE_INFO[G.tiles[idx(tx, ty)]].solid) G.tiles[idx(tx, ty)] = T.FLOOR;
       }
+    }
+  }
+
+  // 3.5) 幽光水池(釣魚點):只挖在開闊地——水池外圈一圈必須全是地板才動工,
+  // 走路的人永遠繞得過去,不會把保底隧道或礦區通道堵死(這是水池生成最容易出的 bug)
+  for (let n = 0; n < POI_CFG.pools; n++) {
+    for (let tries = 0; tries < 40; tries++) {
+      const ang = rnd() * TAU, d = 14 + rnd() * 70;
+      const cx = Math.floor(CX + Math.cos(ang) * d), cy = Math.floor(CY + Math.sin(ang) * d);
+      const r = 1.6 + rnd() * 1.2; // 半徑 1.6~2.8 格的小圓池
+      let ok = true;
+      const R = Math.ceil(r + 1.5);
+      for (let dy = -R; dy <= R && ok; dy++) for (let dx = -R; dx <= R && ok; dx++) {
+        if (Math.hypot(dx, dy) > r + 1.4) continue; // 只檢查池體+外圈一圈
+        const x = cx + dx, y = cy + dy;
+        if (!inMap(x, y) || G.tiles[idx(x, y)] !== T.FLOOR) ok = false;
+      }
+      if (!ok) continue;
+      for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+        if (Math.hypot(dx, dy) <= r) G.tiles[idx(cx + dx, cy + dy)] = T.WATER;
+      }
+      break;
     }
   }
 
@@ -256,6 +289,18 @@ function genWorld(seed) {
       const ni = idx(x, y);
       G.objects.set(ni, { type: 'nest', nestType, hp: NEST_TYPES[nestType].hp });
       G.nestIdx.add(ni);
+      break;
+    }
+  }
+
+  // 9) 野生動物:泥土區地面散布,拿飼料(見 ANIMAL_TYPES.feed)可引誘跟隨、圈進圍籬養
+  const animalKinds = Object.keys(ANIMAL_TYPES);
+  for (let n = 0; n < ANIMAL_CFG.worldSpawn; n++) {
+    for (let tries = 0; tries < 30; tries++) {
+      const ang = rnd() * TAU, d = 10 + rnd() * 30;
+      const x = Math.floor(CX + Math.cos(ang) * d), y = Math.floor(CY + Math.sin(ang) * d);
+      if (!inMap(x, y) || G.tiles[idx(x, y)] !== T.FLOOR || G.objects.has(idx(x, y))) continue;
+      spawnAnimal(animalKinds[(rnd() * animalKinds.length) | 0], x + 0.5, y + 0.5);
       break;
     }
   }

@@ -59,7 +59,15 @@ function render(dt) {
       const t = G.tiles[i];
       const info = TILE_INFO[t];
       const [sx, sy] = worldToScreen(tx, ty);
-      if (!info.solid) {
+      if (info.liquid) {
+        // 幽光水池:深藍底 + 相位錯開的波光(用格子座標當相位,不用另存動畫狀態)
+        ctx.fillStyle = info.c1;
+        ctx.fillRect(sx, sy, TILE + 1, TILE + 1);
+        const ph = performance.now() / 700 + tx * 1.7 + ty * 2.3;
+        ctx.fillStyle = `rgba(126,220,255,${0.13 + 0.1 * Math.sin(ph)})`;
+        ctx.fillRect(sx + TILE * 0.12, sy + TILE * 0.22, TILE * 0.34, TILE * 0.1);
+        ctx.fillRect(sx + TILE * 0.52, sy + TILE * 0.62, TILE * 0.3, TILE * 0.09);
+      } else if (!info.solid) {
         // 地板(依區域變色)
         const z = zoneOf(tx + 0.5, ty + 0.5);
         ctx.fillStyle = t === T.GLOW ? '#2e4a52' : t === T.FARMLAND ? '#3f2e18' : z === 0 ? '#2b2118' : z === 1 ? '#232329' : '#1b1826';
@@ -78,10 +86,31 @@ function render(dt) {
           }
         }
       } else {
-        ctx.fillStyle = info.c1;
-        ctx.fillRect(sx, sy, TILE + 1, TILE + 1);
-        ctx.fillStyle = info.c2;
-        ctx.fillRect(sx, sy + TILE * 0.75, TILE + 1, TILE * 0.25); // 底部陰影,立體感
+        if (info.fence) {
+          // 圍籬:地板打底 + 木柵欄(視覺上矮一截),跟整格實心的木牆做出區隔;裂痕沿用下方共用邏輯
+          const z = zoneOf(tx + 0.5, ty + 0.5);
+          ctx.fillStyle = z === 0 ? '#2b2118' : z === 1 ? '#232329' : '#1b1826';
+          ctx.fillRect(sx, sy, TILE + 1, TILE + 1);
+          ctx.strokeStyle = info.c1; ctx.lineWidth = 4;
+          ctx.beginPath();
+          for (const fx of [0.22, 0.5, 0.78]) {
+            ctx.moveTo(sx + TILE * fx, sy + TILE * 0.18);
+            ctx.lineTo(sx + TILE * fx, sy + TILE * 0.92);
+          }
+          ctx.stroke();
+          ctx.strokeStyle = info.c2; ctx.lineWidth = 3;
+          ctx.beginPath();
+          for (const fy of [0.35, 0.68]) {
+            ctx.moveTo(sx + TILE * 0.06, sy + TILE * fy);
+            ctx.lineTo(sx + TILE * 0.94, sy + TILE * fy);
+          }
+          ctx.stroke();
+        } else {
+          ctx.fillStyle = info.c1;
+          ctx.fillRect(sx, sy, TILE + 1, TILE + 1);
+          ctx.fillStyle = info.c2;
+          ctx.fillRect(sx, sy + TILE * 0.75, TILE + 1, TILE * 0.25); // 底部陰影,立體感
+        }
         if (info.ore) {
           ctx.fillStyle = info.ore;
           const rr = TILE * 0.11;
@@ -219,6 +248,39 @@ function render(dt) {
     ctx.beginPath();
     ctx.arc(sx, sy, TILE * 0.22, 0, TAU);
     ctx.fill();
+  }
+
+  // ---- 動物(被動生物) ----
+  for (const a of G.animals) {
+    if (a.x < x0 - 1 || a.x > x1 + 2 || a.y < y0 - 1 || a.y > y1 + 2) continue;
+    if (lightOf(a.x, a.y) < 0.04) continue;
+    const at = ANIMAL_TYPES[a.type];
+    const [sx, sy] = worldToScreen(a.x, a.y);
+    const bob = Math.sin(performance.now() / 260 + a.id) * 2;
+    ctx.font = `${TILE * at.r * 2.3}px "Segoe UI Emoji"`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(at.icon, sx, sy + bob);
+    // 餵飽狀態:頭上小愛心(host 看 fedT,client 看快照的 fed 旗標)
+    if (a.fedT > 0 || a.fed) {
+      ctx.font = `${TILE * 0.28}px "Segoe UI Emoji"`;
+      ctx.fillText('❤️', sx, sy - at.r * TILE - 8 + bob);
+    }
+    const amax = a.maxhp || at.hp;
+    if (a.hp < amax) {
+      const w = at.r * 2 * TILE;
+      ctx.fillStyle = '#3336';
+      ctx.fillRect(sx - w / 2, sy - at.r * TILE - 9, w, 4);
+      ctx.fillStyle = '#7dff8e';
+      ctx.fillRect(sx - w / 2, sy - at.r * TILE - 9, w * Math.max(0, a.hp / amax), 4);
+    }
+    if (dist(me.x, me.y, a.x, a.y) < 4) {
+      ctx.font = 'bold 12px sans-serif';
+      const label = at.name + ((a.fedT > 0 || a.fed) ? '' : `(可餵${at.feed.map(id => ITEMS[id].icon).join('')})`);
+      ctx.fillStyle = '#000a';
+      ctx.fillText(label, sx + 1, sy - at.r * TILE - (a.hp < amax ? 18 : 12) + 1);
+      ctx.fillStyle = '#c8f0d0';
+      ctx.fillText(label, sx, sy - at.r * TILE - (a.hp < amax ? 18 : 12));
+    }
   }
 
   // ---- 敵人 ----
@@ -431,7 +493,7 @@ function render(dt) {
       let label = null;
       if (obj) label = (ITEMS[obj.type] ? ITEMS[obj.type].icon + ' ' + ITEMS[obj.type].name : null);
       else if (dist(gx + 0.5, gy + 0.5, G.core.x, G.core.y) < 2) label = '💠 星核';
-      else if (info.solid && info.name) label = (info.ore ? '⛏️ ' : '') + info.name;
+      else if (info.solid && info.name) label = (info.liquid ? '💧 ' : info.ore ? '⛏️ ' : '') + info.name;
       if (label) { best = { label, gx, gy }; bestD = d; }
     }
     if (best && !UI.panelOpen && !UI.menuOpen) {

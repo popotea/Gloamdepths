@@ -18,7 +18,7 @@ function initUI() {
     corefill: $id('corefill'), coretext: $id('coretext'),
     xpfill: $id('xpfill'), xptext: $id('xptext'),
     stafill: $id('stafill'), statext: $id('statext'),
-    shards: $id('shards'), wavebox: $id('wavebox'),
+    shards: $id('shards'), wavebox: $id('wavebox'), buffbar: $id('buffbar'),
     hotbar: $id('hotbar'), msglog: $id('msglog'),
     chatlog: $id('chatlog'), chatbox: $id('chatbox'), chatInput: $id('chatInput'),
     invpanel: $id('invpanel'), invgrid: $id('invgrid'), craftlist: $id('craftlist'), crafttabs: $id('crafttabs'),
@@ -204,6 +204,9 @@ const POWER_MENU = [
     ...Object.keys(ENEMY_TYPES).map(type => ({ label: ENEMY_TYPES[type].name, cmd: `/power spawn ${type}` })),
     { label: '清除場上怪物', cmd: '/power clearmobs' },
   ] },
+  { cat: '🐄 召喚動物', items:
+    Object.keys(ANIMAL_TYPES).map(type => ({ label: ANIMAL_TYPES[type].name, cmd: `/power animal ${type}` })),
+  },
 ];
 
 function togglePowerPanel(open) {
@@ -270,6 +273,16 @@ function uiTick(dt) {
   UI.els.corefill.classList.toggle('low', eR < 0.3);
   UI.els.coretext.textContent = `💠 星核 ${Math.ceil(G.core.energy)}`;
   UI.els.shards.textContent = '🔷'.repeat(G.core.shards) + '◇'.repeat(Math.max(0, CORE_CFG.needShards - G.core.shards));
+
+  // 料理 buff 列(有 buff 才顯示;客戶端的 buffs 由快照同步)
+  {
+    const list = me.buffs ? Object.entries(me.buffs).filter(([, b]) => b && b.t > 0) : [];
+    const html = list.map(([k, b]) => {
+      const info = BUFF_INFO[k] || { icon: '✨', name: k };
+      return `<span class="buff">${info.icon} ${info.name} ${Math.ceil(b.t)}s</span>`;
+    }).join('');
+    if (UI.els.buffbar.innerHTML !== html) UI.els.buffbar.innerHTML = html;
+  }
 
   // 等級 / 經驗
   const lv = me.lv || 1;
@@ -457,7 +470,7 @@ function renderEnhPanel() {
 
 // 依配方產出的物品欄位推斷分類(不额外改資料結構)
 const RECIPE_CATS = [
-  { key: 'tool',  name: '⛏️ 工具', test: it => !!it.pick || !!it.till },
+  { key: 'tool',  name: '⛏️ 工具', test: it => !!it.pick || !!it.till || !!it.fish },
   { key: 'weapon',name: '⚔️ 武器', test: it => !!it.sword || !!it.ranged },
   { key: 'armor', name: '🛡️ 防具', test: it => !!it.armor },
   { key: 'build', name: '🏗️ 建築', test: it => !!it.place || it.placeTile !== undefined },
@@ -657,7 +670,7 @@ function drawMinimap() {
       [T.LUMITE]: 0xfffff07e, [T.ROOT]: 0xff305c6d, [T.BEDROCK]: 0xff000000,
       [T.WOODWALL]: 0xff3e6a8a, [T.STONEWALL]: 0xff968a8a,
       [T.GRAVEL]: 0xff787e8a, [T.COAL]: 0xff2a2a2a, [T.DIAMOND]: 0xffffc76a,
-      [T.FARMLAND]: 0xff1c3a5c,
+      [T.FARMLAND]: 0xff1c3a5c, [T.WATER]: 0xff8a622a, [T.FENCE]: 0xff5494c0,
     };
     for (let i = 0; i < G.tiles.length; i++) {
       px[i] = G.explored[i] ? (C[G.tiles[i]] || 0xff000000) : 0xff000000;

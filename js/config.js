@@ -52,6 +52,7 @@ const T = {
   COPPER: 4, IRON: 5, GOLD: 6, LUMITE: 7, ROOT: 8,
   BEDROCK: 9, GLOW: 10, WOODWALL: 11, STONEWALL: 12,
   GRAVEL: 13, COAL: 14, DIAMOND: 15, FARMLAND: 16,
+  WATER: 17, FENCE: 18,
 };
 
 // 地形資料:hp=挖掘耐久, tier=所需鎬階級, light=自帶光半徑
@@ -76,6 +77,11 @@ const TILE_INFO = {
   [T.BEDROCK]:  { solid: true, hp: Infinity, tier: 99, name: '基岩', c1: '#16161c', c2: '#0e0e12' },
   [T.WOODWALL]: { solid: true, hp: 40, tier: 0, name: '木牆', drop: { id: 'wood_wall', n: 1 },  c1: '#c09454', c2: '#96743e', built: 'plank' },
   [T.STONEWALL]:{ solid: true, hp: 90, tier: 0, name: '石牆(建)', drop: { id: 'stone_wall', n: 1 }, c1: '#b4b4c4', c2: '#8e8e9e', built: 'brick' },
+  // 水:solid 擋移動(人/怪都不能走進去,幽影照樣穿),liquid+low 讓投射物飛得過、鎬敲不掉;
+  // 自帶微光呼應「幽光水池」,順便讓怪不會貼著水邊生成
+  [T.WATER]:    { solid: true, liquid: true, low: true, hp: Infinity, tier: 99, name: '幽光水池', light: 2, c1: '#16455f', c2: '#0e2c40' },
+  // 圍籬:矮牆,擋移動但箭矢/光束/暗影彈都飛得過(low);比木牆脆,定位是圈農地/牧場不是防線
+  [T.FENCE]:    { solid: true, low: true, fence: true, hp: 25, tier: 0, name: '木圍籬', drop: { id: 'fence', n: 1 }, c1: '#c09454', c2: '#96743e' },
 };
 
 // ── 箭塔:玩家手動補箭矢的防禦建築,彈藥打完就停火,靠玩家回來補給形成天然上限 ──
@@ -83,6 +89,43 @@ const TILE_INFO = {
 const ARCHER_TOWER_CFG = {
   maxAmmo: 20, dmg: 20, range: 6, cd: 0.9,
   maxPerPlayer: 3,
+};
+
+// ── 料理 buff:食物可帶 buff 欄位 { kind, mult 或 value, dur 秒 },doEat 時寫進 p.buffs[kind],
+// 同種 buff 重複吃 = 重置時間(不疊加倍率,避免數值爆掉);計時與失效在 updatePlayersHost。
+// kind 對應的生效點:speed=移動速度(main.js localControl)/ mine=挖掘力(doMine)/
+// guard=額外減傷(damagePlayer,與護甲相乘)/ regen=每秒回血(updatePlayersHost)
+const BUFF_INFO = {
+  speed: { name: '疾行', icon: '👟' },
+  guard: { name: '岩鎧', icon: '🛡️' },
+  mine:  { name: '礦勁', icon: '⛏️' },
+  regen: { name: '回春', icon: '💚' },
+  vigor: { name: '精力', icon: '⚡' }, // 體力回復速度倍率(main.js localControl)
+};
+function buffMult(p, kind) { const b = p.buffs && p.buffs[kind]; return b ? (b.mult || 1) : 1; }
+function buffVal(p, kind) { const b = p.buffs && p.buffs[kind]; return b ? (b.value || 0) : 0; }
+
+// ── 釣魚:站在岸邊對水面右鍵拋竿,計時到就開獎(移動超過 moveCancel 格 = 收竿魚跑了);
+// loot 權重表,null = 空軍(什麼都沒釣到)
+const FISH_CFG = {
+  timeMin: 1.5, timeMax: 4, moveCancel: 0.3,
+  loot: [ ['fish', 0.5], ['crystal_fish', 0.15], ['lumite', 0.1], [null, 0.25] ],
+};
+
+// ── 動物養殖:被動生物,不攻擊不追逐(AI 在 updateAnimals,跟 updateEnemies 完全分開的一套)。
+// 來源=野外偶遇:泥土區隨機遊蕩,玩家手持 feed 清單內的物品靠近,動物會跟著走(引回基地圈進圍籬);
+// 右鍵拿飼料對動物餵食 → 倒數 productCD 秒後掉 product,之後回到飢餓狀態要再餵;
+// 近戰攻擊可宰殺掉 meat[min,max] 塊獸肉(箭/塔打不到動物,避免箭塔把牧場屠了)
+const ANIMAL_TYPES = {
+  hen: { name: '幽穴雞', icon: '🐔', hp: 20, r: 0.30, speed: 2.6, hopCD: 1.6,
+         feed: ['mush_spore', 'mushroom'], product: 'egg', productCD: 90, meat: [1, 1] },
+  cow: { name: '苔絨牛', icon: '🐮', hp: 50, r: 0.48, speed: 2.2, hopCD: 2.0,
+         feed: ['glowcap', 'mushroom'], product: 'milk', productCD: 150, meat: [2, 3] },
+};
+const ANIMAL_CFG = {
+  worldSpawn: 8,   // 開新世界散布幾隻
+  cap: 10,         // 野外自然補充的上限(圈養的也算在內)
+  followRange: 5,  // 手持飼料多近會被跟隨
 };
 
 // ── 農耕:doTill(entities.js)把地板翻成 T.FARMLAND;doPlant 在農地種下 crop 物件;
@@ -157,6 +200,31 @@ const ITEMS = {
   shovel:          { name: '鏟子', icon: '🥄', till: true, max: 1, desc: '對地板右鍵翻成農地;鏟子不能用來挖牆' },
   mush_spore:      { name: '光孢子', icon: '🟤', seed: 'mush', desc: '對翻好的農地右鍵種下;採野生蘑菇有機率獲得' },
   glowcap:         { name: '光傘菇', icon: '🍄', food: 25, desc: '農地種出來的作物,比野生蘑菇更頂餓' },
+  // 料理擴充:帶 buff 的熟食(重複吃同種 buff 只重置時間);血滿也吃得下去(為了 buff)
+  glow_soup:       { name: '光傘菇湯', icon: '🥣', food: 30, buff: { kind: 'speed', mult: 1.2, dur: 90 },
+                     desc: '回血 30;移動速度 +20%,持續 90 秒' },
+  rock_stew:       { name: '岩鎧燉菜', icon: '🍲', food: 30, buff: { kind: 'guard', value: 0.25, dur: 90 },
+                     desc: '回血 30;受到傷害再 -25%(與護甲相乘),持續 90 秒' },
+  miner_feast:     { name: '礦工大餐', icon: '🍛', food: 40, buff: { kind: 'mine', mult: 1.6, dur: 120 },
+                     desc: '回血 40;挖掘力 +60%,持續 120 秒' },
+  // 釣魚:釣竿對水面右鍵拋竿;魚是料理食材
+  fishing_rod:     { name: '釣竿', icon: '🎣', fish: true, max: 1, desc: '選中後對幽光水池右鍵拋竿,站著別動等魚上鉤' },
+  fish:            { name: '幽潭魚', icon: '🐟', food: 15, desc: '水池釣上來的魚,生吃普通,烤過更棒' },
+  crystal_fish:    { name: '晶鱗魚', icon: '🐠', food: 10, desc: '罕見的發光魚,是晶鱗魚湯的材料' },
+  cooked_fish:     { name: '烤魚', icon: '🍣', food: 45 },
+  fish_soup:       { name: '晶鱗魚湯', icon: '🍜', food: 35, buff: { kind: 'regen', value: 2, dur: 60 },
+                     desc: '回血 35;每秒再回 2 點血,持續 60 秒' },
+  // 圍籬:擋怪(也擋人)但箭矢飛得過,拿來圈農地/牧場;怪照樣啃得爛,別當防線用
+  fence:           { name: '木圍籬', icon: '🚧', placeTile: T.FENCE,
+                     desc: '矮柵欄:擋住怪物走動,但箭塔/弓箭可以越過它射擊;耐久比木牆低' },
+  // 動物養殖:產物與肉,接進料理系統
+  egg:             { name: '幽光蛋', icon: '🥚', food: 12, desc: '幽穴雞餵食後定時產下;可做菇蛋燒' },
+  milk:            { name: '苔奶', icon: '🥛', food: 15, desc: '苔絨牛餵食後定時產出;可做奶菇濃湯' },
+  meat:            { name: '獸肉', icon: '🥩', food: 8, desc: '生肉勉強能吃,烤過才是正餐' },
+  cooked_meat:     { name: '烤肉', icon: '🍗', food: 50 },
+  omelet:          { name: '菇蛋燒', icon: '🍳', food: 35 },
+  cream_stew:      { name: '奶菇濃湯', icon: '🍵', food: 30, buff: { kind: 'vigor', mult: 1.8, dur: 90 },
+                     desc: '回血 30;體力回復速度 +80%(衝刺更快回滿),持續 90 秒' },
 };
 
 // 合成配方:station=null 徒手 / 'workbench' / 'furnace'
@@ -192,6 +260,20 @@ const RECIPES = [
   { out: 'gold_bar',    n: 1, cost: { gold_ore: 2 },    station: 'furnace' },
   { out: 'cooked_mushroom', n: 1, cost: { mushroom: 1 }, station: 'furnace' },
   { out: 'shovel',       n: 1, cost: { wood: 4, stone: 2 },  station: 'workbench' },
+  // 料理擴充(全在熔爐):光傘菇當基底,礦物入菜
+  { out: 'glow_soup',    n: 1, cost: { glowcap: 2 },                              station: 'furnace' },
+  { out: 'rock_stew',    n: 1, cost: { glowcap: 1, coal: 2 },                     station: 'furnace' },
+  { out: 'miner_feast',  n: 1, cost: { cooked_mushroom: 1, glowcap: 1, copper_ore: 1 }, station: 'furnace' },
+  // 釣魚
+  { out: 'fishing_rod',  n: 1, cost: { wood: 5, stone: 1 },   station: 'workbench' },
+  { out: 'cooked_fish',  n: 1, cost: { fish: 1 },             station: 'furnace' },
+  { out: 'fish_soup',    n: 1, cost: { crystal_fish: 1, glowcap: 1 }, station: 'furnace' },
+  // 圍籬
+  { out: 'fence',        n: 6, cost: { wood: 2 },             station: 'workbench' },
+  // 動物養殖產物料理
+  { out: 'cooked_meat',  n: 1, cost: { meat: 1 },              station: 'furnace' },
+  { out: 'omelet',       n: 1, cost: { egg: 1, mushroom: 1 },  station: 'furnace' },
+  { out: 'cream_stew',   n: 1, cost: { milk: 1, glowcap: 1 },  station: 'furnace' },
 ];
 
 // 敵人表:speed=跳撲衝量, hopCD=跳撲間隔
@@ -252,6 +334,7 @@ const OBJ_SOLID = { workbench: true, furnace: true, tower: true, archer_tower: t
 const POI_CFG = {
   ruins: 7,   // 廢墟數(石磚小房,內有寶箱)
   nests: 6,   // 巢穴數
+  pools: 10,  // 幽光水池數(釣魚點)
 };
 
 // 巢穴種類(世界生成時依 weight 加權抽選,見 world.js pickNestType):

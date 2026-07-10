@@ -1,5 +1,5 @@
 // ===== 實體:玩家、敵人、掉落物、戰鬥、挖掘、放置 =====
-let nextEid = 1, nextDid = 1, nextPjid = 1;
+let nextEid = 1, nextDid = 1, nextPjid = 1, nextAid = 1;
 
 const PLAYER_COLORS = ['#ffd97a', '#7ad0ff', '#8dff9e', '#ff9ecb'];
 
@@ -13,6 +13,7 @@ function makePlayer(id, name) {
     dead: false, respawnT: 0, invDirty: true,
     lv: 1, xp: 0,
     stamina: 100, dashCD: 0, dashT: 0,
+    buffs: {},   // 料理 buff:kind -> { mult/value, t 剩餘秒數 }
   };
   p.maxhp = playerMaxHp(p);
   p.hp = p.maxhp;
@@ -339,7 +340,8 @@ function updateProjs(dt) {
     const pj = G.projs[i];
     pj.ttl -= dt;
     pj.x += pj.vx * dt; pj.y += pj.vy * dt;
-    let dead = pj.ttl <= 0 || !inMap(Math.floor(pj.x), Math.floor(pj.y)) || isSolid(Math.floor(pj.x), Math.floor(pj.y));
+    // projHitsWall:水面與矮圍籬(low 地形)擋不住飛行物,箭塔隔著圍籬照樣開火
+    let dead = pj.ttl <= 0 || !inMap(Math.floor(pj.x), Math.floor(pj.y)) || projHitsWall(Math.floor(pj.x), Math.floor(pj.y));
     if (!dead) {
       if (pj.from === 'p') {
         for (const e of G.enemies) {
@@ -368,12 +370,14 @@ function updateProjs(dt) {
 
 function damagePlayer(p, amount) {
   if (p.godmode) return; // /power godmode:秘笈開啟的無敵狀態
-  const dmg = Math.max(1, Math.round(amount * (1 - bestArmor(p))));
+  // 岩鎧 buff 與護甲相乘(不是相加),兩者都拉滿也不會變成免疫
+  const dmg = Math.max(1, Math.round(amount * (1 - bestArmor(p)) * (1 - buffVal(p, 'guard'))));
   p.hp -= dmg; p.iframe = 0.8; p.lastHurt = G.time;
   addFloater(p.x, p.y - 0.6, '-' + dmg, '#ff6b6b');
   emitFx({ k: 'sfx', s: 'hurt' });
   if (p.hp <= 0) {
     p.hp = 0; p.dead = true; p.respawnT = 5;
+    p.buffs = {}; p.fish = null; // 死亡清空料理 buff 與釣魚狀態
     msgAll(`💀 ${p.name} 倒下了,5 秒後在星核重生`);
   }
 }
@@ -464,6 +468,12 @@ function runPowerCmd(p, action, arg, num) {
       if (!ENEMY_TYPES[arg]) return `⚠️ 找不到怪物「${arg}」`;
       return `👹 召喚了 ${cheatSpawn(p, arg, num)} 隻${ENEMY_TYPES[arg].name}`;
     }
+    case 'animal': {
+      if (!ANIMAL_TYPES[arg]) return `⚠️ 找不到動物「${arg}」`;
+      const n = clamp(num | 0 || 1, 1, 10);
+      for (let i = 0; i < n; i++) { const pos = findSpawnSpot(p); spawnAnimal(arg, pos.x, pos.y); }
+      return `🐄 召喚了 ${n} 隻${ANIMAL_TYPES[arg].name}`;
+    }
     default: return `⚠️ 未知指令 /power ${action}`;
   }
 }
@@ -478,6 +488,13 @@ function doSwing(p, aim) {
     const d = dist(p.x, p.y, e.x, e.y);
     if (d < w.range + ENEMY_TYPES[e.type].r && angDiff(Math.atan2(e.y - p.y, e.x - p.x), aim) < w.arc) {
       hurtEnemy(e, dmg, p, w.kb, w.elem);
+    }
+  }
+  // 宰殺牲畜:只有近戰打得到(箭/塔刻意打不到,避免流彈把牧場屠了)
+  for (const a of [...G.animals]) {
+    const d = dist(p.x, p.y, a.x, a.y);
+    if (d < w.range + ANIMAL_TYPES[a.type].r && angDiff(Math.atan2(a.y - p.y, a.x - p.x), aim) < w.arc) {
+      hurtAnimal(a, dmg, p);
     }
   }
 }
@@ -521,7 +538,7 @@ function doMine(p, x, y) {
   const info = TILE_INFO[G.tiles[i]];
   if (o && o.type !== 'mushroom' && o.type !== 'crop' && !info.solid) {
     // 敲回收已放置物件
-    o.hp = (o.hp ?? OBJ_HP[o.type]) - bestPick(p).power * 4;
+    o.hp = (o.hp ?? OBJ_HP[o.type]) - bestPick(p).power * 4 * buffMult(p, 'mine');
     emitFx({ k: 'sfx', s: 'mine' });
     if (o.hp <= 0) {
       // 寶箱/巢穴不是可攜帶物品,拆掉直接開獎勵,不走「物件變回背包道具」那條路
@@ -540,7 +557,7 @@ function doMine(p, x, y) {
     p.mineCD = 0.5;
     return;
   }
-  G.dmg[i] += pick.power;
+  G.dmg[i] += pick.power * buffMult(p, 'mine'); // 礦勁 buff:料理提供的挖掘力加成
   emitFx({ k: 'sfx', s: 'mine' });
   if (G.dmg[i] >= info.hp) breakTile(x, y);
   else emitFx({ k: 'crack', i, r: G.dmg[i] / info.hp });
@@ -628,12 +645,47 @@ function doPlant(p, slot, x, y) {
   emitFx({ k: 'sfx', s: 'place' });
 }
 
+// 釣魚:拿釣竿對水面右鍵拋竿,站著不動等 FISH_CFG 的隨機秒數,開獎邏輯在 updatePlayersHost;
+// 移動會收竿(魚跑了),不用瞄準浮標、不用 QTE,跟翻土/種植同一套「右鍵→判定→結果」節奏
+function doFish(p, x, y) {
+  if (p.dead || !inMap(x, y) || p.fish) return;
+  if (!infoAt(x, y).liquid) return;
+  if (dist(p.x, p.y, x + 0.5, y + 0.5) > 3.8) return;
+  p.aim = Math.atan2(y + 0.5 - p.y, x + 0.5 - p.x);
+  p.fish = { x: p.x, y: p.y, t: FISH_CFG.timeMin + Math.random() * (FISH_CFG.timeMax - FISH_CFG.timeMin) };
+  addFloater(p.x, p.y - 0.6, '🎣 拋竿……', '#7ec8ff');
+}
+
+// 開獎:依 FISH_CFG.loot 權重抽一項;掉在腳邊讓磁吸撿取處理(背包滿了會留在地上,不會憑空消失)
+function resolveFishing(p) {
+  let r = Math.random();
+  for (const [id, w] of FISH_CFG.loot) {
+    if ((r -= w) >= 0) continue;
+    if (!id) { addFloater(p.x, p.y - 0.6, '💧 空軍……魚跑了', '#8899aa'); return; }
+    spawnDrop(id, 1, p.x, p.y);
+    addFloater(p.x, p.y - 0.9, `${ITEMS[id].icon} ${ITEMS[id].name}上鉤了!`, '#7dff8e');
+    emitFx({ k: 'sfx', s: 'pickup' });
+    return;
+  }
+}
+
 function doEat(p, slot) {
   if (p.dead) return;
   const s = p.inv[slot];
-  if (!s || !ITEMS[s.id].food || p.hp >= p.maxhp) return;
-  p.hp = Math.min(p.maxhp, p.hp + ITEMS[s.id].food);
-  addFloater(p.x, p.y - 0.6, '+' + ITEMS[s.id].food, '#7dff8e');
+  if (!s) return;
+  const it = ITEMS[s.id];
+  if (!it.food) return;
+  // 純回血食物血滿吃不下去(避免浪費);帶 buff 的料理為了 buff 血滿也能吃
+  if (p.hp >= p.maxhp && !it.buff) return;
+  p.hp = Math.min(p.maxhp, p.hp + it.food);
+  addFloater(p.x, p.y - 0.6, '+' + it.food, '#7dff8e');
+  if (it.buff) {
+    // 同種 buff 重複吃只重置時間,不疊加倍率(平衡上限)
+    p.buffs = p.buffs || {};
+    p.buffs[it.buff.kind] = { mult: it.buff.mult, value: it.buff.value, t: it.buff.dur };
+    const info = BUFF_INFO[it.buff.kind];
+    addFloater(p.x, p.y - 0.9, `${info.icon} ${info.name} ${it.buff.dur}秒`, '#7ec8ff');
+  }
   emitFx({ k: 'sfx', s: 'eat' });
   consumeSlot(p, slot);
 }
@@ -750,6 +802,96 @@ function breakNest(x, y, o) {
   const mult = def.elite ? 2 : 1;
   spawnDrop('lumite', (2 + Math.floor(Math.random() * 3)) * mult, x + 0.5, y + 0.5);
   if (Math.random() < 0.4) spawnDrop('enh_scroll', mult, x + 0.5, y + 0.5);
+}
+
+// ===== 動物養殖(房主):被動生物,遊蕩/跟隨飼料/餵食產出,永遠不攻擊 =====
+function spawnAnimal(type, x, y) {
+  const at = ANIMAL_TYPES[type];
+  const a = { id: nextAid++, type, x, y, hp: at.hp, maxhp: at.hp,
+    fedT: 0, vx: 0, vy: 0, hopT: Math.random() * 2, };
+  G.animals.push(a);
+  return a;
+}
+
+// 手持該動物飼料、且在跟隨範圍內的最近玩家(動物會跟著走,用來引回基地圈養)
+function feederNear(a, at) {
+  let best = null, bd = ANIMAL_CFG.followRange;
+  for (const p of G.players.values()) {
+    if (p.dead) continue;
+    const s = p.inv[p.sel];
+    if (!s || !at.feed.includes(s.id)) continue;
+    const d = dist(a.x, a.y, p.x, p.y);
+    if (d < bd) { bd = d; best = p; }
+  }
+  return best;
+}
+
+function hurtAnimal(a, dmg, src) {
+  a.hp -= Math.round(dmg);
+  addFloater(a.x, a.y - 0.5, '-' + Math.round(dmg), '#ffdf6b');
+  emitFx({ k: 'sfx', s: 'hit' });
+  if (src) {
+    const d = Math.max(0.1, dist(src.x, src.y, a.x, a.y));
+    a.vx += (a.x - src.x) / d * 5; a.vy += (a.y - src.y) / d * 5;
+    a.hopT = 0; // 受驚,馬上跳開
+  }
+  if (a.hp <= 0) {
+    const i = G.animals.indexOf(a);
+    if (i >= 0) G.animals.splice(i, 1);
+    const at = ANIMAL_TYPES[a.type];
+    const n = at.meat[0] + Math.floor(Math.random() * (at.meat[1] - at.meat[0] + 1));
+    spawnDrop('meat', n, a.x, a.y);
+    emitFx({ k: 'sfx', s: 'break_' });
+  }
+}
+
+// 右鍵拿飼料對動物:餵食(消耗 1 個),倒數 productCD 後掉產物;吃飽的動物不收
+function doFeed(p, aid, slot) {
+  if (p.dead) return;
+  const a = G.animals.find(x => x.id === aid);
+  if (!a) return;
+  if (dist(p.x, p.y, a.x, a.y) > 3.8) return;
+  const at = ANIMAL_TYPES[a.type];
+  const s = p.inv[slot];
+  if (!s || !at.feed.includes(s.id)) return;
+  if (a.fedT > 0) { addFloater(a.x, a.y - 0.6, `${at.icon} 還不餓`, '#8899aa'); return; }
+  consumeSlot(p, slot);
+  a.fedT = at.productCD;
+  a.hp = Math.min(a.maxhp, a.hp + 10);
+  addFloater(a.x, a.y - 0.6, `❤ ${Math.round(at.productCD)}秒後產出${ITEMS[at.product].name}`, '#7dff8e');
+  emitFx({ k: 'sfx', s: 'eat' });
+}
+
+function updateAnimals(dt) {
+  for (const a of G.animals) {
+    const at = ANIMAL_TYPES[a.type];
+    a.hopT -= dt;
+    // 餵飽倒數,時間到掉產物、回到飢餓狀態(要再餵才有下一顆)
+    if (a.fedT > 0) {
+      a.fedT -= dt;
+      if (a.fedT <= 0) {
+        a.fedT = 0;
+        spawnDrop(at.product, 1, a.x, a.y);
+        addFloater(a.x, a.y - 0.6, `${ITEMS[at.product].icon}!`, '#ffd23f');
+      }
+    }
+    // 移動:附近有人拿飼料就跟著走,否則慢速隨機遊蕩
+    if (a.hopT <= 0) {
+      const feeder = feederNear(a, at);
+      if (feeder && dist(a.x, a.y, feeder.x, feeder.y) > 1.2) {
+        a.hopT = at.hopCD * 0.7;
+        const ang = Math.atan2(feeder.y - a.y, feeder.x - a.x) + (Math.random() - 0.5) * 0.3;
+        a.vx = Math.cos(ang) * at.speed; a.vy = Math.sin(ang) * at.speed;
+      } else {
+        a.hopT = at.hopCD * (1.5 + Math.random());
+        const ang = Math.random() * TAU;
+        a.vx = Math.cos(ang) * at.speed * 0.4; a.vy = Math.sin(ang) * at.speed * 0.4;
+      }
+    }
+    const f = Math.exp(-4 * dt);
+    a.vx *= f; a.vy *= f;
+    moveCircle(a, a.vx * dt, a.vy * dt, at.r); // 撞牆/圍籬就停(圍籬圈養靠這個)
+  }
 }
 
 // ===== 農耕:作物成長(房主)=====
@@ -874,6 +1016,11 @@ function updatePlayersHost(dt) {
   for (const p of G.players.values()) {
     p.iframe -= dt; p.atkCD -= dt; p.mineCD -= dt;
     if (p.swing > 0) p.swing -= dt;
+    // 料理 buff 倒數(死亡時 damagePlayer 已直接清空)
+    if (p.buffs) for (const k in p.buffs) {
+      p.buffs[k].t -= dt;
+      if (p.buffs[k].t <= 0) delete p.buffs[k];
+    }
     // 擊退
     if (p.kbx || p.kby) {
       moveCircle(p, (p.kbx || 0) * dt, (p.kby || 0) * dt);
@@ -892,8 +1039,21 @@ function updatePlayersHost(dt) {
       }
       continue;
     }
+    // 釣魚計時:離開拋竿位置太遠 = 收竿;時間到就開獎
+    if (p.fish) {
+      if (dist(p.x, p.y, p.fish.x, p.fish.y) > FISH_CFG.moveCancel) {
+        p.fish = null;
+        addFloater(p.x, p.y - 0.6, '🎣 收竿了', '#8899aa');
+      } else if ((p.fish.t -= dt) <= 0) {
+        p.fish = null;
+        resolveFishing(p);
+      }
+    }
     // 脫戰回血
     if (G.time - p.lastHurt > 10 && p.hp < p.maxhp) p.hp = Math.min(p.maxhp, p.hp + 3 * dt);
+    // 回春 buff:不受脫戰限制,戰鬥中也持續回血(晶鱗魚湯的價值所在)
+    if (p.buffs && p.buffs.regen && p.hp < p.maxhp)
+      p.hp = Math.min(p.maxhp, p.hp + p.buffs.regen.value * dt);
     // 走過蘑菇自動採集(有機率額外掉一顆光孢子,鼓勵去找野生蘑菇拿種子來種)
     const fx = Math.floor(p.x), fy = Math.floor(p.y);
     const o = objAt(fx, fy);
