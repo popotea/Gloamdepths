@@ -32,6 +32,9 @@ function monsterImg(type) {
 // 依 TILE_INFO[t].tex 從 assets/tiles/ 載入;載入後先預縮成 TILE 大小的離屏 canvas,
 // 地形迴圈每幀畫上千格,直接畫小圖才不會每格都做大圖縮放。失敗自動退回色塊畫法
 const TILE_TEX = new Map();
+// 地板類貼圖要壓暗降對比:AI 材質偏亮偏花,會吃掉放在上面的物件與掉落物;
+// 烘進快取(只在載入時做一次),逐幀零成本
+const FLOOR_TEX_MUTE = new Set(['floor.png', 'floor_mid.png', 'floor_deep.png', 'farmland.png']);
 function tileTexFile(file) {
   let e = TILE_TEX.get(file); // 用檔名當 key:GLOW 與 FLOOR 共用 floor.png,只載一次
   if (!e) {
@@ -40,7 +43,9 @@ function tileTexFile(file) {
     img.onload = () => {
       const c = document.createElement('canvas');
       c.width = c.height = TILE + 1; // +1 跟色塊畫法一致,蓋住格線縫
-      c.getContext('2d').drawImage(img, 0, 0, TILE + 1, TILE + 1);
+      const g = c.getContext('2d');
+      g.drawImage(img, 0, 0, TILE + 1, TILE + 1);
+      if (FLOOR_TEX_MUTE.has(file)) { g.fillStyle = 'rgba(12,10,8,0.42)'; g.fillRect(0, 0, TILE + 1, TILE + 1); }
       e.cv = c;
     };
     img.onerror = () => { e.failed = true; };
@@ -201,6 +206,11 @@ function render(dt) {
     if (lightOf(tx + 0.5, ty + 0.5) < 0.05) continue;
     const [sx, sy] = worldToScreen(tx + 0.5, ty + 0.5);
     ctx.globalAlpha = o.type === 'archer_tower' && o.off ? 0.45 : 1;
+    // 深色底影:emoji 物件(火把/工作台等)放在貼圖地板上才看得見
+    ctx.fillStyle = 'rgba(5,5,10,0.42)';
+    ctx.beginPath();
+    ctx.arc(sx, sy + TILE * 0.06, TILE * 0.40, 0, TAU);
+    ctx.fill();
     ctx.font = `${TILE * 0.7}px "Segoe UI Emoji"`;
     if (o.type === 'crop') {
       const def = CROP_TYPES[o.crop];
@@ -270,6 +280,11 @@ function render(dt) {
     if (lightOf(d.x, d.y) < 0.05) continue;
     const [sx, sy] = worldToScreen(d.x, d.y);
     const bob = Math.sin(performance.now() / 300 + d.id) * 3;
+    // 深色底影:掉落物在貼圖地板上才看得見
+    ctx.fillStyle = 'rgba(5,5,10,0.38)';
+    ctx.beginPath();
+    ctx.arc(sx, sy + bob, TILE * 0.26, 0, TAU);
+    ctx.fill();
     ctx.font = `${TILE * 0.45}px "Segoe UI Emoji"`;
     ctx.fillText(ITEMS[d.item] ? ITEMS[d.item].icon : '❓', sx, sy + bob);
     if (d.n > 1) {
