@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>微光深淵 Gloamdepths</title>
-<link rel="stylesheet" href="style.css?v=36">
+<link rel="stylesheet" href="style.css?v=37">
 <!-- PeerJS:與朋友連線用(免費信令服務);沒網路時仍可離線單人遊玩 -->
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
@@ -15,9 +15,10 @@
     <div class="bar hp"><div id="hpfill"></div><span id="hptext"></span></div>
     <div class="bar stamina" title="體力值,按 Shift 衝刺消耗體力,體力不足需等待回復"><div id="stafill"></div><span id="statext"></span></div>
     <div class="bar core" title="星核能量持續流失&#10;挖光晶💠回來按 F 灌入(每顆 +6)&#10;能量歸零 = 全隊失敗"><div id="corefill"></div><span id="coretext"></span></div>
-    <div class="bar xp" title="擊殺怪物獲得經驗值,升級增加最大HP與攻擊力"><div id="xpfill"></div><span id="xptext"></span></div>
+    <div class="bar xp" title="擊殺怪物獲得經驗值,升級增加最大HP與攻擊力,並獲得 1 天賦點(按 T 分配)"><div id="xpfill"></div><span id="xptext"></span></div>
     <div id="shards"></div>
     <div id="buffbar" title="料理 buff:吃帶效果的料理獲得,時間到自動消失"></div>
+    <div id="talentbadge" class="hidden" title="按 T 或點這裡打開天賦面板"></div>
   </div>
   <div id="wavebox"></div>
   <div id="netbox">
@@ -34,6 +35,7 @@
   <div id="hotbar"></div>
   <div id="menuPanel" class="menu-panel hidden"></div>
   <div id="powerPanel" class="menu-panel hidden"></div>
+  <div id="talentPanel" class="menu-panel hidden"></div>
   <div id="invpanel" class="hidden">
     <h3>背包 <button id="btnSortInv" class="mini">🧹 整理</button>
       <span class="hint">(左鍵點一格再點另一格可交換;右鍵點裝備可強化;護甲放背包即生效)</span></h3>
@@ -50,15 +52,15 @@
   <div id="overlay" class="hidden"></div>
   <div id="tileTip" class="hidden"></div>
 </div>
-<script src="js/config.js?v=36"></script>
-<script src="js/sfx.js?v=36"></script>
-<script src="js/world.js?v=36"></script>
-<script src="js/inventory.js?v=36"></script>
-<script src="js/entities.js?v=36"></script>
-<script src="js/game.js?v=36"></script>
-<script src="js/net.js?v=36"></script>
-<script src="js/render.js?v=36"></script>
-<script src="js/ui.js?v=36"></script>
-<script src="js/main.js?v=36"></script>
+<script src="js/config.js?v=37"></script>
+<script src="js/sfx.js?v=37"></script>
+<script src="js/world.js?v=37"></script>
+<script src="js/inventory.js?v=37"></script>
+<script src="js/entities.js?v=37"></script>
+<script src="js/game.js?v=37"></script>
+<script src="js/net.js?v=37"></script>
+<script src="js/render.js?v=37"></script>
+<script src="js/ui.js?v=37"></script>
+<script src="js/main.js?v=37"></script>
 </body>
 </html>

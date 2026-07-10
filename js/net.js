@@ -43,7 +43,7 @@ const NET = {
     this.conns.delete(conn.pid);
     if (p) {
       // 跟 buildSave 存同一組欄位:少了 lv/xp 的話,朋友離線再重連會掉回 1 等
-      G.playersByName[p.name] = { inv: p.inv, hp: p.hp, x: p.x, y: p.y, lv: p.lv, xp: p.xp };
+      G.playersByName[p.name] = { inv: p.inv, hp: p.hp, x: p.x, y: p.y, lv: p.lv, xp: p.xp, talents: p.talents };
       G.players.delete(conn.pid);
       msgAll(`👋 ${p.name} 離開了遊戲`);
       this.sendAll({ t: 'bye', id: conn.pid });
@@ -91,6 +91,7 @@ const NET = {
       case 'plant': doPlant(p, d.slot | 0, d.x | 0, d.y | 0); break;
       case 'fish': doFish(p, d.x | 0, d.y | 0); break;
       case 'feed': doFeed(p, d.id | 0, d.slot | 0); break;
+      case 'talent': applyTalent(p, String(d.id || '')); break;
       case 'fill_tower': doFillTower(p, d.x | 0, d.y | 0); break;
       case 'toggle_tower': doToggleTower(p, d.x | 0, d.y | 0); break;
       case 'eat': doEat(p, d.slot | 0); break;
@@ -156,7 +157,7 @@ const NET = {
     };
     for (const [pid, c] of this.conns) {
       const p = G.players.get(pid);
-      try { c.send({ ...snap, me: p ? { inv: p.inv, hp: Math.round(p.hp), buffs: p.buffs } : null }); } catch (e) { }
+      try { c.send({ ...snap, me: p ? { inv: p.inv, hp: Math.round(p.hp), buffs: p.buffs, talents: p.talents, pts: p.talentPts | 0 } : null }); } catch (e) { }
     }
   },
 
@@ -261,7 +262,12 @@ const NET = {
         G.wave = d.wave; G.time = d.time;
         if (d.me) {
           const me = G.players.get(G.myId);
-          if (me) { me.inv = d.me.inv; me.hp = d.me.hp; me.buffs = d.me.buffs || {}; UI.invDirty = true; }
+          if (me) {
+            me.inv = d.me.inv; me.hp = d.me.hp; me.buffs = d.me.buffs || {};
+            me.talents = d.me.talents || {}; me.talentPts = d.me.pts | 0;
+            me.maxhp = playerMaxHp(me); // talents 到手後重算,強韌體魄的血量上限才會反映在血條
+            UI.invDirty = true;
+          }
         }
         break;
       }

@@ -198,7 +198,7 @@ function gameOver(win) {
 function buildSave() {
   // 把目前所有玩家的背包記進名字表,離線好友下次同名加入可拿回
   for (const p of G.players.values()) {
-    G.playersByName[p.name] = { inv: p.inv, hp: p.hp, x: p.x, y: p.y, lv: p.lv, xp: p.xp };
+    G.playersByName[p.name] = { inv: p.inv, hp: p.hp, x: p.x, y: p.y, lv: p.lv, xp: p.xp, talents: p.talents };
   }
   return {
     v: 1, seed: G.seed, time: G.time,
@@ -289,7 +289,11 @@ function applySave(s, name) {
   const saved = G.playersByName[name];
   if (saved) {
     p.inv = saved.inv;
-    p.lv = saved.lv || 1; p.xp = saved.xp || 0; p.maxhp = playerMaxHp(p);
+    p.lv = saved.lv || 1; p.xp = saved.xp || 0;
+    // 天賦點用不變量(已花階數+剩餘=等級-1)推回:舊版存檔沒有天賦欄位,會自動補發應得點數
+    p.talents = saved.talents || {};
+    p.talentPts = talentPtsOf(p);
+    p.maxhp = playerMaxHp(p);
     p.hp = Math.min(p.maxhp, saved.hp);
   }
   G.players.set(0, p);
@@ -304,7 +308,10 @@ function playerJoinAs(id, name) {
   const saved = G.playersByName[name];
   if (saved) {
     p.inv = saved.inv;
-    p.lv = saved.lv || 1; p.xp = saved.xp || 0; p.maxhp = playerMaxHp(p);
+    p.lv = saved.lv || 1; p.xp = saved.xp || 0;
+    p.talents = saved.talents || {};
+    p.talentPts = talentPtsOf(p);
+    p.maxhp = playerMaxHp(p);
     p.hp = Math.max(30, Math.min(p.maxhp, saved.hp));
   }
   G.players.set(id, p);

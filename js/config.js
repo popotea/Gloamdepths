@@ -34,8 +34,28 @@ const ENEMY_XP = {
   phantom: 8, breaker: 20, abyss: 16, sentinel: 60,
 };
 function xpToNext(lv) { return LEVEL_CFG.xpNeed(lv); }
-function playerDmgMult(p) { return 1 + LEVEL_CFG.dmgPer * ((p.lv || 1) - 1); }
-function playerMaxHp(p) { return 100 + LEVEL_CFG.hpPer * ((p.lv || 1) - 1); }
+
+// ── 天賦:每升 1 級得 1 點(滿級共 9 點),總階數 15 刻意大於點數,一輪拿不滿要取捨。
+// 全部是「個人被動」(不做影響全隊/星核的全域天賦,多人時歸屬跟疊加規則會很難收拾);
+// 數值比衝裝(ENH_CFG 每級 +15%)小一階,兩套疊起來才不會爆
+const TALENTS = {
+  vital:  { name: '強韌體魄', icon: '💪', max: 3, val: 15,   desc: '每級:最大生命 +15' },
+  power:  { name: '戰意',     icon: '⚔️', max: 3, val: 0.08, desc: '每級:攻擊力 +8%' },
+  miner:  { name: '礦脈直覺', icon: '⛏️', max: 3, val: 0.12, desc: '每級:挖掘力 +12%' },
+  swift:  { name: '健步如飛', icon: '👟', max: 2, val: 0.06, desc: '每級:移動速度 +6%' },
+  dasher: { name: '衝刺大師', icon: '💨', max: 2, val: 0.20, desc: '每級:衝刺體力消耗 -20%' },
+  chef:   { name: '大胃王',   icon: '🍽️', max: 2, val: 0.20, desc: '每級:食物回復效果 +20%' },
+};
+function talRank(p, id) { return (p.talents && p.talents[id]) || 0; }
+// 不變量:已花階數 + 剩餘點數 = 等級 - 1。讀檔/重連一律用這條推回剩餘點數,
+// 舊版存檔(沒有天賦欄位)的玩家會自動補發過去升級應得的點數
+function talentPtsOf(p) {
+  let spent = 0;
+  if (p.talents) for (const id in p.talents) spent += p.talents[id];
+  return Math.max(0, ((p.lv || 1) - 1) - spent);
+}
+function playerDmgMult(p) { return (1 + LEVEL_CFG.dmgPer * ((p.lv || 1) - 1)) * (1 + TALENTS.power.val * talRank(p, 'power')); }
+function playerMaxHp(p) { return 100 + LEVEL_CFG.hpPer * ((p.lv || 1) - 1) + TALENTS.vital.val * talRank(p, 'vital'); }
 
 // 衝刺設定:Shift 瞬間加速,消耗體力,體力不足需回復才能再衝
 const DASH_CFG = {

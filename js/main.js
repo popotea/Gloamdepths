@@ -34,12 +34,14 @@ function bindInput() {
       if (UI.panelOpen) togglePanel(false);
       else if (UI.towerPos) closeTowerPanel();
       else if (UI.powerOpen) togglePowerPanel(false);
+      else if (UI.talentOpen) toggleTalentPanel(false);
       else toggleMenu();
       return;
     }
     if (UI.menuOpen || UI.powerOpen) return;
     if (k === 'enter') { openChat(); return; }
     if (k === 'e') togglePanel();
+    else if (k === 't') toggleTalentPanel();
     else if (k >= '1' && k <= '8') { me.sel = +k - 1; UI.invDirty = true; }
     else if (k === 'f') {
       if (NET.isHost()) doDeposit(me);
@@ -94,11 +96,12 @@ function localControl(me, dt) {
   if (INPUT.keys.has('a') || INPUT.keys.has('arrowleft')) dx -= 1;
   if (INPUT.keys.has('d') || INPUT.keys.has('arrowright')) dx += 1;
 
-  // 衝刺:Shift 瞬間加速,消耗體力,冷卻中或體力不足不能觸發
+  // 衝刺:Shift 瞬間加速,消耗體力,冷卻中或體力不足不能觸發(衝刺大師天賦降低消耗)
   me.dashCD -= dt; me.dashT -= dt;
+  const dashCost = DASH_CFG.cost * (1 - TALENTS.dasher.val * talRank(me, 'dasher'));
   if (me.dashCD <= 0 && (INPUT.keys.has('shift') || INPUT.keys.has('shiftleft') || INPUT.keys.has('shiftright'))
-      && (dx || dy) && me.stamina >= DASH_CFG.cost) {
-    me.stamina -= DASH_CFG.cost;
+      && (dx || dy) && me.stamina >= dashCost) {
+    me.stamina -= dashCost;
     me.dashT = DASH_CFG.dur;
     me.dashCD = DASH_CFG.cd;
     emitFx({ k: 'sfx', s: 'dash' });
@@ -108,8 +111,9 @@ function localControl(me, dt) {
 
   if (dx || dy) {
     const len = Math.hypot(dx, dy);
-    // 疾行 buff(料理):客戶端自己的 buffs 由快照的 me.buffs 同步,本地預測才會跟房主一致
-    const spd = 4.6 * (me.dashT > 0 ? DASH_CFG.mult : 1) * buffMult(me, 'speed');
+    // 疾行 buff(料理)× 健步如飛天賦:客戶端自己的 buffs/talents 由快照同步,本地預測才會跟房主一致
+    const spd = 4.6 * (me.dashT > 0 ? DASH_CFG.mult : 1) * buffMult(me, 'speed')
+      * (1 + TALENTS.swift.val * talRank(me, 'swift'));
     moveCircle(me, dx / len * spd * dt, dy / len * spd * dt);
   }
   // 瞄準

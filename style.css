@@ -86,6 +86,20 @@ body { font-family: "Microsoft JhengHei", "Noto Sans TC", sans-serif; color: #dd
 .power-btn:hover { background: #1a2230; border-color: #4a5a68; }
 .power-btn code { font-size: 10px; color: #7ef0ff99; background: none; padding: 0; }
 
+/* 天賦:HUD 提示徽章(有未花點數才出現)與分配面板 */
+#talentbadge { pointer-events: auto; cursor: pointer; margin-top: 6px; display: inline-block;
+  background: #2a2410cc; border: 1px solid #ffd23f; border-radius: 10px;
+  padding: 3px 10px; font-size: 13px; color: #ffe9a0; text-shadow: 0 1px 2px #000;
+  animation: blink 1.6s infinite; }
+#talentPanel { width: 480px; text-align: left; }
+.talent-row { display: flex; align-items: center; gap: 12px; padding: 8px 6px;
+  border-bottom: 1px solid #1e2430; }
+.talent-icon { font-size: 26px; width: 34px; text-align: center; }
+.talent-info { flex: 1; font-size: 14px; line-height: 1.5; }
+.talent-pips { color: #ffd23f; letter-spacing: 2px; margin-left: 6px; }
+.talent-btn { min-width: 72px; }
+.talent-btn:disabled { opacity: .4; cursor: default; }
+
 /* 快捷欄 */
 #hotbar { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; }
 .slot { position: relative; width: 52px; height: 52px; background: #0a0d14cc; border: 2px solid #3a4152;

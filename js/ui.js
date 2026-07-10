@@ -4,6 +4,7 @@ const UI = {
   pendingSwap: -1, panelOpen: false,
   menuOpen: false, menuView: 'main',
   powerOpen: false,
+  talentOpen: false, talentT: 0,
   chatHistory: [], chatHistoryIdx: 0,
   els: {}, mmImage: null, mmT: 0, craftT: 0,
   enhSlot: -1,
@@ -29,7 +30,9 @@ function initUI() {
     deathbanner: $id('deathbanner'),
     menuPanel: $id('menuPanel'),
     powerPanel: $id('powerPanel'),
+    talentPanel: $id('talentPanel'), talentbadge: $id('talentbadge'),
   };
+  UI.els.talentbadge.onclick = () => toggleTalentPanel(true);
   // 快捷欄 8 格
   for (let i = 0; i < 8; i++) {
     const d = document.createElement('div');
@@ -191,6 +194,7 @@ const POWER_MENU = [
     { label: '切換無敵', cmd: '/power godmode' },
     { label: '資源無限', cmd: '/power infinite' },
     { label: '+500 經驗', cmd: '/power xp 500' },
+    { label: '+3 天賦點', cmd: '/power talentpt 3' },
   ] },
   { cat: '💠 星核', items: [
     { label: '星核灌滿', cmd: '/power corefull' },
@@ -237,6 +241,51 @@ function renderPowerPanel() {
     btn.onclick = () => tryDebugCommand(btn.dataset.cmd);
   });
   $id('powerClose').onclick = () => togglePowerPanel(false);
+}
+
+// ===== 天賦面板(T 鍵/點 HUD 徽章開啟):自由分配升級獲得的天賦點 =====
+function toggleTalentPanel(open) {
+  UI.talentOpen = open === undefined ? !UI.talentOpen : open;
+  UI.els.talentPanel.classList.toggle('hidden', !UI.talentOpen);
+  if (UI.talentOpen) {
+    togglePowerPanel(false);
+    UI.talentT = 0;
+    renderTalentPanel();
+  }
+}
+
+// 分配走房主權威:自己是房主直接執行,客戶端送請求、靠快照回來的 talents/pts 刷新面板
+function execTalent(id) {
+  const me = myPlayer();
+  if (!me) return;
+  if (NET.isHost()) { applyTalent(me, id); renderTalentPanel(); }
+  else NET.act({ t: 'talent', id });
+}
+
+function renderTalentPanel() {
+  const me = myPlayer();
+  const panel = UI.els.talentPanel;
+  if (!me) return;
+  const pts = me.talentPts | 0;
+  let html = `<h2>🌟 天賦 <span class="enh-lv">剩餘點數 ${pts}</span></h2>
+    <p class="hint">升級獲得天賦點(每級 1 點,滿級共 ${LEVEL_CFG.maxLv - 1} 點);總階數比點數多,想清楚再點,這輪拿不滿全部。</p>`;
+  for (const id in TALENTS) {
+    const t = TALENTS[id];
+    const r = talRank(me, id);
+    const pips = '●'.repeat(r) + '○'.repeat(t.max - r);
+    const can = pts > 0 && r < t.max;
+    html += `<div class="talent-row">
+      <span class="talent-icon">${t.icon}</span>
+      <span class="talent-info"><b>${t.name}</b> <span class="talent-pips">${pips}</span><br><span class="hint">${t.desc}</span></span>
+      <button class="talent-btn" data-id="${id}" ${can ? '' : 'disabled'}>${r >= t.max ? '已滿' : '+1 階'}</button>
+    </div>`;
+  }
+  html += `<div class="btnrow"><button id="talentClose">關閉(T / Esc)</button></div>`;
+  panel.innerHTML = html;
+  panel.querySelectorAll('.talent-btn').forEach(btn => {
+    btn.onclick = () => execTalent(btn.dataset.id);
+  });
+  $id('talentClose').onclick = () => toggleTalentPanel(false);
 }
 
 function sendChat() {
@@ -319,6 +368,15 @@ function uiTick(dt) {
   if (UI.panelOpen) {
     UI.craftT -= dt;
     if (UI.craftT <= 0) { UI.craftT = 0.4; refreshCraft(); }
+  }
+
+  // 天賦點提示徽章(有點數沒花才顯示);面板開著時節流刷新(客戶端等快照回寫 talents/pts)
+  const pts = me.talentPts | 0;
+  UI.els.talentbadge.classList.toggle('hidden', pts <= 0);
+  if (pts > 0) UI.els.talentbadge.textContent = `🌟 天賦點 ×${pts}(按 T 分配)`;
+  if (UI.talentOpen) {
+    UI.talentT -= dt;
+    if (UI.talentT <= 0) { UI.talentT = 0.3; renderTalentPanel(); }
   }
 
   // 小地圖
@@ -730,7 +788,7 @@ function setOverlay(mode) {
         <div class="help">
           <b>目標</b>:星核能量會一直流失,挖 <b>光晶💠</b> 回來按 <b>F</b> 灌入;
           打敗外圈三座神殿的守衛、集齊 3 塊碎片,撐過最終暗潮即通關。<br>
-          <b>操作</b>:WASD 移動|左鍵 挖牆/攻擊|右鍵 放置/吃|1–8 快捷欄|E 背包合成|F 餵星核<br>
+          <b>操作</b>:WASD 移動|左鍵 挖牆/攻擊|右鍵 放置/吃|1–8 快捷欄|E 背包合成|F 餵星核|T 天賦<br>
           <b>連線</b>:進入遊戲後點右上「開房邀請朋友」,把房號給朋友即可;存檔在房主電腦。<br>
           <b>換房主</b>:原房主可在選單(Esc)「設定」裡匯出存檔檔案傳給你,用「匯入存檔檔案」
           讀取後,你就能以新房主身分開房,讓大家用原本的名字加入拿回進度。

@@ -14,6 +14,7 @@ function makePlayer(id, name) {
     lv: 1, xp: 0,
     stamina: 100, dashCD: 0, dashT: 0,
     buffs: {},   // 料理 buff:kind -> { mult/value, t 剩餘秒數 }
+    talents: {}, talentPts: 0,   // 天賦:id -> 階數;升級發點,見 grantXp/applyTalent
   };
   p.maxhp = playerMaxHp(p);
   p.hp = p.maxhp;
@@ -27,12 +28,33 @@ function grantXp(p, amount) {
   while (p.lv < LEVEL_CFG.maxLv && p.xp >= xpToNext(p.lv)) {
     p.xp -= xpToNext(p.lv);
     p.lv++;
+    p.talentPts = (p.talentPts || 0) + 1;
     p.maxhp = playerMaxHp(p);
     p.hp = p.maxhp;
     addFloater(p.x, p.y - 0.8, `升級!Lv.${p.lv}`, '#ffd23f');
+    addFloater(p.x, p.y - 1.15, '🌟 +1 天賦點(按 T 分配)', '#ffe9a0');
     emitFx({ k: 'sfx', s: 'craft' });
     msgAll(`✨ ${p.name} 升到 Lv.${p.lv}!`);
   }
+}
+
+// 分配天賦點(房主端執行;客戶端透過 { t:'talent' } 請求):加 1 階、扣 1 點
+// vital 的血量加成當下就生效並補上等量現血,不用等下次回血才感覺得到
+function applyTalent(p, id) {
+  const t = TALENTS[id];
+  if (!t || (p.talentPts | 0) <= 0) return;
+  const r = talRank(p, id);
+  if (r >= t.max) return;
+  p.talents = p.talents || {};
+  p.talents[id] = r + 1;
+  p.talentPts--;
+  if (id === 'vital') {
+    p.maxhp = playerMaxHp(p);
+    p.hp = Math.min(p.maxhp, p.hp + t.val);
+  }
+  addFloater(p.x, p.y - 0.8, `${t.icon} ${t.name} ${r + 1} 階`, '#ffd23f');
+  emitFx({ k: 'sfx', s: 'craft' });
+  p.invDirty = true;
 }
 
 // ===== 圓形 vs 格子碰撞 =====
@@ -474,6 +496,12 @@ function runPowerCmd(p, action, arg, num) {
       for (let i = 0; i < n; i++) { const pos = findSpawnSpot(p); spawnAnimal(arg, pos.x, pos.y); }
       return `🐄 召喚了 ${n} 隻${ANIMAL_TYPES[arg].name}`;
     }
+    case 'talentpt': {
+      const n = clamp(num | 0 || 1, 1, 99);
+      p.talentPts = (p.talentPts || 0) + n;
+      p.invDirty = true;
+      return `🌟 +${n} 天賦點(按 T 分配)`;
+    }
     default: return `⚠️ 未知指令 /power ${action}`;
   }
 }
@@ -557,7 +585,8 @@ function doMine(p, x, y) {
     p.mineCD = 0.5;
     return;
   }
-  G.dmg[i] += pick.power * buffMult(p, 'mine'); // 礦勁 buff:料理提供的挖掘力加成
+  // 挖掘力加成:料理礦勁 buff × 礦脈直覺天賦
+  G.dmg[i] += pick.power * buffMult(p, 'mine') * (1 + TALENTS.miner.val * talRank(p, 'miner'));
   emitFx({ k: 'sfx', s: 'mine' });
   if (G.dmg[i] >= info.hp) breakTile(x, y);
   else emitFx({ k: 'crack', i, r: G.dmg[i] / info.hp });
@@ -677,8 +706,9 @@ function doEat(p, slot) {
   if (!it.food) return;
   // 純回血食物血滿吃不下去(避免浪費);帶 buff 的料理為了 buff 血滿也能吃
   if (p.hp >= p.maxhp && !it.buff) return;
-  p.hp = Math.min(p.maxhp, p.hp + it.food);
-  addFloater(p.x, p.y - 0.6, '+' + it.food, '#7dff8e');
+  const heal = Math.round(it.food * (1 + TALENTS.chef.val * talRank(p, 'chef'))); // 大胃王天賦
+  p.hp = Math.min(p.maxhp, p.hp + heal);
+  addFloater(p.x, p.y - 0.6, '+' + heal, '#7dff8e');
   if (it.buff) {
     // 同種 buff 重複吃只重置時間,不疊加倍率(平衡上限)
     p.buffs = p.buffs || {};
@@ -890,7 +920,9 @@ function updateAnimals(dt) {
     }
     const f = Math.exp(-4 * dt);
     a.vx *= f; a.vy *= f;
-    moveCircle(a, a.vx * dt, a.vy * dt, at.r); // 撞牆/圍籬就停(圍籬圈養靠這個)
+    // 撞牆/圍籬就停(圍籬圈養靠這個);卡住就馬上重新起跳換方向,
+    // 不然體型大的牛在一格寬走廊裡會整段跳程貼牆磨,跟隨玩家時卡到不動
+    if (moveCircle(a, a.vx * dt, a.vy * dt, at.r)) a.hopT = Math.min(a.hopT, 0.15);
   }
 }
 
