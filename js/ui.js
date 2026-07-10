@@ -3,6 +3,8 @@ const UI = {
   mmDirty: true, invDirty: true,
   pendingSwap: -1, panelOpen: false,
   menuOpen: false, menuView: 'main',
+  powerOpen: false,
+  chatHistory: [], chatHistoryIdx: 0,
   els: {}, mmImage: null, mmT: 0, craftT: 0,
   enhSlot: -1,
   towerPos: null, towerT: 0,
@@ -26,6 +28,7 @@ function initUI() {
     hostBtn: $id('hostBtn'), roomcode: $id('roomcode'),
     deathbanner: $id('deathbanner'),
     menuPanel: $id('menuPanel'),
+    powerPanel: $id('powerPanel'),
   };
   // 快捷欄 8 格
   for (let i = 0; i < 8; i++) {
@@ -104,6 +107,8 @@ function showMsg(text) {
   setTimeout(() => { d.classList.add('fade'); setTimeout(() => d.remove(), 900); }, 6000);
 }
 
+// 聊天訊息不再自動淡出——保留在紀錄裡,超過上限才把最舊的擠掉(捲動可回看)
+const CHAT_KEEP = 30;
 function showChat(name, text) {
   const log = UI.els.chatlog;
   if (!log) return;
@@ -115,14 +120,14 @@ function showChat(name, text) {
   d.appendChild(who);
   d.appendChild(document.createTextNode(text));
   log.prepend(d);
-  while (log.children.length > 20) log.lastChild.remove();
-  setTimeout(() => { d.classList.add('fade'); setTimeout(() => d.remove(), 900); }, 12000);
+  while (log.children.length > CHAT_KEEP) log.lastChild.remove();
 }
 
 function openChat() {
   if (!G.started || UI.menuOpen) return;
   UI.els.chatbox.classList.remove('hidden');
   UI.els.chatInput.value = '';
+  UI.chatHistoryIdx = UI.chatHistory.length; // 每次打開聊天欄,history 游標歸位到最新
   UI.els.chatInput.focus();
 }
 
@@ -131,26 +136,114 @@ function closeChat() {
   UI.els.chatInput.blur();
 }
 
-// 隱藏除錯指令:只有輸入的人自己看得到效果與回饋,不會廣播給其他玩家、
-// 不留聊天紀錄,刻意不寫進任何操作說明/UI 提示裡
+// 隱藏秘笈指令:效果只有輸入的人自己看得到回饋,不會廣播給其他玩家、不留聊天紀錄,
+// 刻意不寫進任何操作說明/UI 提示裡——想用要嘛自己打 /power,要嘛知道要打開選單看指令列表。
+// /power              開啟秘笈選單(可滑鼠點按鈕,也可以直接看到對應指令自己打)
+// /power <action> [arg] [num]  直接執行,例如 /power spawn hunter 3、/power xp 500
 function tryDebugCommand(text) {
   const me = myPlayer();
   if (!me || !text.startsWith('/')) return false;
-  const cmd = text.slice(1).trim().toLowerCase();
-  if (cmd === 'give_all') {
-    if (NET.isHost()) {
-      const on = toggleInfinite(me);
-      showMsg(on ? '♾️ 資源無限已開啟' : '資源無限已關閉');
-    } else NET.act({ t: 'give_all' });
+  const parts = text.slice(1).trim().split(/\s+/).filter(Boolean);
+  const head = (parts[0] || '').toLowerCase();
+  if (head === 'give_all') { execPower('infinite'); return true; }
+  if (head === 'power') {
+    if (parts.length === 1) { togglePowerPanel(); return true; }
+    const action = (parts[1] || '').toLowerCase();
+    const argRaw = parts[2] || '';
+    const arg = argRaw.toLowerCase();
+    let num;
+    if (parts[3] !== undefined && !isNaN(+parts[3])) num = +parts[3];
+    else if (argRaw !== '' && !isNaN(+argRaw)) num = +argRaw;
+    execPower(action, arg, num);
     return true;
   }
   return false;
+}
+
+// 統一的秘笈執行入口:選單按鈕與手打指令都呼叫這裡,效果保證一致。
+// light(全地圖開亮)只影響自己瀏覽器的小地圖顯示,純本地效果,host/client 都一樣處理、
+// 不需要問過房主;其餘動作都是房主權威(自己是房主就地執行,否則送出請求給房主處理)。
+function execPower(action, arg, num) {
+  const me = myPlayer();
+  if (!me) return;
+  if (action === 'light') {
+    G.explored.fill(1);
+    UI.mmDirty = true;
+    showMsg('🗺️ 全地圖已在小地圖上顯示');
+    return;
+  }
+  if (NET.isHost()) {
+    const t = runPowerCmd(me, action, arg, num);
+    if (t) showMsg(t);
+  } else {
+    NET.act({ t: 'power', action, arg, num });
+  }
+}
+
+// 秘笈選單內容:每一項同時附上真正的指令文字,滑鼠點按鈕跟自己手打是同一件事
+const POWER_MENU = [
+  { cat: '🗺️ 世界', items: [
+    { label: '全地圖開亮', cmd: '/power light' },
+    { label: '傳送回星核', cmd: '/power home' },
+  ] },
+  { cat: '❤️ 玩家', items: [
+    { label: '補滿血量', cmd: '/power heal' },
+    { label: '切換無敵', cmd: '/power godmode' },
+    { label: '資源無限', cmd: '/power infinite' },
+    { label: '+500 經驗', cmd: '/power xp 500' },
+  ] },
+  { cat: '💠 星核', items: [
+    { label: '星核灌滿', cmd: '/power corefull' },
+    { label: '獲得碎片', cmd: '/power shard' },
+  ] },
+  { cat: '🌊 暗潮', items: [
+    { label: '立即觸發暗潮', cmd: '/power wavenow' },
+    { label: '清除暗潮怪物', cmd: '/power waveclear' },
+  ] },
+  { cat: '👹 召喚怪物', items: [
+    ...Object.keys(ENEMY_TYPES).map(type => ({ label: ENEMY_TYPES[type].name, cmd: `/power spawn ${type}` })),
+    { label: '清除場上怪物', cmd: '/power clearmobs' },
+  ] },
+];
+
+function togglePowerPanel(open) {
+  UI.powerOpen = open === undefined ? !UI.powerOpen : open;
+  UI.els.powerPanel.classList.toggle('hidden', !UI.powerOpen);
+  if (UI.powerOpen) {
+    UI.panelOpen = false;
+    UI.els.invpanel.classList.add('hidden');
+    closeTowerPanel();
+    renderPowerPanel();
+  }
+}
+
+function renderPowerPanel() {
+  const panel = UI.els.powerPanel;
+  let html = `<h2>🎮 秘笈選單</h2>
+    <p class="hint">點按鈕直接執行,或在聊天輸入框(Enter 開啟)直接打指令,例如 <code>/power spawn hunter 3</code></p>`;
+  for (const group of POWER_MENU) {
+    html += `<h3>${group.cat}</h3><div class="power-grid">`;
+    for (const it of group.items) {
+      html += `<button class="power-btn" data-cmd="${it.cmd}">${it.label}<code>${it.cmd}</code></button>`;
+    }
+    html += `</div>`;
+  }
+  html += `<div class="btnrow"><button id="powerClose">關閉(Esc)</button></div>`;
+  panel.innerHTML = html;
+  panel.querySelectorAll('.power-btn').forEach(btn => {
+    btn.onclick = () => tryDebugCommand(btn.dataset.cmd);
+  });
+  $id('powerClose').onclick = () => togglePowerPanel(false);
 }
 
 function sendChat() {
   const text = UI.els.chatInput.value.trim().slice(0, 80);
   closeChat();
   if (!text) return;
+  // 輸入歷史:按 ↑/↓ 可叫回之前打過的內容(聊天訊息與 /power 指令都算),連續重複的不重存
+  if (UI.chatHistory[UI.chatHistory.length - 1] !== text) UI.chatHistory.push(text);
+  if (UI.chatHistory.length > 50) UI.chatHistory.shift();
+  UI.chatHistoryIdx = UI.chatHistory.length;
   if (tryDebugCommand(text)) return;
   const me = myPlayer();
   if (!me) return;
@@ -255,11 +348,18 @@ function refreshSlots() {
 function openTowerPanel(x, y) {
   const o = objAt(x, y);
   if (!o || o.type !== 'archer_tower') { closeTowerPanel(); return; }
-  UI.panelOpen = false;
-  UI.els.invpanel.classList.add('hidden');
   UI.towerPos = { x, y };
   UI.towerT = 0;
   UI.els.towerPanel.classList.remove('hidden');
+  // 補彈整個流程是把背包裡的箭矢拖進彈藥格,背包一定要跟著開著、格子才拖得出來
+  UI.panelOpen = true;
+  UI.els.invpanel.classList.remove('hidden');
+  UI.pendingSwap = -1;
+  UI.enhSlot = -1;
+  UI.els.enhPanel.classList.add('hidden');
+  togglePowerPanel(false);
+  refreshSlots();
+  UI.craftT = 0;
   renderTowerPanel();
 }
 function closeTowerPanel() {
@@ -357,7 +457,7 @@ function renderEnhPanel() {
 
 // 依配方產出的物品欄位推斷分類(不额外改資料結構)
 const RECIPE_CATS = [
-  { key: 'tool',  name: '⛏️ 工具', test: it => !!it.pick },
+  { key: 'tool',  name: '⛏️ 工具', test: it => !!it.pick || !!it.till },
   { key: 'weapon',name: '⚔️ 武器', test: it => !!it.sword || !!it.ranged },
   { key: 'armor', name: '🛡️ 防具', test: it => !!it.armor },
   { key: 'build', name: '🏗️ 建築', test: it => !!it.place || it.placeTile !== undefined },
@@ -425,7 +525,7 @@ function togglePanel(open) {
   UI.enhSlot = -1;
   UI.els.enhPanel.classList.add('hidden');
   closeTowerPanel();
-  if (UI.panelOpen) { refreshSlots(); UI.craftT = 0; }
+  if (UI.panelOpen) { togglePowerPanel(false); refreshSlots(); UI.craftT = 0; }
 }
 
 // ===== ESC 選單(設定 / 存檔資訊)=====
@@ -557,6 +657,7 @@ function drawMinimap() {
       [T.LUMITE]: 0xfffff07e, [T.ROOT]: 0xff305c6d, [T.BEDROCK]: 0xff000000,
       [T.WOODWALL]: 0xff3e6a8a, [T.STONEWALL]: 0xff968a8a,
       [T.GRAVEL]: 0xff787e8a, [T.COAL]: 0xff2a2a2a, [T.DIAMOND]: 0xffffc76a,
+      [T.FARMLAND]: 0xff1c3a5c,
     };
     for (let i = 0; i < G.tiles.length; i++) {
       px[i] = G.explored[i] ? (C[G.tiles[i]] || 0xff000000) : 0xff000000;
@@ -570,6 +671,15 @@ function drawMinimap() {
   for (const s of G.shrines) {
     mc.fillStyle = s.dead ? '#666' : '#ffd23f';
     mc.fillRect(s.x - 2, s.y - 2, 4, 4);
+  }
+  for (const i of G.nestIdx) {
+    const o = G.objects.get(i);
+    if (!o) continue;
+    const nx = i % MAP_W, ny = (i / MAP_W) | 0;
+    if (!G.explored[i]) continue; // 沒探索過的巢穴不暴雷
+    const ndef = NEST_TYPES[o.nestType] || NEST_TYPES.common;
+    mc.fillStyle = ndef.color;
+    mc.fillRect(nx - 2, ny - 2, 4, 4);
   }
   for (const p of G.players.values()) {
     if (p.dead) continue;

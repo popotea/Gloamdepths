@@ -51,7 +51,7 @@ const T = {
   FLOOR: 0, DIRT: 1, STONE: 2, OBSIDIAN: 3,
   COPPER: 4, IRON: 5, GOLD: 6, LUMITE: 7, ROOT: 8,
   BEDROCK: 9, GLOW: 10, WOODWALL: 11, STONEWALL: 12,
-  GRAVEL: 13, COAL: 14, DIAMOND: 15,
+  GRAVEL: 13, COAL: 14, DIAMOND: 15, FARMLAND: 16,
 };
 
 // 地形資料:hp=挖掘耐久, tier=所需鎬階級, light=自帶光半徑
@@ -61,6 +61,7 @@ const T = {
 const TILE_INFO = {
   [T.FLOOR]:    { solid: false },
   [T.GLOW]:     { solid: false, light: 4 },
+  [T.FARMLAND]: { solid: false, name: '翻好的農地' }, // 鏟子翻土產生;渲染在 render.js 特判(不是牆,不用 c1/c2)
   [T.DIRT]:     { solid: true, hp: 3,  tier: 0, name: '泥土牆',   drop: null,                      c1: '#96683c', c2: '#6e4a24' },
   [T.STONE]:    { solid: true, hp: 10, tier: 0, name: '石牆',     drop: { id: 'stone', n: 1 },      c1: '#8d92aa', c2: '#666b80' },
   [T.OBSIDIAN]: { solid: true, hp: 22, tier: 2, name: '黑曜岩',   drop: { id: 'stone', n: 1 },      c1: '#6b529e', c2: '#4a3870' },
@@ -82,6 +83,14 @@ const TILE_INFO = {
 const ARCHER_TOWER_CFG = {
   maxAmmo: 20, dmg: 20, range: 6, cd: 0.9,
   maxPerPlayer: 3,
+};
+
+// ── 農耕:doTill(entities.js)把地板翻成 T.FARMLAND;doPlant 在農地種下 crop 物件;
+// updateCrops 逐格計時推進 stage,長到 icons 最後一格(成熟)後,玩家走過去會自動收成
+// (跟野生蘑菇同一套 updatePlayersHost 自動採集邏輯),收成後農地保留、可以馬上再種。
+const CROP_TYPES = {
+  mush: { seed: 'mush_spore', yield: 'glowcap', yieldMin: 1, yieldMax: 2, seedBackChance: 0.4,
+          growTime: 90, icons: ['🌱', '🌿', '🍄'] },
 };
 
 // 物品表:pick=鎬(tier 階級/power 每下傷害), sword=劍, armor=減傷比例
@@ -143,6 +152,11 @@ const ITEMS = {
   enh_scroll:      { name: '強化卷軸', icon: '📜', desc: '在工作台旁對武器/鎬/護甲衝裝(+攻擊力);怪物會掉落' },
   iron_armor:      { name: '鐵甲', icon: '🛡️', armor: 0.3, max: 1, tint: '#5c6570', desc: '放在背包即生效,受傷 -30%' },
   gold_armor:      { name: '金甲', icon: '🛡️', armor: 0.5, max: 1, tint: '#8a6d1f', desc: '放在背包即生效,受傷 -50%' },
+  // 農耕:鏟子只用來翻土,不能拿去挖牆(doMine 完全不認得 till 這個欄位);
+  // seed 記錄要種出哪種作物,對照 CROP_TYPES 的 key
+  shovel:          { name: '鏟子', icon: '🥄', till: true, max: 1, desc: '對地板右鍵翻成農地;鏟子不能用來挖牆' },
+  mush_spore:      { name: '光孢子', icon: '🟤', seed: 'mush', desc: '對翻好的農地右鍵種下;採野生蘑菇有機率獲得' },
+  glowcap:         { name: '光傘菇', icon: '🍄', food: 25, desc: '農地種出來的作物,比野生蘑菇更頂餓' },
 };
 
 // 合成配方:station=null 徒手 / 'workbench' / 'furnace'
@@ -177,6 +191,7 @@ const RECIPES = [
   { out: 'iron_bar',    n: 1, cost: { iron_ore: 2 },    station: 'furnace' },
   { out: 'gold_bar',    n: 1, cost: { gold_ore: 2 },    station: 'furnace' },
   { out: 'cooked_mushroom', n: 1, cost: { mushroom: 1 }, station: 'furnace' },
+  { out: 'shovel',       n: 1, cost: { wood: 4, stone: 2 },  station: 'workbench' },
 ];
 
 // 敵人表:speed=跳撲衝量, hopCD=跳撲間隔
@@ -237,9 +252,21 @@ const OBJ_SOLID = { workbench: true, furnace: true, tower: true, archer_tower: t
 const POI_CFG = {
   ruins: 7,   // 廢墟數(石磚小房,內有寶箱)
   nests: 6,   // 巢穴數
-  nestSpawnCD: 8,     // 每座巢穴幾秒嘗試生 1 隻
-  nestNearCap: 3,     // 巢穴周圍活怪達此數就暫停生
 };
+
+// 巢穴種類(世界生成時依 weight 加權抽選,見 world.js pickNestType):
+// spawnCD=每次嘗試生怪的間隔秒數 / nearCap=周圍活怪數到此就暫停生 /
+// spawnType 不填=沿用原本依區域決定生什麼怪的邏輯,填了就固定生該種
+// spawnCount=一次生幾隻 / elite=精英巢穴,生出來的怪會套用 ELITE_CFG 加成
+const NEST_TYPES = {
+  common: { name: '蝕影巢穴', icon: '🕸️', hp: 60,  spawnCD: 8,  nearCap: 3, weight: 6, color: '#ffb35c' },
+  swarm:  { name: '孢群巢穴', icon: '🟢', hp: 45,  spawnCD: 4,  nearCap: 5, weight: 3, color: '#7dff8e',
+            spawnType: 'spore', spawnCount: 2 },
+  elite:  { name: '精英巢穴', icon: '💀', hp: 150, spawnCD: 16, nearCap: 2, weight: 1, color: '#ff5d5d',
+            elite: true },
+};
+// 精英怪加成(套用在 NEST_TYPES.elite 生出來的怪身上,見 entities.js spawnEnemy)
+const ELITE_CFG = { hpMult: 2.2, dmgMult: 1.5, scale: 1.35, xpMult: 2 };
 // 寶箱戰利品表(依區域 zone 0/1/2 抽 2~3 項)
 const CHEST_LOOT = [
   [ ['arrow', 8], ['copper_bar', 2], ['enh_scroll', 1], ['lumite', 3], ['cooked_mushroom', 2] ],

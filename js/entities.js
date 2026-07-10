@@ -93,12 +93,20 @@ function emitFx(f) {
 function addFloater(x, y, txt, color) { emitFx({ k: 'ft', x, y, txt, color }); }
 
 // ===== 敵人 =====
+// 精英怪(elite:true,通常來自精英巢穴)hp/傷害套 ELITE_CFG 倍率;
+// maxhp 獨立存一份給血條/回血邏輯用,不能直接拿 ENEMY_TYPES[type].hp 比,
+// 不然精英怪滿血時 e.hp(已放大)會大於 et.hp(基礎值),血條/回血判定全部失準
 function spawnEnemy(type, x, y, extra = {}) {
-  const e = { id: nextEid++, type, x, y, hp: ENEMY_TYPES[type].hp,
+  const base = ENEMY_TYPES[type].hp;
+  const elite = !!extra.elite;
+  const hp = elite ? Math.round(base * ELITE_CFG.hpMult) : base;
+  const e = { id: nextEid++, type, x, y, hp, maxhp: hp, dmgMult: elite ? ELITE_CFG.dmgMult : 1,
     vx: 0, vy: 0, hopT: Math.random(), hitT: 0, wave: false, ...extra };
   G.enemies.push(e);
   return e;
 }
+// 敵人實際輸出傷害(套精英倍率);wall-bash/碰撞/遠程都要走這裡,不要直接讀 et.dmg
+function enemyDmg(e, base) { return Math.round(base * (e.dmgMult || 1)); }
 
 function hurtEnemy(e, dmg, src, kbF, atkElem) {
   const et = ENEMY_TYPES[e.type];
@@ -122,7 +130,9 @@ function killEnemy(e, killer) {
   const i = G.enemies.indexOf(e);
   if (i >= 0) G.enemies.splice(i, 1);
   emitFx({ k: 'sfx', s: 'break_' });
-  if (killer) grantXp(killer, ENEMY_XP[e.type] || 0);
+  if (killer) grantXp(killer, (ENEMY_XP[e.type] || 0) * (e.elite ? ELITE_CFG.xpMult : 1));
+  // 精英怪(來自精英巢穴):額外保底掉卷軸+光晶,補償比一般怪更強的戰鬥難度
+  if (e.elite) { spawnDrop('enh_scroll', 1, e.x, e.y); spawnDrop('lumite', 3, e.x, e.y); }
   // 戰利品:蝕影掉光晶,回饋防守循環;各怪都有機率掉強化卷軸(衝裝來源)
   const SCROLL_RATE = { imp: 0.03, spore: 0.02, hunter: 0.06, spitter: 0.08, bomber: 0.08, phantom: 0.1, breaker: 0.12, abyss: 0.1 };
   if (SCROLL_RATE[e.type] && Math.random() < SCROLL_RATE[e.type]) spawnDrop('enh_scroll', 1, e.x, e.y);
@@ -155,6 +165,38 @@ function killEnemy(e, killer) {
   }
 }
 
+// 爆裂蝕影引信歸零時觸發:範圍內玩家/星核/牆壁一起炸,cfg = { r, dmg, wallDmg, core }
+function explodeAt(x, y, cfg) {
+  emitFx({ k: 'sfx', s: 'hurt' });
+  emitFx({ k: 'ft', x, y: y - 0.3, txt: '💥', color: '#ffb35c' });
+  for (const p of G.players.values()) {
+    if (p.dead) continue;
+    if (dist(x, y, p.x, p.y) < cfg.r) damagePlayer(p, cfg.dmg);
+  }
+  if (dist(x, y, G.core.x, G.core.y) < cfg.r + 1) {
+    G.core.energy = Math.max(0, G.core.energy - cfg.core);
+    addFloater(G.core.x, G.core.y - 1, `-${Math.round(cfg.core)} ⚡`, '#ff6b6b');
+  }
+  const x0 = Math.floor(x - cfg.r), x1 = Math.floor(x + cfg.r);
+  const y0 = Math.floor(y - cfg.r), y1 = Math.floor(y + cfg.r);
+  for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
+    if (dist(x, y, tx + 0.5, ty + 0.5) > cfg.r) continue;
+    const o = objAt(tx, ty);
+    if (o && OBJ_SOLID[o.type]) {
+      o.hp -= cfg.wallDmg;
+      if (o.hp <= 0) { setObj(tx, ty, null); emitFx({ k: 'sfx', s: 'break_' }); }
+      continue;
+    }
+    const info = TILE_INFO[tileAt(tx, ty)];
+    if (info.solid && info.hp !== Infinity) {
+      const ii = idx(tx, ty);
+      G.dmg[ii] += cfg.wallDmg;
+      if (G.dmg[ii] >= info.hp) breakTile(tx, ty, false);
+      else emitFx({ k: 'crack', i: ii, r: G.dmg[ii] / info.hp });
+    }
+  }
+}
+
 // 敵人 AI(僅房主執行)
 function updateEnemies(dt) {
   const core = G.core;
@@ -171,7 +213,7 @@ function updateEnemies(dt) {
       const p = nearestAlivePlayer(e.x, e.y, 8);
       if (p && dHome < 10) { tx = p.x; ty = p.y; chasing = true; targetP = p; }
       else if (dHome > 1.5) { tx = e.home.x; ty = e.home.y; chasing = true; }
-      else if (e.hp < et.hp) e.hp = Math.min(et.hp, e.hp + 10 * dt);
+      else if (e.hp < e.maxhp) e.hp = Math.min(e.maxhp, e.hp + 10 * dt);
     } else if (e.wave) {
       const p = nearestAlivePlayer(e.x, e.y, 4);
       if (p) { tx = p.x; ty = p.y; targetP = p; } else { tx = core.x; ty = core.y; }
@@ -192,7 +234,8 @@ function updateEnemies(dt) {
         e.fuse -= dt;
         if (e.fuse <= 0) {
           G.enemies.splice(i, 1);
-          explodeAt(e.x, e.y, et.explode);
+          const m = e.dmgMult || 1;
+          explodeAt(e.x, e.y, { r: et.explode.r, dmg: et.explode.dmg * m, wallDmg: et.explode.wallDmg * m, core: et.explode.core * m });
           continue;
         }
       }
@@ -208,7 +251,7 @@ function updateEnemies(dt) {
         spawnProj({
           x: e.x + Math.cos(ang) * 0.4, y: e.y + Math.sin(ang) * 0.4,
           vx: Math.cos(ang) * et.ranged.speed, vy: Math.sin(ang) * et.ranged.speed,
-          dmg: et.ranged.dmg, from: 'e', ttl: 1.4, kind: 0,
+          dmg: enemyDmg(e, et.ranged.dmg), from: 'e', ttl: 1.4, kind: 0,
         });
         emitFx({ k: 'sfx', s: 'shoot' });
       }
@@ -247,13 +290,13 @@ function updateEnemies(dt) {
       const info = TILE_INFO[tileAt(fx, fy)];
       const o = objAt(fx, fy);
       if (o && OBJ_SOLID[o.type]) {
-        o.hp -= et.dmg * 0.5 * wm;
+        o.hp -= enemyDmg(e, et.dmg) * 0.5 * wm;
         emitFx({ k: 'ft', x: fx + 0.5, y: fy + 0.5, txt: '💥', color: '#ff8888' });
         if (o.hp <= 0) { setObj(fx, fy, null); emitFx({ k: 'sfx', s: 'break_' }); }
         e.hitT = 1.0;
       } else if (info.solid && info.hp !== Infinity) {
         const ii = idx(fx, fy);
-        G.dmg[ii] += et.dmg * 0.8 * wm;
+        G.dmg[ii] += enemyDmg(e, et.dmg) * 0.8 * wm;
         emitFx({ k: 'crack', i: ii, r: G.dmg[ii] / info.hp });
         if (G.dmg[ii] >= info.hp) breakTile(fx, fy, false);
         e.hitT = 0.8;
@@ -264,7 +307,7 @@ function updateEnemies(dt) {
     for (const p of G.players.values()) {
       if (p.dead || p.iframe > 0) continue;
       if (dist(e.x, e.y, p.x, p.y) < et.r + p.r + 0.05) {
-        damagePlayer(p, et.dmg);
+        damagePlayer(p, enemyDmg(e, et.dmg));
         const d = Math.max(0.1, dist(e.x, e.y, p.x, p.y));
         p.kbx = (p.x - e.x) / d * 6; p.kby = (p.y - e.y) / d * 6;
       }
@@ -324,6 +367,7 @@ function updateProjs(dt) {
 }
 
 function damagePlayer(p, amount) {
+  if (p.godmode) return; // /power godmode:秘笈開啟的無敵狀態
   const dmg = Math.max(1, Math.round(amount * (1 - bestArmor(p))));
   p.hp -= dmg; p.iframe = 0.8; p.lastHurt = G.time;
   addFloater(p.x, p.y - 0.6, '-' + dmg, '#ff6b6b');
@@ -348,6 +392,80 @@ function toggleInfinite(p) {
   }
   p.invDirty = true;
   return p.infinite;
+}
+
+// ===== /power 秘笈選單:統一入口,一律在房主端執行 =====
+// UI(自己是房主時直接呼叫)與 net.js 收到客戶端 { t:'power' } 請求時都呼叫這裡,
+// 確保「滑鼠點選單」跟「手打指令」兩條路徑效果完全一致、不用各寫一份。
+// 效果只回饋給下指令的玩家自己(呼叫端用 sendToPid/本地 showMsg),不廣播給其他人;
+// 但世界共用狀態(星核/暗潮/怪物)本來就會透過快照自然讓所有人看到,這是預期中的。
+function cheatHeal(p) {
+  p.hp = p.maxhp;
+  addFloater(p.x, p.y - 0.6, '❤ 已補滿', '#7dff8e');
+}
+function cheatGodmode(p) {
+  p.godmode = !p.godmode;
+  return p.godmode;
+}
+function cheatTeleportHome(p) {
+  p.x = G.core.x + (Math.random() - 0.5) * 2;
+  p.y = G.core.y + 1.5;
+  if (p.id !== G.myId && NET.isHost()) NET.sendToPid(p.id, { t: 'tp', x: p.x, y: p.y });
+}
+function cheatCoreFull() { G.core.energy = CORE_CFG.maxE; }
+function cheatShard(p) { addItem(p, 'shard', 1); }
+function cheatWaveNow() {
+  const w = G.wave;
+  if (w.state === 'calm') { w.state = 'warn'; w.timer = 3; return true; }
+  if (w.state === 'warn') { w.timer = 0.05; return true; }
+  return false; // 暗潮已在進行中,不重複觸發
+}
+function cheatWaveClear() {
+  const before = G.enemies.length;
+  G.enemies = G.enemies.filter(e => !e.wave);
+  return before - G.enemies.length;
+}
+function cheatClearMobs() {
+  const before = G.enemies.length;
+  G.enemies = G.enemies.filter(e => e.home); // 神殿守衛保留,其餘全清
+  return before - G.enemies.length;
+}
+// 在玩家周圍找一格空地板召喚怪物,避免直接卡進牆裡
+function findSpawnSpot(p) {
+  for (let tries = 0; tries < 30; tries++) {
+    const ang = Math.random() * TAU, d = 2 + Math.random() * 3;
+    const x = Math.floor(p.x + Math.cos(ang) * d), y = Math.floor(p.y + Math.sin(ang) * d);
+    if (inMap(x, y) && tileAt(x, y) === T.FLOOR) return { x: x + 0.5, y: y + 0.5 };
+  }
+  return { x: p.x, y: p.y };
+}
+function cheatSpawn(p, type, count) {
+  const n = clamp(count | 0 || 1, 1, 10);
+  for (let i = 0; i < n; i++) {
+    const pos = findSpawnSpot(p);
+    spawnEnemy(type, pos.x, pos.y);
+  }
+  return n;
+}
+
+function runPowerCmd(p, action, arg, num) {
+  switch (action) {
+    case 'heal': cheatHeal(p); return '❤ 已補滿血量';
+    case 'godmode': return cheatGodmode(p) ? '🛡️ 無敵模式已開啟' : '🛡️ 無敵模式已關閉';
+    case 'infinite': return toggleInfinite(p) ? '♾️ 資源無限已開啟' : '資源無限已關閉';
+    case 'home': cheatTeleportHome(p); return '🏠 已傳送回星核';
+    case 'xp': { const n = clamp(num || 500, 1, 99999); grantXp(p, n); return `⭐ 獲得 ${n} 經驗值`; }
+    case 'corefull': cheatCoreFull(); return '💠 星核能量已灌滿';
+    case 'shard': cheatShard(p); return '🔷 獲得 1 顆星核碎片(靠近星核會自動放入)';
+    case 'wavenow': return cheatWaveNow() ? '🌊 已強制觸發暗潮' : '⚠️ 暗潮已在進行中';
+    case 'waveclear': return `☀️ 已清除 ${cheatWaveClear()} 隻暗潮怪物`;
+    case 'clearmobs': return `🧹 已清除 ${cheatClearMobs()} 隻怪物(神殿守衛除外)`;
+    case 'spawn': {
+      if (!ENEMY_TYPES[arg]) return `⚠️ 找不到怪物「${arg}」`;
+      return `👹 召喚了 ${cheatSpawn(p, arg, num)} 隻${ENEMY_TYPES[arg].name}`;
+    }
+    default: return `⚠️ 未知指令 /power ${action}`;
+  }
 }
 
 // ===== 玩家動作(房主端執行;客戶端透過網路請求) =====
@@ -401,14 +519,14 @@ function doMine(p, x, y) {
   const i = idx(x, y);
   const o = G.objects.get(i);
   const info = TILE_INFO[G.tiles[i]];
-  if (o && o.type !== 'mushroom' && !info.solid) {
+  if (o && o.type !== 'mushroom' && o.type !== 'crop' && !info.solid) {
     // 敲回收已放置物件
     o.hp = (o.hp ?? OBJ_HP[o.type]) - bestPick(p).power * 4;
     emitFx({ k: 'sfx', s: 'mine' });
     if (o.hp <= 0) {
       // 寶箱/巢穴不是可攜帶物品,拆掉直接開獎勵,不走「物件變回背包道具」那條路
       if (o.type === 'chest') openChest(p, x, y);
-      else if (o.type === 'nest') breakNest(x, y);
+      else if (o.type === 'nest') breakNest(x, y, o);
       else spawnDrop(o.type, 1, x + 0.5, y + 0.5);
       setObj(x, y, null);
       emitFx({ k: 'sfx', s: 'break_' });
@@ -489,6 +607,27 @@ function doPlace(p, slot, x, y) {
   emitFx({ k: 'sfx', s: 'place' });
 }
 
+// 農耕:鏟子翻土(不消耗、不扣格數,單純是把地板變農地),右鍵觸發
+function doTill(p, x, y) {
+  if (p.dead || !inMap(x, y)) return;
+  if (dist(p.x, p.y, x + 0.5, y + 0.5) > 3.8) return;
+  if (tileAt(x, y) !== T.FLOOR || G.objects.has(idx(x, y))) return;
+  setTile(x, y, T.FARMLAND);
+  emitFx({ k: 'sfx', s: 'place' });
+}
+
+// 農耕:在翻好的農地上種下種子(消耗 1 顆),長熟後見 updateCrops + updatePlayersHost 的自動收成
+function doPlant(p, slot, x, y) {
+  if (p.dead || !inMap(x, y)) return;
+  const s = p.inv[slot];
+  if (!s || !ITEMS[s.id].seed) return;
+  if (dist(p.x, p.y, x + 0.5, y + 0.5) > 3.8) return;
+  if (tileAt(x, y) !== T.FARMLAND || G.objects.has(idx(x, y))) return;
+  consumeSlot(p, slot);
+  setObj(x, y, { type: 'crop', crop: ITEMS[s.id].seed, stage: 0, t: 0 });
+  emitFx({ k: 'sfx', s: 'place' });
+}
+
 function doEat(p, slot) {
   if (p.dead) return;
   const s = p.inv[slot];
@@ -508,6 +647,26 @@ function doDropItem(p, slot) {
   const ang = p.aim + (Math.random() - 0.5) * 0.6;
   const dx = Math.cos(ang) * 0.8, dy = Math.sin(ang) * 0.8;
   spawnDrop(s.id, 1, p.x + dx, p.y + dy, s.lv || 0);
+  consumeSlot(p, slot);
+  emitFx({ k: 'sfx', s: 'place' });
+}
+
+// 把背包格子拖曳到地圖上放開:丟在滑鼠指的那個位置。
+// 拖太遠夾到玩家可及範圍邊緣(不是直接失敗,拖曳落點通常沒那麼精準);
+// 落點卡在牆裡就退回腳邊,避免道具卡進牆體拿不到
+function doDropAt(p, slot, x, y) {
+  if (p.dead) return;
+  const s = p.inv[slot];
+  if (!s) return;
+  const maxD = 3.8;
+  const d = dist(p.x, p.y, x, y);
+  if (d > maxD) {
+    const t = maxD / d;
+    x = p.x + (x - p.x) * t;
+    y = p.y + (y - p.y) * t;
+  }
+  if (isSolid(Math.floor(x), Math.floor(y))) { x = p.x; y = p.y; }
+  spawnDrop(s.id, 1, x, y, s.lv || 0);
   consumeSlot(p, slot);
   emitFx({ k: 'sfx', s: 'place' });
 }
@@ -585,10 +744,33 @@ function openChest(p, x, y) {
   msgAll(`📦 ${p.name} 打開了廢墟寶箱!`);
 }
 
-// 拆巢穴:給光晶+機率卷軸做回饋(補償玩家主動清除生怪源的努力)
-function breakNest(x, y) {
-  spawnDrop('lumite', 2 + Math.floor(Math.random() * 3), x + 0.5, y + 0.5);
-  if (Math.random() < 0.4) spawnDrop('enh_scroll', 1, x + 0.5, y + 0.5);
+// 拆巢穴:給光晶+機率卷軸做回饋(補償玩家主動清除生怪源的努力);精英巢穴給雙倍
+function breakNest(x, y, o) {
+  const def = (o && NEST_TYPES[o.nestType]) || NEST_TYPES.common;
+  const mult = def.elite ? 2 : 1;
+  spawnDrop('lumite', (2 + Math.floor(Math.random() * 3)) * mult, x + 0.5, y + 0.5);
+  if (Math.random() < 0.4) spawnDrop('enh_scroll', mult, x + 0.5, y + 0.5);
+}
+
+// ===== 農耕:作物成長(房主)=====
+// 只在 stage 推進的當下才廣播(呼叫頻率低),不是每幀都送封包;
+// 直接組 { t:'obj' } 訊息送出,不走 setObj(避免重覆 delete/re-add cropIdx,
+// 因為這裡本來就在 for...of 走訪 G.cropIdx,對同一個 Set 又刪又加會讓走訪順序不可預期)
+function updateCrops(dt) {
+  for (const i of G.cropIdx) {
+    const o = G.objects.get(i);
+    if (!o) continue;
+    const def = CROP_TYPES[o.crop];
+    if (!def || o.stage >= def.icons.length - 1) continue;
+    o.t += dt;
+    const stageTime = def.growTime / (def.icons.length - 1);
+    if (o.t >= stageTime) {
+      o.t = 0;
+      o.stage++;
+      UI.mmDirty = true;
+      if (NET.isHost()) NET.sendAll({ t: 'obj', i, o: { ...o } });
+    }
+  }
 }
 
 // 巢穴持續生怪(房主):每座巢穴每隔一段時間嘗試在周圍生 1 隻,
@@ -596,17 +778,21 @@ function breakNest(x, y) {
 function updateNests(dt) {
   for (const i of G.nestIdx) {
     const o = G.objects.get(i);
-    o.spawnT = (o.spawnT ?? Math.random() * POI_CFG.nestSpawnCD) - dt;
+    const def = NEST_TYPES[o.nestType] || NEST_TYPES.common;
+    o.spawnT = (o.spawnT ?? Math.random() * def.spawnCD) - dt;
     if (o.spawnT > 0) continue;
-    o.spawnT = POI_CFG.nestSpawnCD;
+    o.spawnT = def.spawnCD;
     const nx = (i % MAP_W) + 0.5, ny = ((i / MAP_W) | 0) + 0.5;
     const near = G.enemies.filter(e => !e.wave && dist(e.x, e.y, nx, ny) < 10).length;
-    if (near >= POI_CFG.nestNearCap) continue;
-    const ang = Math.random() * TAU, d = 1.5 + Math.random() * 2;
-    const x = Math.floor(nx + Math.cos(ang) * d), y = Math.floor(ny + Math.sin(ang) * d);
-    if (!inMap(x, y) || tileAt(x, y) !== T.FLOOR) continue;
-    const zone = zoneOf(x + 0.5, y + 0.5);
-    spawnEnemy(zone === 0 ? 'imp' : zone === 1 ? 'hunter' : 'abyss', x + 0.5, y + 0.5);
+    if (near >= def.nearCap) continue;
+    for (let k = 0; k < (def.spawnCount || 1); k++) {
+      const ang = Math.random() * TAU, d = 1.5 + Math.random() * 2;
+      const x = Math.floor(nx + Math.cos(ang) * d), y = Math.floor(ny + Math.sin(ang) * d);
+      if (!inMap(x, y) || tileAt(x, y) !== T.FLOOR) continue;
+      const zone = zoneOf(x + 0.5, y + 0.5);
+      const type = def.spawnType || (zone === 0 ? 'imp' : zone === 1 ? 'hunter' : 'abyss');
+      spawnEnemy(type, x + 0.5, y + 0.5, def.elite ? { elite: true } : undefined);
+    }
   }
 }
 
@@ -708,12 +894,25 @@ function updatePlayersHost(dt) {
     }
     // 脫戰回血
     if (G.time - p.lastHurt > 10 && p.hp < p.maxhp) p.hp = Math.min(p.maxhp, p.hp + 3 * dt);
-    // 走過蘑菇自動採集
-    const o = objAt(Math.floor(p.x), Math.floor(p.y));
+    // 走過蘑菇自動採集(有機率額外掉一顆光孢子,鼓勵去找野生蘑菇拿種子來種)
+    const fx = Math.floor(p.x), fy = Math.floor(p.y);
+    const o = objAt(fx, fy);
     if (o && o.type === 'mushroom') {
       if (addItem(p, 'mushroom', 1) === 0) {
-        setObj(Math.floor(p.x), Math.floor(p.y), null);
+        if (Math.random() < 0.2) addItem(p, 'mush_spore', 1);
+        setObj(fx, fy, null);
         emitFx({ k: 'sfx', s: 'pickup' });
+      }
+    } else if (o && o.type === 'crop') {
+      // 走過成熟的作物自動收成:給收成物+機率退還種子,農地保留可以馬上再種
+      const def = CROP_TYPES[o.crop];
+      if (def && o.stage >= def.icons.length - 1) {
+        const n = def.yieldMin + Math.floor(Math.random() * (def.yieldMax - def.yieldMin + 1));
+        if (addItem(p, def.yield, n) === 0) {
+          if (Math.random() < def.seedBackChance) addItem(p, def.seed, 1);
+          setObj(fx, fy, null);
+          emitFx({ k: 'sfx', s: 'pickup' });
+        }
       }
     }
     // 帶碎片靠近星核自動放入

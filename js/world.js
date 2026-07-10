@@ -8,7 +8,7 @@ const G = {
   // 塔/巢穴的獨立索引(idx 集合):updateTowers/updateArcherTowers/updateNests 每幀都要找同類物件,
   // 直接掃 G.objects 要連蘑菇/火把等大量無關物件一起看過一遍;setObj 增減物件時同步維護,
   // 讓這幾個 tick 函式只掃自己關心的那一小撮,不受地圖上其他建築/採集物數量影響
-  towerIdx: new Set(), archerTowerIdx: new Set(), nestIdx: new Set(),
+  towerIdx: new Set(), archerTowerIdx: new Set(), nestIdx: new Set(), cropIdx: new Set(),
   lights: new Map(),    // idx -> 光半徑(地形光 + 物件光)
   players: new Map(),   // id -> player
   myId: 0,
@@ -51,7 +51,7 @@ function setTile(x, y, v, fromNet = false) {
 
 function objAt(x, y) { return G.objects.get(idx(x, y)) || null; }
 
-const TOWER_IDX_SETS = { tower: 'towerIdx', archer_tower: 'archerTowerIdx', nest: 'nestIdx' };
+const TOWER_IDX_SETS = { tower: 'towerIdx', archer_tower: 'archerTowerIdx', nest: 'nestIdx', crop: 'cropIdx' };
 // 放置/移除物件(o=null 移除)
 function setObj(x, y, o, fromNet = false) {
   const i = idx(x, y);
@@ -117,7 +117,7 @@ function genWorld(seed) {
   G.dmg = new Float32Array(MAP_W * MAP_H);
   G.explored = new Uint8Array(MAP_W * MAP_H);
   G.objects.clear(); G.lights.clear(); G.cracks.clear();
-  G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear();
+  G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.cropIdx.clear();
   G.enemies = []; G.drops = []; G.floaters = []; G.projs = [];
   G.shrines = []; G.mushCount = 0; G.warned = {};
   G.core = { x: CX + 0.5, y: CY + 0.5, energy: CORE_CFG.maxE, shards: 0 };
@@ -238,14 +238,23 @@ function genWorld(seed) {
   }
 
   // 8) 蝕影巢穴:持續生怪的據點,拆掉噴獎勵;離星核夠遠避免開局就被暗潮波及
+  // 種類依 NEST_TYPES 的 weight 加權抽選(用同一個 rnd 來源,確保同種子重生世界結果一致)
+  const nestEntries = Object.entries(NEST_TYPES);
+  const nestWeightSum = nestEntries.reduce((s, [, def]) => s + def.weight, 0);
+  const pickNestType = () => {
+    let r = rnd() * nestWeightSum;
+    for (const [key, def] of nestEntries) { if ((r -= def.weight) < 0) return key; }
+    return nestEntries[0][0];
+  };
   for (let n = 0; n < POI_CFG.nests; n++) {
     for (let tries = 0; tries < 30; tries++) {
       const ang = rnd() * TAU, d = 14 + rnd() * 78;
       const x = Math.floor(CX + Math.cos(ang) * d), y = Math.floor(CY + Math.sin(ang) * d);
       if (!inMap(x, y) || G.tiles[idx(x, y)] !== T.FLOOR || G.objects.has(idx(x, y))) continue;
       if (dist(x, y, G.core.x, G.core.y) < 14) continue;
+      const nestType = pickNestType();
       const ni = idx(x, y);
-      G.objects.set(ni, { type: 'nest', hp: OBJ_HP.nest });
+      G.objects.set(ni, { type: 'nest', nestType, hp: NEST_TYPES[nestType].hp });
       G.nestIdx.add(ni);
       break;
     }

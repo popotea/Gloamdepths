@@ -36,6 +36,7 @@ function simTick(dt) {
   updateTowers(dt);
   updateArcherTowers(dt);
   updateNests(dt);
+  updateCrops(dt);
   updateDrops(dt);
   updateWave(dt);
   updateCore(dt);
@@ -187,7 +188,7 @@ function buildSave() {
     v: 1, seed: G.seed, time: G.time,
     tiles: rleEnc(G.tiles),
     explored: rleEnc(G.explored),
-    objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null]),
+    objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null, o.stage ?? null, o.t ?? null, o.nestType ?? null]),
     drops: G.drops.map(d => [d.item, d.n, d.x, d.y]),
     core: { energy: G.core.energy, shards: G.core.shards },
     wave: { n: G.wave.n, timer: Math.max(45, G.wave.state === 'calm' ? G.wave.timer : 45), final: G.wave.final && G.core.shards < CORE_CFG.needShards ? false : G.wave.final },
@@ -229,12 +230,15 @@ function applySave(s, name) {
   G.tiles = rleDec(s.tiles, MAP_W * MAP_H, Uint8Array);
   G.explored = rleDec(s.explored, MAP_W * MAP_H, Uint8Array);
   G.dmg = new Float32Array(MAP_W * MAP_H);
-  G.objects.clear(); G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.mushCount = 0;
-  for (const [i, type, hp, ammo, off, owner] of s.objects) {
+  G.objects.clear(); G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.cropIdx.clear(); G.mushCount = 0;
+  for (const [i, type, hp, ammo, off, owner, stage, t, nestType] of s.objects) {
     const o = hp === null ? { type } : { type, hp };
     if (ammo !== null && ammo !== undefined) o.ammo = ammo;
     if (off) o.off = true;
     if (owner !== null && owner !== undefined) o.owner = owner;
+    if (stage !== null && stage !== undefined) o.stage = stage;
+    if (t !== null && t !== undefined) o.t = t;
+    if (nestType !== null && nestType !== undefined) o.nestType = nestType;
     G.objects.set(i, o);
     if (type === 'mushroom') G.mushCount++;
     const key = TOWER_IDX_SETS[type]; if (key) G[key].add(i);

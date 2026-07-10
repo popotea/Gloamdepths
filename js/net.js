@@ -61,7 +61,7 @@ const NET = {
       conn.send({
         t: 'init', id: pid,
         tiles: rleEnc(G.tiles), explored: rleEnc(G.explored),
-        objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null]),
+        objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null, o.stage ?? null, o.t ?? null, o.nestType ?? null]),
         core: { energy: G.core.energy, shards: G.core.shards },
         shrines: G.shrines, wave: G.wave, time: G.time,
         players: [...G.players.values()].map(pl => [pl.id, pl.name, pl.x, pl.y, pl.hp, pl.dead ? 1 : 0, pl.lv || 1, pl.xp || 0]),
@@ -84,11 +84,14 @@ const NET = {
       case 'atk': doSwing(p, +d.aim || 0); break;
       case 'shoot': doShoot(p, +d.aim || 0); break;
       case 'place': doPlace(p, d.slot | 0, d.x | 0, d.y | 0); break;
+      case 'till': doTill(p, d.x | 0, d.y | 0); break;
+      case 'plant': doPlant(p, d.slot | 0, d.x | 0, d.y | 0); break;
       case 'fill_tower': doFillTower(p, d.x | 0, d.y | 0); break;
       case 'toggle_tower': doToggleTower(p, d.x | 0, d.y | 0); break;
       case 'eat': doEat(p, d.slot | 0); break;
       case 'deposit': doDeposit(p); break;
       case 'drop': doDropItem(p, d.slot | 0); break;
+      case 'drop_at': doDropAt(p, d.slot | 0, +d.x || 0, +d.y || 0); break;
       case 'swap': swapSlots(p, d.a | 0, d.b | 0); break;
       case 'split': splitStack(p, d.slot | 0); break;
       case 'sort_inv': sortInventory(p); break;
@@ -98,9 +101,9 @@ const NET = {
         else this.sendToPid(conn.pid, { t: 'fx', f: { k: 'sfx', s: 'craft' } });
         break;
       }
-      case 'give_all': {
-        const on = toggleInfinite(p);
-        this.sendToPid(conn.pid, { t: 'msg', text: on ? '♾️ 資源無限已開啟' : '資源無限已關閉' });
+      case 'power': {
+        const text = runPowerCmd(p, d.action, d.arg, d.num);
+        if (text) this.sendToPid(conn.pid, { t: 'msg', text });
         break;
       }
       case 'enh': {
@@ -139,7 +142,7 @@ const NET = {
       t: 'snap', time: r2(G.time),
       players: [...G.players.values()].map(p =>
         [p.id, r2(p.x), r2(p.y), r2(p.aim), p.swing > 0 ? 1 : 0, Math.round(p.hp), p.dead ? 1 : 0, Math.ceil(p.respawnT || 0), p.lv || 1, Math.round(p.xp || 0)]),
-      enemies: G.enemies.map(e => [e.id, e.type, r2(e.x), r2(e.y), Math.round(e.hp)]),
+      enemies: G.enemies.map(e => [e.id, e.type, r2(e.x), r2(e.y), Math.round(e.hp), e.maxhp, e.elite ? 1 : 0]),
       drops: G.drops.map(d => [d.id, d.item, d.n, r2(d.x), r2(d.y), d.lv || 0]),
       projs: G.projs.map(pj => [pj.id, r2(pj.x), r2(pj.y), pj.from === 'e' ? 1 : 0]),
       core: { e: r2(G.core.energy), s: G.core.shards },
@@ -180,12 +183,15 @@ const NET = {
         G.tiles = rleDec(d.tiles, MAP_W * MAP_H, Uint8Array);
         G.explored = rleDec(d.explored, MAP_W * MAP_H, Uint8Array);
         G.dmg = new Float32Array(MAP_W * MAP_H);
-        G.objects.clear(); G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.mushCount = 0;
-        for (const [i, type, hp, ammo, off, owner] of d.objects) {
+        G.objects.clear(); G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.cropIdx.clear(); G.mushCount = 0;
+        for (const [i, type, hp, ammo, off, owner, stage, t, nestType] of d.objects) {
           const o = hp === null ? { type } : { type, hp };
           if (ammo !== null && ammo !== undefined) o.ammo = ammo;
           if (off) o.off = true;
           if (owner !== null && owner !== undefined) o.owner = owner;
+          if (stage !== null && stage !== undefined) o.stage = stage;
+          if (t !== null && t !== undefined) o.t = t;
+          if (nestType !== null && nestType !== undefined) o.nestType = nestType;
           G.objects.set(i, o);
           if (type === 'mushroom') G.mushCount++;
           const key = TOWER_IDX_SETS[type]; if (key) G[key].add(i);
@@ -223,11 +229,11 @@ const NET = {
         const seen = new Set();
         const byId = new Map(G.enemies.map(e => [e.id, e]));
         const list = [];
-        for (const [id, type, x, y, hp] of d.enemies) {
+        for (const [id, type, x, y, hp, maxhp, elite] of d.enemies) {
           seen.add(id);
           let e = byId.get(id);
           if (!e) e = { id, type, x, y, hp, hopT: 0 };
-          e.tx = x; e.ty = y; e.hp = hp;
+          e.tx = x; e.ty = y; e.hp = hp; e.maxhp = maxhp; e.elite = !!elite;
           list.push(e);
         }
         G.enemies = list;

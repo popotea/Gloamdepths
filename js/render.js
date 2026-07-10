@@ -62,11 +62,20 @@ function render(dt) {
       if (!info.solid) {
         // 地板(依區域變色)
         const z = zoneOf(tx + 0.5, ty + 0.5);
-        ctx.fillStyle = t === T.GLOW ? '#2e4a52' : z === 0 ? '#2b2118' : z === 1 ? '#232329' : '#1b1826';
+        ctx.fillStyle = t === T.GLOW ? '#2e4a52' : t === T.FARMLAND ? '#3f2e18' : z === 0 ? '#2b2118' : z === 1 ? '#232329' : '#1b1826';
         ctx.fillRect(sx, sy, TILE + 1, TILE + 1);
         if (t === T.GLOW) {
           ctx.fillStyle = 'rgba(126,240,255,0.25)';
           ctx.fillRect(sx + TILE * 0.4, sy + TILE * 0.4, TILE * 0.2, TILE * 0.2);
+        } else if (t === T.FARMLAND) {
+          // 翻土紋路:三條深色橫紋,一眼認得出是農地
+          ctx.strokeStyle = '#2a1c0f'; ctx.lineWidth = 2;
+          for (let row = 0.25; row < 1; row += 0.25) {
+            ctx.beginPath();
+            ctx.moveTo(sx + TILE * 0.08, sy + TILE * row);
+            ctx.lineTo(sx + TILE * 0.92, sy + TILE * row);
+            ctx.stroke();
+          }
         }
       } else {
         ctx.fillStyle = info.c1;
@@ -117,7 +126,25 @@ function render(dt) {
     const [sx, sy] = worldToScreen(tx + 0.5, ty + 0.5);
     ctx.globalAlpha = o.type === 'archer_tower' && o.off ? 0.45 : 1;
     ctx.font = `${TILE * 0.7}px "Segoe UI Emoji"`;
-    ctx.fillText(OBJ_ICON[o.type] || '❓', sx, sy);
+    if (o.type === 'crop') {
+      const def = CROP_TYPES[o.crop];
+      const icon = def ? def.icons[Math.min(o.stage, def.icons.length - 1)] : '❓';
+      ctx.font = `${TILE * (0.4 + 0.3 * (o.stage / Math.max(1, (def?.icons.length ?? 2) - 1)))}px "Segoe UI Emoji"`;
+      ctx.fillText(icon, sx, sy);
+    } else if (o.type === 'nest') {
+      const ndef = NEST_TYPES[o.nestType] || NEST_TYPES.common;
+      if (ndef.elite) {
+        // 精英巢穴外圈脈動紅光,遠遠就能認出比較危險
+        ctx.strokeStyle = `rgba(255,93,93,${0.5 + Math.sin(performance.now() / 260) * 0.25})`;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(sx, sy, TILE * 0.55, 0, TAU);
+        ctx.stroke();
+      }
+      ctx.fillText(ndef.icon, sx, sy);
+    } else {
+      ctx.fillText(OBJ_ICON[o.type] || '❓', sx, sy);
+    }
     ctx.globalAlpha = 1;
     if (o.type === 'archer_tower') {
       const w = TILE * 0.8, ammoR = (o.ammo || 0) / ARCHER_TOWER_CFG.maxAmmo;
@@ -200,57 +227,69 @@ function render(dt) {
     const L = lightOf(e.x, e.y);
     if (L < 0.04) continue;
     const et = ENEMY_TYPES[e.type];
+    const emaxhp = e.maxhp || et.hp; // 精英怪血量放大過,不能拿 et.hp(基礎值)當滿血
+    const escale = e.elite ? ELITE_CFG.scale : 1;
+    const er = et.r * escale;
     const [sx, sy] = worldToScreen(e.x, e.y);
     const squash = 1 + Math.sin(performance.now() / 200 + e.id) * 0.08;
+    // 精英怪:紫色脈動外圈,一眼認出比一般怪更硬更痛
+    if (e.elite) {
+      ctx.strokeStyle = `rgba(224,140,255,${0.5 + Math.sin(performance.now() / 240) * 0.25})`;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(sx, sy, er * TILE * 1.25, 0, TAU);
+      ctx.stroke();
+    }
     // 暗潮怪:紅色脈動外圈 + 頭頂警示標記,一眼分辨優先目標
     if (e.wave) {
       const pulse = 1 + Math.sin(performance.now() / 220) * 0.12;
       ctx.strokeStyle = `rgba(255,70,70,${0.55 + Math.sin(performance.now() / 220) * 0.25})`;
       ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.arc(sx, sy, et.r * TILE * 1.4 * pulse, 0, TAU);
+      ctx.arc(sx, sy, er * TILE * 1.4 * pulse, 0, TAU);
       ctx.stroke();
       ctx.font = `${TILE * 0.4}px "Segoe UI Emoji"`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('⚠️', sx, sy - et.r * TILE - 16);
+      ctx.fillText('⚠️', sx, sy - er * TILE - 16);
     }
     const img = monsterImg(e.type);
     if (img) {
-      const size = et.r * TILE * 2.3 * squash;
+      const size = er * TILE * 2.3 * squash;
       ctx.drawImage(img, sx - size / 2, sy - size / 2, size, size);
     } else {
       ctx.fillStyle = et.color;
       ctx.beginPath();
-      ctx.ellipse(sx, sy, et.r * TILE * squash, et.r * TILE / squash, 0, 0, TAU);
+      ctx.ellipse(sx, sy, er * TILE * squash, er * TILE / squash, 0, 0, TAU);
       ctx.fill();
       if (e.type === 'sentinel') {
         ctx.strokeStyle = '#8a90a5'; ctx.lineWidth = 3; ctx.stroke();
       }
       // 發光的眼睛(黑暗氛圍重點)
       ctx.fillStyle = et.eye;
-      const ex = et.r * TILE * 0.35;
+      const ex = er * TILE * 0.35;
       ctx.beginPath();
-      ctx.arc(sx - ex, sy - et.r * TILE * 0.15, et.r * TILE * 0.14, 0, TAU);
-      ctx.arc(sx + ex, sy - et.r * TILE * 0.15, et.r * TILE * 0.14, 0, TAU);
+      ctx.arc(sx - ex, sy - er * TILE * 0.15, er * TILE * 0.14, 0, TAU);
+      ctx.arc(sx + ex, sy - er * TILE * 0.15, er * TILE * 0.14, 0, TAU);
       ctx.fill();
     }
     // 血條
-    if (e.hp < et.hp) {
-      const w = et.r * 2 * TILE;
+    if (e.hp < emaxhp) {
+      const w = er * 2 * TILE;
       ctx.fillStyle = '#3336';
-      ctx.fillRect(sx - w / 2, sy - et.r * TILE - 9, w, 5);
-      ctx.fillStyle = '#ff5d5d';
-      ctx.fillRect(sx - w / 2, sy - et.r * TILE - 9, w * Math.max(0, e.hp / et.hp), 5);
+      ctx.fillRect(sx - w / 2, sy - er * TILE - 9, w, 5);
+      ctx.fillStyle = e.elite ? '#e08cff' : '#ff5d5d';
+      ctx.fillRect(sx - w / 2, sy - er * TILE - 9, w * Math.max(0, e.hp / emaxhp), 5);
     }
     // 名稱:只在玩家靠近時顯示,避免遠處一堆怪把畫面塞滿文字
     if (dist(me.x, me.y, e.x, e.y) < 4) {
       ctx.font = 'bold 12px sans-serif';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      const nameY = sy - et.r * TILE - (e.hp < et.hp ? 18 : 12);
+      const nameY = sy - er * TILE - (e.hp < emaxhp ? 18 : 12);
+      const label = e.elite ? `精英${et.name}` : et.name;
       ctx.fillStyle = '#000a';
-      ctx.fillText(et.name, sx + 1, nameY + 1);
-      ctx.fillStyle = et.boss ? '#ffd23f' : '#dde4ee';
-      ctx.fillText(et.name, sx, nameY);
+      ctx.fillText(label, sx + 1, nameY + 1);
+      ctx.fillStyle = et.boss ? '#ffd23f' : e.elite ? '#e08cff' : '#dde4ee';
+      ctx.fillText(label, sx, nameY);
     }
   }
 

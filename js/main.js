@@ -11,6 +11,18 @@ function bindInput() {
     e.stopPropagation();
     if (e.key === 'Enter') sendChat();
     else if (e.key === 'Escape') closeChat();
+    else if (e.key === 'ArrowUp') {
+      // 叫回上一則輸入過的內容(聊天訊息或 /power 指令都會被記住)
+      e.preventDefault();
+      if (!UI.chatHistory.length) return;
+      UI.chatHistoryIdx = Math.max(0, UI.chatHistoryIdx - 1);
+      UI.els.chatInput.value = UI.chatHistory[UI.chatHistoryIdx] || '';
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (!UI.chatHistory.length) return;
+      UI.chatHistoryIdx = Math.min(UI.chatHistory.length, UI.chatHistoryIdx + 1);
+      UI.els.chatInput.value = UI.chatHistory[UI.chatHistoryIdx] || '';
+    }
   });
   addEventListener('keydown', e => {
     if (typingInInput()) return;
@@ -21,10 +33,11 @@ function bindInput() {
     if (k === 'escape') {
       if (UI.panelOpen) togglePanel(false);
       else if (UI.towerPos) closeTowerPanel();
+      else if (UI.powerOpen) togglePowerPanel(false);
       else toggleMenu();
       return;
     }
-    if (UI.menuOpen) return;
+    if (UI.menuOpen || UI.powerOpen) return;
     if (k === 'enter') { openChat(); return; }
     if (k === 'e') togglePanel();
     else if (k >= '1' && k <= '8') { me.sel = +k - 1; UI.invDirty = true; }
@@ -57,11 +70,23 @@ function bindInput() {
     me.sel = (me.sel + (e.deltaY > 0 ? 1 : 7)) % 8;
     UI.invDirty = true;
   }, { passive: true });
+
+  // 把背包格子拖到地上放開 = 丟在那個位置(超出可及範圍/落點是牆會自動夾到腳邊,見 doDropAt)
+  gameCv.addEventListener('dragover', e => e.preventDefault());
+  gameCv.addEventListener('drop', e => {
+    e.preventDefault();
+    const me = myPlayer();
+    const slot = +e.dataTransfer.getData('text/plain');
+    if (!me || isNaN(slot) || !me.inv[slot]) return;
+    const [wx, wy] = screenToWorld(e.clientX, e.clientY);
+    if (NET.isHost()) doDropAt(me, slot, wx, wy);
+    else NET.act({ t: 'drop_at', slot, x: wx, y: wy });
+  });
 }
 
 // 本地玩家控制(房主與客戶端共用;客戶端做本地預測)
 function localControl(me, dt) {
-  if (me.dead || UI.menuOpen) return;
+  if (me.dead || UI.menuOpen || UI.powerOpen) return;
   // 移動
   let dx = 0, dy = 0;
   if (INPUT.keys.has('w') || INPUT.keys.has('arrowup')) dy -= 1;
@@ -139,6 +164,12 @@ function localControl(me, dt) {
         } else if (it.place || it.placeTile !== undefined) {
           if (NET.isHost()) doPlace(me, me.sel, tx0, ty0);
           else NET.act({ t: 'place', slot: me.sel, x: tx0, y: ty0 });
+        } else if (it.till) {
+          if (NET.isHost()) doTill(me, tx0, ty0);
+          else NET.act({ t: 'till', x: tx0, y: ty0 });
+        } else if (it.seed) {
+          if (NET.isHost()) doPlant(me, me.sel, tx0, ty0);
+          else NET.act({ t: 'plant', slot: me.sel, x: tx0, y: ty0 });
         }
       }
     }
