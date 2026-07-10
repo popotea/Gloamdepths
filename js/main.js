@@ -31,7 +31,8 @@ function bindInput() {
     const me = myPlayer();
     if (!G.started || !me) return;
     if (k === 'escape') {
-      if (UI.panelOpen) togglePanel(false);
+      if (UI.mapOpen) toggleMapPanel(false);
+      else if (UI.panelOpen) togglePanel(false);
       else if (UI.towerPos) closeTowerPanel();
       else if (UI.powerOpen) togglePowerPanel(false);
       else if (UI.talentOpen) toggleTalentPanel(false);
@@ -42,6 +43,7 @@ function bindInput() {
     if (k === 'enter') { openChat(); return; }
     if (k === 'e') togglePanel();
     else if (k === 't') toggleTalentPanel();
+    else if (k === 'm') toggleMapPanel();
     else if (k >= '1' && k <= '8') { me.sel = +k - 1; UI.invDirty = true; }
     else if (k === 'f') {
       if (NET.isHost()) doDeposit(me);

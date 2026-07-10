@@ -9,6 +9,7 @@ const UI = {
   els: {}, mmImage: null, mmT: 0, craftT: 0,
   enhSlot: -1,
   towerPos: null, towerT: 0,
+  mapOpen: false, mapZoom: 3, mapPanX: 0, mapPanY: 0, mapDrag: null,
 };
 
 function $id(s) { return document.getElementById(s); }
@@ -26,6 +27,7 @@ function initUI() {
     enhPanel: $id('enhPanel'),
     towerPanel: $id('towerPanel'), towerBody: $id('towerBody'),
     overlay: $id('overlay'), minimap: $id('minimap'),
+    mapPanel: $id('mapPanel'), mapCanvas: $id('mapCanvas'), mapTip: $id('mapTip'),
     hostBtn: $id('hostBtn'), roomcode: $id('roomcode'),
     deathbanner: $id('deathbanner'),
     menuPanel: $id('menuPanel'),
@@ -72,6 +74,7 @@ function initUI() {
     else NET.act({ t: 'sort_inv' });
     UI.invDirty = true;
   };
+  bindMapPanel();
 }
 
 function myPlayer() { return G.players.get(G.myId); }
@@ -382,6 +385,7 @@ function uiTick(dt) {
   // 小地圖
   UI.mmT -= dt;
   if (UI.mmT <= 0) { UI.mmT = 0.4; drawMinimap(); }
+  if (UI.mapOpen) drawFullMap(); // 大地圖開著時每幀刷新玩家位置
 
   // 箭塔面板(開著才更新,節流;走遠或塔被拆掉就自動關閉)
   if (UI.towerPos) {
@@ -798,6 +802,118 @@ function drawMinimap() {
     mc.fillStyle = PLAYER_COLORS[p.id % PLAYER_COLORS.length];
     mc.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
   }
+}
+
+// ===== 大地圖(M 鍵開,滾輪縮放 + 拖曳平移)=====
+function mapMarkers() {
+  const marks = [];
+  marks.push({ x: CX, y: CY, icon: '💠', label: '星核' });
+  G.shrines.forEach((s, i) => {
+    marks.push({ x: s.x, y: s.y, icon: s.dead ? '⚫' : '🗿', label: `神殿 ${i + 1}${s.dead ? '(已擊敗)' : ''}` });
+  });
+  for (const i of G.nestIdx) {
+    if (!G.explored[i]) continue; // 沒探索過的巢穴不暴雷
+    const o = G.objects.get(i);
+    if (!o) continue;
+    const ndef = NEST_TYPES[o.nestType] || NEST_TYPES.common;
+    marks.push({ x: (i % MAP_W) + 0.5, y: ((i / MAP_W) | 0) + 0.5, icon: ndef.icon, label: ndef.name });
+  }
+  return marks;
+}
+
+function toggleMapPanel(open) {
+  UI.mapOpen = open === undefined ? !UI.mapOpen : open;
+  UI.els.mapPanel.classList.toggle('hidden', !UI.mapOpen);
+  if (UI.mapOpen) {
+    togglePanel(false); togglePowerPanel(false); toggleTalentPanel(false); closeTowerPanel();
+    const me = myPlayer();
+    UI.mapPanX = me ? me.x : MAP_W / 2;
+    UI.mapPanY = me ? me.y : MAP_H / 2;
+    resizeMapCanvas();
+    drawFullMap();
+  }
+}
+
+function resizeMapCanvas() {
+  const cv = UI.els.mapCanvas;
+  cv.width = innerWidth; cv.height = innerHeight;
+}
+
+function drawFullMap() {
+  if (!UI.mapOpen) return;
+  const cv = UI.els.mapCanvas, mc = cv.getContext('2d');
+  const z = UI.mapZoom;
+  mc.fillStyle = '#000'; mc.fillRect(0, 0, cv.width, cv.height);
+  if (UI.mmDirty || !UI.mmImage) drawMinimap(); // 重用小地圖的離線 ImageData 快取(避免重複逐格算色)
+  // 把探索過的地形(小地圖那張 200x200 ImageData)以整數倍縮放貼到畫面中心,中心點跟隨 mapPanX/Y 平移
+  const off = document.createElement('canvas');
+  off.width = MAP_W; off.height = MAP_H;
+  off.getContext('2d').putImageData(UI.mmImage, 0, 0);
+  mc.imageSmoothingEnabled = false;
+  const ox = cv.width / 2 - UI.mapPanX * z;
+  const oy = cv.height / 2 - UI.mapPanY * z;
+  mc.drawImage(off, 0, 0, MAP_W, MAP_H, ox, oy, MAP_W * z, MAP_H * z);
+
+  const toScreen = (x, y) => [ox + x * z, oy + y * z];
+
+  // 標記(星核/神殿/巢穴)
+  for (const m of mapMarkers()) {
+    const [sx, sy] = toScreen(m.x, m.y);
+    if (sx < -20 || sy < -20 || sx > cv.width + 20 || sy > cv.height + 20) continue;
+    mc.font = `${Math.max(14, Math.min(28, z * 5))}px sans-serif`;
+    mc.textAlign = 'center'; mc.textBaseline = 'middle';
+    mc.fillText(m.icon, sx, sy);
+    m._sx = sx; m._sy = sy;
+  }
+  // 玩家
+  for (const p of G.players.values()) {
+    if (p.dead) continue;
+    const [sx, sy] = toScreen(p.x, p.y);
+    mc.fillStyle = PLAYER_COLORS[p.id % PLAYER_COLORS.length];
+    mc.beginPath(); mc.arc(sx, sy, Math.max(3, z * 0.6), 0, Math.PI * 2); mc.fill();
+    mc.strokeStyle = '#fff'; mc.lineWidth = 1; mc.stroke();
+  }
+
+  // tooltip:滑鼠附近的標記
+  const mm = UI.mapMouse;
+  let hover = null, bestD = 26;
+  if (mm) {
+    for (const m of mapMarkers()) {
+      if (m._sx === undefined) continue;
+      const d = Math.hypot(mm[0] - m._sx, mm[1] - m._sy);
+      if (d < bestD) { bestD = d; hover = m; }
+    }
+  }
+  const tip = UI.els.mapTip;
+  if (hover) {
+    tip.classList.remove('hidden');
+    tip.textContent = hover.label;
+    tip.style.left = hover._sx + 'px';
+    tip.style.top = (hover._sy - 14) + 'px';
+  } else tip.classList.add('hidden');
+}
+
+function bindMapPanel() {
+  const cv = UI.els.mapCanvas;
+  cv.addEventListener('wheel', e => {
+    e.preventDefault();
+    UI.mapZoom = Math.max(1, Math.min(12, UI.mapZoom * (e.deltaY > 0 ? 0.88 : 1.14)));
+    drawFullMap();
+  }, { passive: false });
+  cv.addEventListener('mousedown', e => {
+    UI.mapDrag = { x: e.clientX, y: e.clientY, panX: UI.mapPanX, panY: UI.mapPanY };
+    cv.classList.add('grabbing');
+  });
+  addEventListener('mouseup', () => { UI.mapDrag = null; cv.classList.remove('grabbing'); });
+  addEventListener('mousemove', e => {
+    UI.mapMouse = [e.clientX, e.clientY];
+    if (UI.mapDrag) {
+      UI.mapPanX = UI.mapDrag.panX - (e.clientX - UI.mapDrag.x) / UI.mapZoom;
+      UI.mapPanY = UI.mapDrag.panY - (e.clientY - UI.mapDrag.y) / UI.mapZoom;
+    }
+    if (UI.mapOpen) drawFullMap();
+  });
+  addEventListener('resize', () => { if (UI.mapOpen) { resizeMapCanvas(); drawFullMap(); } });
 }
 
 // ===== 全螢幕選單 =====

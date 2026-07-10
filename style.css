@@ -150,6 +150,17 @@ button.mini { font-size: 11px; padding: 3px 9px; border-radius: 6px; }
 #tileTip { position: absolute; padding: 4px 9px; background: #0a0d14ee; border: 1px solid #3a4152;
   border-radius: 6px; font-size: 13px; color: #dde4ee; white-space: nowrap; transform: translate(-50%, -100%); }
 
+/* 大地圖(M 鍵開,滾輪縮放 + 拖曳平移) */
+#mapPanel { position: absolute; inset: 0; background: #050508ee; pointer-events: auto; }
+#mapCanvas { display: block; width: 100%; height: 100%; cursor: grab; image-rendering: pixelated; }
+#mapCanvas.grabbing { cursor: grabbing; }
+#mapTip { position: absolute; padding: 4px 9px; background: #0a0d14ee; border: 1px solid #3a4152;
+  border-radius: 6px; font-size: 13px; color: #dde4ee; white-space: nowrap; transform: translate(-50%, -100%);
+  pointer-events: none; }
+#mapHint { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+  background: #0a0d14cc; border: 1px solid #3a4152; border-radius: 8px; padding: 6px 14px;
+  font-size: 13px; color: #b7c2d4; }
+
 /* 箭塔儲物面板:拖箭矢進彈藥格補彈。開這個面板時背包會一起打開(要拖曳),
    所以刻意靠左擺,避免跟靠右的 #invpanel 疊在一起 */
 #towerPanel { position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
