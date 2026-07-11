@@ -223,7 +223,11 @@ function genWorld(seed) {
     }
   }
 
-  // 4) 礦脈(隨機漫步覆蓋在對應材質的牆上)
+  // 4) 礦物分布(Core Keeper 式):主要金屬礦以「礦床」集中成塊出現,
+  //    讓自動採礦機+傳輸帶+軌道的道鏈有意義——一台機器守著一塊礦床能連採一陣子,再用軌道把礦運回基地;
+  //    另外保留少量細礦脈當「探索途中的零星收穫」,鼓勵玩家四處挖。
+  //
+  // vein=細礦脈(隨機漫步,零星散布):探索沿途的小驚喜
   const vein = (count, len0, len1, host, ore, dMin, dMax) => {
     for (let n = 0; n < count; n++) {
       const ang = rnd() * TAU, d = dMin + rnd() * (dMax - dMin);
@@ -235,18 +239,55 @@ function genWorld(seed) {
       }
     }
   };
-  vein(90, 3, 6, [T.DIRT], T.COPPER, 8, 42);
-  vein(70, 3, 6, [T.STONE], T.IRON, 42, 72);
-  vein(55, 3, 5, [T.OBSIDIAN], T.GOLD, 72, 94);
-  vein(120, 2, 4, [T.DIRT, T.STONE, T.OBSIDIAN], T.LUMITE, 8, 94);
+  // deposit=礦床(集中成塊):用數顆重疊的子圓聯集出不規則塊狀,填滿範圍內的對應母岩。
+  // 每塊約 20~55 格同種礦,是「值得架採礦機」的量級。回傳實際生成的礦床中心(給礦床標記用)。
+  const depositCenters = []; // [{x,y,ore}] 記錄大礦床位置,之後可在小地圖標記
+  const deposit = (count, rMin, rMax, host, ore, dMin, dMax) => {
+    for (let n = 0; n < count; n++) {
+      let placed = false;
+      for (let tries = 0; tries < 12 && !placed; tries++) {
+        const ang = rnd() * TAU, d = dMin + rnd() * (dMax - dMin);
+        const cx = Math.floor(CX + Math.cos(ang) * d), cy = Math.floor(CY + Math.sin(ang) * d);
+        if (!inMap(cx, cy) || !host.includes(G.tiles[idx(cx, cy)])) continue; // 中心必須落在對應母岩上
+        // 3~5 顆子圓聯集成不規則團塊
+        const blobs = 3 + Math.floor(rnd() * 3);
+        let count2 = 0;
+        for (let b = 0; b < blobs; b++) {
+          const br = rMin + rnd() * (rMax - rMin);
+          const ox = cx + Math.floor((rnd() - 0.5) * rMax * 1.6);
+          const oy = cy + Math.floor((rnd() - 0.5) * rMax * 1.6);
+          const R = Math.ceil(br);
+          for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+            if (dx * dx + dy * dy > br * br) continue;
+            const x = ox + dx, y = oy + dy;
+            if (inMap(x, y) && host.includes(G.tiles[idx(x, y)])) { G.tiles[idx(x, y)] = ore; count2++; }
+          }
+        }
+        if (count2 > 0) { depositCenters.push({ x: cx, y: cy, ore }); placed = true; }
+      }
+    }
+  };
+  // 主要金屬礦=礦床(集中),各分布在自己的區域深度;數量少但每塊肥
+  deposit(10, 2.4, 3.8, [T.DIRT], T.COPPER, 12, 40);
+  deposit(9,  2.4, 3.8, [T.STONE], T.IRON, 44, 70);
+  deposit(7,  2.0, 3.4, [T.OBSIDIAN], T.GOLD, 74, 92);
+  deposit(5,  1.8, 2.8, [T.OBSIDIAN], T.DIAMOND, 78, 93);
+  deposit(5,  1.6, 2.6, [T.DIRT, T.STONE, T.OBSIDIAN], T.LUMITE, 14, 90); // 光晶小礦床,供採礦機燃料
+  deposit(6,  2.0, 3.2, [T.DIRT, T.STONE], T.COAL, 12, 70);
+  // 零星細礦脈:探索沿途的小驚喜,量少不足以養採礦機,但夠早期起步
+  vein(22, 2, 4, [T.DIRT], T.COPPER, 8, 42);
+  vein(18, 2, 4, [T.STONE], T.IRON, 42, 72);
+  vein(14, 2, 3, [T.OBSIDIAN], T.GOLD, 72, 94);
+  vein(90, 2, 4, [T.DIRT, T.STONE, T.OBSIDIAN], T.LUMITE, 8, 94); // 光晶保持零星散布(到處撿得到,才餵得起機器)
   vein(70, 3, 5, [T.DIRT], T.ROOT, 8, 42);
   // 砂礫:泥土區成片出現(比礦脈粗胖許多),打散大範圍同色泥土牆的單調感
   vein(50, 8, 16, [T.DIRT], T.GRAVEL, 8, 42);
-  vein(90, 4, 8, [T.DIRT, T.STONE], T.COAL, 8, 72);
-  vein(28, 2, 4, [T.OBSIDIAN], T.DIAMOND, 72, 94);
-  // 淵核區(第五區域):鑽石礦脈更密集,呼應「更深區域更好的礦物」(通關解封後才採得到)
-  vein(45, 3, 6, [T.VOIDROCK], T.DIAMOND, 96, 114);
-  vein(40, 2, 4, [T.VOIDROCK], T.LUMITE, 96, 114);
+  vein(40, 3, 6, [T.DIRT, T.STONE], T.COAL, 8, 72);
+  vein(10, 2, 3, [T.OBSIDIAN], T.DIAMOND, 74, 94);
+  // 淵核區(第五區域):礦床更肥更集中,呼應「更深區域更好的礦物」(通關解封後才採得到)
+  deposit(8, 2.2, 3.4, [T.VOIDROCK], T.DIAMOND, 98, 113);
+  deposit(6, 2.0, 3.0, [T.VOIDROCK], T.LUMITE, 98, 113);
+  G.depositCenters = depositCenters;
 
   // 5) 螢光蘑菇(泥土區地面)
   for (let n = 0; n < 300 && G.mushCount < 120; n++) {

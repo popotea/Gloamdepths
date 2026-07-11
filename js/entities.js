@@ -649,6 +649,7 @@ function doMine(p, x, y) {
       // 寶箱/巢穴不是可攜帶物品,拆掉直接開獎勵,不走「物件變回背包道具」那條路
       if (o.type === 'chest') openChest(p, x, y);
       else if (o.type === 'nest') breakNest(x, y, o);
+      else if (o.type === 'storage') { spillStorage(x, y, o); spawnDrop('storage', 1, x + 0.5, y + 0.5); } // 內容全掉出來再掉回箱子
       else spawnDrop(o.type, 1, x + 0.5, y + 0.5);
       setObj(x, y, null);
       emitFx({ k: 'sfx', s: 'break_' });
@@ -1185,11 +1186,23 @@ function updateMiners(dt) {
 const BELT_VX = [1, 0, -1, 0], BELT_VY = [0, 1, 0, -1]; // dir 0=右 1=下 2=左 3=上
 function updateBelts(dt) {
   if (G.beltIdx.size === 0) return;
-  for (const d of G.drops) {
-    const bi = idx(Math.floor(d.x), Math.floor(d.y));
+  for (let di = G.drops.length - 1; di >= 0; di--) { // 倒序:入庫的掉落物要 splice
+    const d = G.drops[di];
+    const bx = Math.floor(d.x), by = Math.floor(d.y);
+    const bi = idx(bx, by);
     if (!G.beltIdx.has(bi)) continue;
     const o = G.objects.get(bi);
     const dir = o.dir || 0;
+    // 道鏈終點:傳輸帶正前方是儲物箱 → 直接入庫(不用等玩家撿),Core Keeper 式自動化
+    const fx = bx + BELT_VX[dir], fy = by + BELT_VY[dir];
+    const fo = inMap(fx, fy) ? G.objects.get(idx(fx, fy)) : null;
+    if (fo && fo.type === 'storage') {
+      const left = storageAdd(fo, d.item, d.n, d.lv, d.dur);
+      if (left < d.n) { setObj(fx, fy, fo, false); emitFx({ k: 'sfx', s: 'pickup' }); } // 有入庫才廣播
+      if (left <= 0) { G.drops.splice(di, 1); continue; }
+      d.n = left; // 箱滿了:剩下的留在帶子上堆著,不再前推
+      continue;
+    }
     // 直接加位移(不動 vx/vy,避免跟磁吸/摩擦力互相打架);撞牆就不推
     const nx = d.x + BELT_VX[dir] * BELT_CFG.push * dt;
     const ny = d.y + BELT_VY[dir] * BELT_CFG.push * dt;
@@ -1224,6 +1237,90 @@ function doRotateBelt(p, x, y) {
   addFloater(x + 0.5, y + 0.5, ['➡️', '⬇️', '⬅️', '⬆️'][o.dir], '#7ef0ff');
   emitFx({ k: 'sfx', s: 'place' });
   setObj(x, y, o, false);
+}
+
+// ===== 儲物箱(房主權威):放各種道具的容器,自動化道鏈的終點 =====
+// 內容存在 o.items(陣列,每格 {id,count[,lv,dur]},跟背包同格式);任何改動都 setObj 廣播全量內容給客戶端。
+// 存入:可堆疊物併進現有堆疊/新格;帶強化等級或耐久的裝備各佔一格。回傳放不下的數量。
+function storageAdd(o, id, n, lv, dur) {
+  if (!o.items) o.items = [];
+  const slots = STORAGE_CFG.slots;
+  const enhanced = (lv && lv > 0) || (dur !== undefined && dur !== null);
+  if (enhanced) {
+    let left = n;
+    while (left > 0 && o.items.length < slots) {
+      const s = { id, count: 1 };
+      if (lv) s.lv = lv;
+      if (dur !== undefined && dur !== null) s.dur = dur;
+      o.items.push(s); left--;
+    }
+    return left;
+  }
+  const mx = stackMax(id);
+  for (const s of o.items) {
+    if (n <= 0) break;
+    if (s.id === id && !s.lv && s.dur === undefined && s.count < mx) {
+      const add = Math.min(n, mx - s.count); s.count += add; n -= add;
+    }
+  }
+  while (n > 0 && o.items.length < slots) {
+    const add = Math.min(n, mx); o.items.push({ id, count: add }); n -= add;
+  }
+  return n;
+}
+// 玩家把背包某格全部存進儲物箱(放不下的留在背包)
+function doStorageDeposit(p, x, y, slot) {
+  const o = objAt(x, y);
+  if (!o || o.type !== 'storage') return;
+  if (dist(p.x, p.y, x + 0.5, y + 0.5) > 3.8) return;
+  const s = p.inv[slot];
+  if (!s) return;
+  const left = storageAdd(o, s.id, s.count, s.lv, s.dur);
+  if (left >= s.count) { addFloater(x + 0.5, y + 0.5, '儲物箱滿了', '#ff9d5c'); return; }
+  if (left <= 0) p.inv[slot] = null; else s.count = left;
+  p.invDirty = true;
+  emitFx({ k: 'sfx', s: 'pickup' });
+  setObj(x, y, o, false);
+}
+// 玩家從儲物箱取出某格到背包(背包放不下的留在箱裡)
+function doStorageWithdraw(p, x, y, si) {
+  const o = objAt(x, y);
+  if (!o || o.type !== 'storage' || !o.items) return;
+  if (dist(p.x, p.y, x + 0.5, y + 0.5) > 3.8) return;
+  const s = o.items[si];
+  if (!s) return;
+  if (s.lv || s.dur !== undefined) {
+    if (addEnhancedItem(p, s.id, s.lv, s.dur)) { addFloater(x + 0.5, y + 0.5, '背包滿了', '#ff9d5c'); return; }
+    o.items.splice(si, 1);
+  } else {
+    const left = addItem(p, s.id, s.count);
+    if (left >= s.count) { addFloater(x + 0.5, y + 0.5, '背包滿了', '#ff9d5c'); return; }
+    if (left <= 0) o.items.splice(si, 1); else s.count = left;
+  }
+  emitFx({ k: 'sfx', s: 'pickup' });
+  setObj(x, y, o, false);
+}
+// 快速堆疊:把背包(跳過快捷欄)中「儲物箱已有同類」的可堆疊物一次全丟進去(Core Keeper 式 QoL)
+function doStorageQuick(p, x, y) {
+  const o = objAt(x, y);
+  if (!o || o.type !== 'storage' || dist(p.x, p.y, x + 0.5, y + 0.5) > 3.8) return;
+  if (!o.items) o.items = [];
+  const have = new Set(o.items.filter(s => !s.lv && s.dur === undefined).map(s => s.id));
+  let moved = false;
+  for (let i = 8; i < INV_SIZE; i++) { // 跳過快捷欄 0~7,免得把正在用的工具/武器丟進去
+    const s = p.inv[i];
+    if (!s || s.lv || s.dur !== undefined || !have.has(s.id)) continue;
+    const left = storageAdd(o, s.id, s.count);
+    if (left <= 0) { p.inv[i] = null; moved = true; }
+    else if (left < s.count) { s.count = left; moved = true; }
+  }
+  if (moved) { p.invDirty = true; emitFx({ k: 'sfx', s: 'pickup' }); setObj(x, y, o, false); }
+  else addFloater(x + 0.5, y + 0.5, '沒有可快速堆疊的物品', '#8899aa');
+}
+// 儲物箱被敲爛:內容全部掉出來(不憑空消失),再掉回箱子本身
+function spillStorage(x, y, o) {
+  if (!o.items) return;
+  for (const s of o.items) spawnDrop(s.id, s.count, x + 0.5, y + 0.5, s.lv || 0, s.dur);
 }
 
 // 玩家右鍵拿箭矢對準箭塔:補彈藥(最多補到上限,多的箭矢留在背包)

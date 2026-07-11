@@ -164,6 +164,9 @@ const AUTO_MINER_CFG = {
 };
 // 傳輸帶:把掉落物往 dir 方向推(0=右 1=下 2=左 3=上),定位是把偏遠礦機產出集中送到好撿的點
 const BELT_CFG = { push: 3.2, maxPerPlayer: 40 }; // push=推力(格/秒);上限寬鬆,長距離鋪設用
+// 儲物箱:放各種道具的固定容器,是自動化道鏈的終點——傳輸帶把礦推進儲物箱自動入庫。
+// 房主權威:內容存在物件的 items 陣列,經 setObj 廣播讓所有客戶端同步(容量小,每次存取全量廣播沒負擔)。
+const STORAGE_CFG = { slots: 24 };
 
 // ── 料理 buff:食物可帶 buff 欄位 { kind, mult 或 value, dur 秒 },doEat 時寫進 p.buffs[kind],
 // 同種 buff 重複吃 = 重置時間(不疊加倍率,避免數值爆掉);計時與失效在 updatePlayersHost。
@@ -303,6 +306,9 @@ const ITEMS = {
   // 傳輸帶:把地上的掉落物往箭頭方向推,連成道鏈把偏遠礦機的產出送回好撿的點;右鍵空手旋轉方向
   belt:            { name: '傳輸帶', icon: '➡️', place: 'belt',
                      desc: '鋪在地板上,把地上的掉落物往箭頭方向推送;右鍵空手可旋轉方向,可站上去、可敲掉回收' },
+  // 儲物箱:放各種道具的大容器,右鍵開啟存取;傳輸帶把礦推進來會自動入庫(道鏈終點)
+  storage:         { name: '儲物箱', icon: '📦', place: 'storage',
+                     desc: `放各種道具的容器(${STORAGE_CFG.slots} 格),右鍵開啟存取。傳輸帶把掉落物推到它上面會自動入庫,是自動採礦道鏈的終點` },
   // 動物養殖:產物與肉,接進料理系統
   egg:             { name: '幽光蛋', icon: '🥚', food: 12, desc: '幽穴雞餵食後定時產下;可做菇蛋燒' },
   milk:            { name: '苔奶', icon: '🥛', food: 15, desc: '苔絨牛餵食後定時產出;可做奶菇濃湯' },
@@ -361,6 +367,7 @@ const RECIPES = [
   // 自動化道鏈:採礦機是後期建築(金錠級,呼應「金鎬才挖得動金礦」),傳輸帶便宜可長距離鋪
   { out: 'auto_miner',   n: 1, cost: { gold_bar: 2, iron_bar: 3, lumite: 5 }, station: 'workbench' },
   { out: 'belt',         n: 4, cost: { iron_bar: 1, lumite: 1 },              station: 'workbench' },
+  { out: 'storage',      n: 1, cost: { wood: 12, iron_bar: 2 },              station: 'workbench' },
   // 動物養殖產物料理
   { out: 'cooked_meat',  n: 1, cost: { meat: 1 },              station: 'furnace' },
   { out: 'omelet',       n: 1, cost: { egg: 1, mushroom: 1 },  station: 'furnace' },
@@ -428,11 +435,11 @@ function isEnhancable(id) {
 }
 
 // 已放置物件的耐久
-const OBJ_HP = { torch: 4, workbench: 20, furnace: 20, tower: 50, archer_tower: 40, chest: 12, nest: 60, auto_miner: 30, belt: 8 };
+const OBJ_HP = { torch: 4, workbench: 20, furnace: 20, tower: 50, archer_tower: 40, chest: 12, nest: 60, auto_miner: 30, belt: 8, storage: 30 };
 // 物件光照半徑(自動採礦機自帶微光,呼應「需供電」的能量意象也順便讓機器周圍看得清)
 const OBJ_LIGHT = { torch: 7, tower: 6, furnace: 3, workbench: 2.5, archer_tower: 3, auto_miner: 3 };
 // 會擋路的物件(自動採礦機是機台,擋路;傳輸帶是地面軌道,不擋路可站上去)
-const OBJ_SOLID = { workbench: true, furnace: true, tower: true, archer_tower: true, chest: true, nest: true, auto_miner: true };
+const OBJ_SOLID = { workbench: true, furnace: true, tower: true, archer_tower: true, chest: true, nest: true, auto_miner: true, storage: true };
 
 // ── 世界據點(隨機生成)──
 // chest=廢墟寶箱(敲開拿戰利品) / nest=蝕影巢穴(持續生怪,拆掉噴光晶+卷軸)

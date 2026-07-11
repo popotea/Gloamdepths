@@ -146,6 +146,15 @@ button:disabled { opacity: .4; cursor: default; }
 #traderPanel h2 { text-align: center; }
 .trade-btn { min-width: 220px; }
 
+/* 儲物箱面板:上半箱內容 + 下半背包,格子點擊即存/取 */
+#storagePanel { width: 680px; max-width: 94vw; max-height: 86vh; overflow-y: auto; text-align: left; }
+#storagePanel h2 { text-align: center; }
+.store-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; margin: 8px 0; }
+.store-grid .slot { width: auto; height: 46px; cursor: pointer; }
+.store-grid .slot:hover { border-color: var(--glow); background: #ffffff08; }
+.store-grid.inv-side .slot:hover { border-color: var(--gold); }
+.store-label { font-size: 13px; color: var(--glow); margin: 12px 0 2px; font-weight: 600; }
+
 /* 耐久條:格子底部細條,滿的不顯示;損壞整格轉灰紅 */
 .slot .dur { position: absolute; left: 6px; bottom: 4px; height: 3px; border-radius: 2px; display: none; }
 .slot.broken { border-color: #ff5d5d; }

@@ -242,7 +242,7 @@ function render(dt) {
 
   // ---- 物件 ----
   const OBJ_ICON = { mushroom: '🍄', torch: '🕯️', workbench: '🛠️', furnace: '🔥', tower: '🗼', archer_tower: '🏹',
-    chest: '🎁', nest: '🕸️', auto_miner: '⚙️' };
+    chest: '🎁', nest: '🕸️', auto_miner: '⚙️', storage: '📦' };
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   for (const [i, o] of G.objects) {
     const tx = i % MAP_W, ty = (i / MAP_W) | 0;
@@ -310,6 +310,13 @@ function render(dt) {
       ctx.fillRect(sx - w / 2, sy + TILE * 0.42, w, 4);
       ctx.fillStyle = fuelR > 0 ? '#7ef0ff' : '#664';
       ctx.fillRect(sx - w / 2, sy + TILE * 0.42, w * fuelR, 4);
+    } else if (o.type === 'storage') {
+      // 裝填量條(金色):一眼看出箱子有多滿
+      const w = TILE * 0.8, fillR = Math.min(1, (o.items ? o.items.length : 0) / STORAGE_CFG.slots);
+      ctx.fillStyle = '#3336';
+      ctx.fillRect(sx - w / 2, sy + TILE * 0.42, w, 4);
+      ctx.fillStyle = '#ffd23f';
+      ctx.fillRect(sx - w / 2, sy + TILE * 0.42, w * fillR, 4);
     }
   }
 

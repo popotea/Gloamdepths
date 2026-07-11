@@ -121,6 +121,12 @@
 - **TDZ 陷阱**:`ITEMS.auto_miner` 的 desc 模板字串引用了 `AUTO_MINER_CFG.maxPerPlayer`,所以 `AUTO_MINER_CFG`/`BELT_CFG` 必須定義在 `ITEMS` **之前**(緊接 `ARCHER_TOWER_CFG`),否則 `const` 暫時性死區會讓 config.js 載入即崩(整個遊戲白屏)。加需要被 ITEMS desc 引用的 CFG 時務必注意順序。
 - 渲染:採礦機是站立機台(⚙️ emoji + 青色燃料條,比照箭塔彈藥條);傳輸帶是**貼地方向箭頭**(自畫兩個青色雪佛龍,按 `dir` 旋轉,跳過通用的底影+emoji 畫法),`render.js` 物件迴圈開頭 `if (o.type === 'belt') {...; continue;}`。
 
+## 礦床(Core Keeper 式集中礦)+ 儲物箱(2026-07-12,第五批)
+- **礦物分布改「礦床」集中制**(world.js 步驟4):新增 `deposit(count, rMin, rMax, host, ore, dMin, dMax)`——用 3~5 顆重疊子圓聯集出不規則塊狀,每塊約 20~55 格同種礦。主要金屬礦(銅/鐵/金/鑽石/煤)改用 deposit 集中成塊,**讓自動採礦機+傳輸帶+軌道的道鏈有意義**(一台機器守一塊礦床能連採一陣,再用軌道/傳輸帶運回)。保留少量細 `vein()` 當「探索沿途的零星收穫」;光晶刻意維持零星散布(到處撿得到才餵得起機器)。`G.depositCenters`(礦床中心陣列)是可選裝飾資料,不進存檔/同步(讀檔不重跑礦生成),目前無邏輯依賴。
+- **儲物箱(`storage`,固體物件)= 自動化道鏈的終點**:內容存在 `o.items` 陣列(每格 `{id,count[,lv,dur]}`,跟背包同格式)。右鍵開 `#storagePanel`(上半箱內容點取回、下半背包點存入、「快速存入同類」`doStorageQuick` 只併已有同類且跳過快捷欄)。**傳輸帶正前方是儲物箱就自動入庫**(`updateBelts` 偵測 `dir` 前方格是 storage → `storageAdd`,箱滿則剩下留帶上)——這就是「採礦機→傳輸帶→儲物箱」的 Core Keeper 閉環。敲爛箱子 `spillStorage` 內容全掉出來不消失。
+- **同步靠既有 `setObj` 廣播**:`items` 隨 `{ ...o }` spread 全量廣播(容量小,每次存取全發沒負擔),客戶端 `G.objects` 一直是最新內容,面板每 0.3s 節流重繪即反映;存取是房主權威(client 送 `storeput`/`storetake`/`storequick`,net.js dispatch)。
+- **`items` 是物件固定欄位陣列的第 12 格**:`buildSave`/`applySave`(game.js)、`init` 編/解碼(net.js `hi` 與 `case 'init'`)**四處**在 `fuel` 之後 append `o.items ?? null`,解碼 `!== null && !== undefined` 守衛(舊存檔沒這格自動跳過)。storage 不需要獨立 idx Set(沒有每幀 tick,傳輸帶用 `objAt` 查前方格即可)。
+
 ## 第五區域「淵核區」通關後解封(2026-07,第四批,原 3.1 選項B)
 - **地圖幾何**:`zoneOf` 加第四級(`d < 96 ? 2 : 3`)。地形生成(world.js 步驟2)把 BEDROCK 外邊界從 96 推到 **116**,96~116 是淵核區(`T.VOIDROCK` 淵岩,tier 3——金鎬即頂級鎬 tier 3,沒有「鑽石鎬」這一階),94~96 是**封印環**(`T.SEAL`,一圈**強制填滿不看細胞自動機**才不會有洞)。鑽石/光晶礦脈延伸進淵核區(更密集)。
 - **地圖尺寸幾何陷阱**:地圖 200×200、中心到「正上下左右」邊緣只有 100 格(角落才 141),所以 d=116 的外邊界圓在正方向會**超出地圖、露出被切平的直邊**——用「最外 2 格強制 BEDROCK」(`x<2||y<2||x>=MAP_W-2||...`,優先於距離判定)收邊。結果:淵核區是「四個胖角落 + 四條窄邊」的不規則環,約 8000 格可探索(佔全圖 20%),形狀不規則但面積充足。

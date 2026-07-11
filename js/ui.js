@@ -11,6 +11,7 @@ const UI = {
   towerPos: null, towerT: 0,
   mapOpen: false, mapZoom: 3, mapPanX: 0, mapPanY: 0, mapDrag: null,
   traderOpen: false, traderT: 0,
+  storagePos: null, storageT: 0,
   selectedDifficulty: 'normal',
 };
 
@@ -29,6 +30,7 @@ function initUI() {
     enhPanel: $id('enhPanel'),
     towerPanel: $id('towerPanel'), towerBody: $id('towerBody'),
     traderPanel: $id('traderPanel'),
+    storagePanel: $id('storagePanel'),
     overlay: $id('overlay'), minimap: $id('minimap'),
     mapPanel: $id('mapPanel'), mapCanvas: $id('mapCanvas'), mapTip: $id('mapTip'),
     hostBtn: $id('hostBtn'), roomcode: $id('roomcode'),
@@ -413,6 +415,18 @@ function uiTick(dt) {
     }
   }
 
+  // 儲物箱面板(開著才更新,節流;走遠或箱子被拆就自動關閉。客戶端的內容變動也靠這裡的重繪反映)
+  if (UI.storagePos) {
+    UI.storageT -= dt;
+    if (UI.storageT <= 0) {
+      UI.storageT = 0.3;
+      const { x, y } = UI.storagePos;
+      const o = objAt(x, y);
+      if (!o || o.type !== 'storage' || dist(me.x, me.y, x + 0.5, y + 0.5) > 4.5) closeStoragePanel();
+      else renderStoragePanel();
+    }
+  }
+
   UI.els.hostBtn.classList.toggle('hidden', !(NET.isHost() && NET.mode === 'single'));
 }
 
@@ -555,6 +569,63 @@ function renderTraderPanel() {
     btn.onclick = () => execTrade(+btn.dataset.idx);
   });
   $id('traderClose').onclick = closeTraderPanel;
+}
+
+// ===== 儲物箱面板:右鍵儲物箱開啟。上半是箱內容(點取回),下半是背包(點存入)=====
+function openStoragePanel(x, y) {
+  const o = objAt(x, y);
+  if (!o || o.type !== 'storage') return;
+  UI.storagePos = { x, y };
+  UI.storageT = 0;
+  UI.els.storagePanel.classList.remove('hidden');
+  togglePanel(false); togglePowerPanel(false); toggleTalentPanel(false); closeTowerPanel(); closeTraderPanel();
+  renderStoragePanel();
+}
+function closeStoragePanel() {
+  UI.storagePos = null;
+  UI.els.storagePanel.classList.add('hidden');
+}
+// 存取動作:房主直接執行並立即重繪;客戶端送訊息,靠 setObj 廣播回來後由節流重繪反映
+function storageAct(msg, hostFn) {
+  const me = myPlayer();
+  if (!me || !UI.storagePos) return;
+  const { x, y } = UI.storagePos;
+  if (NET.isHost()) { hostFn(me, x, y); renderStoragePanel(); refreshSlots(); }
+  else NET.act(msg);
+}
+function renderStoragePanel() {
+  if (!UI.storagePos) return;
+  const me = myPlayer();
+  if (!me) return;
+  const { x, y } = UI.storagePos;
+  const o = objAt(x, y);
+  if (!o || o.type !== 'storage') { closeStoragePanel(); return; }
+  const items = o.items || [];
+  const cell = (s, cls, i) => {
+    const it = s ? ITEMS[s.id] : null;
+    const cnt = s ? (s.count > 1 ? s.count : (s.lv ? '+' + s.lv : '')) : '';
+    const tint = it && it.tint ? ` style="background:${it.tint}"` : '';
+    return `<div class="slot ${cls}" data-i="${i}"${tint} title="${it ? it.name + (s.lv ? ' +' + s.lv : '') : ''}">
+      <span class="icon">${it ? it.icon : ''}</span><span class="cnt">${cnt}</span></div>`;
+  };
+  let html = `<h2>📦 儲物箱 <span class="hint">(${items.length}/${STORAGE_CFG.slots})</span></h2>
+    <p class="hint">點箱內物品取回背包,點背包物品存入。傳輸帶把礦推到箱子正面會自動入庫。</p>
+    <div class="store-grid">`;
+  for (let i = 0; i < STORAGE_CFG.slots; i++) html += cell(items[i], 'store-cell', i);
+  html += `</div><div class="store-label">你的背包(點擊存入)</div><div class="store-grid inv-side">`;
+  for (let i = 0; i < INV_SIZE; i++) html += cell(me.inv[i], 'inv-cell', i);
+  html += `</div><div class="btnrow"><button id="storeQuick">⤵️ 快速存入同類</button><button id="storeClose">關閉(Esc)</button></div>`;
+  UI.els.storagePanel.innerHTML = html;
+  UI.els.storagePanel.querySelectorAll('.store-cell').forEach(el => {
+    const i = +el.dataset.i;
+    el.onclick = () => storageAct({ t: 'storetake', x, y, si: i }, (m, X, Y) => doStorageWithdraw(m, X, Y, i));
+  });
+  UI.els.storagePanel.querySelectorAll('.inv-cell').forEach(el => {
+    const i = +el.dataset.i;
+    el.onclick = () => storageAct({ t: 'storeput', x, y, slot: i }, (m, X, Y) => doStorageDeposit(m, X, Y, i));
+  });
+  $id('storeQuick').onclick = () => storageAct({ t: 'storequick', x, y }, (m, X, Y) => doStorageQuick(m, X, Y));
+  $id('storeClose').onclick = closeStoragePanel;
 }
 
 // ===== 衝裝(強化卷軸)面板:右鍵背包格開啟 =====
@@ -702,7 +773,7 @@ function togglePanel(open) {
   UI.enhSlot = -1;
   UI.els.enhPanel.classList.add('hidden');
   closeTowerPanel();
-  if (UI.panelOpen) { togglePowerPanel(false); refreshSlots(); UI.craftT = 0; }
+  if (UI.panelOpen) { togglePowerPanel(false); closeStoragePanel(); refreshSlots(); UI.craftT = 0; }
 }
 
 // ===== ESC 選單(設定 / 存檔資訊)=====

@@ -35,6 +35,7 @@ function bindInput() {
       else if (UI.panelOpen) togglePanel(false);
       else if (UI.towerPos) closeTowerPanel();
       else if (UI.traderOpen) closeTraderPanel();
+      else if (UI.storagePos) closeStoragePanel();
       else if (UI.powerOpen) togglePowerPanel(false);
       else if (UI.talentOpen) toggleTalentPanel(false);
       else toggleMenu();
@@ -177,6 +178,8 @@ function localControl(me, dt) {
       // 傳輸帶:空手右鍵旋轉方向(手上有東西時走下面的放置邏輯,才能在傳輸帶旁繼續鋪別的)
       if (NET.isHost()) doRotateBelt(me, tx0, ty0);
       else NET.act({ t: 'rotatebelt', x: tx0, y: ty0 });
+    } else if (targetObj && targetObj.type === 'storage' && inRange) {
+      openStoragePanel(tx0, ty0);
     } else if (targetObj && (targetObj.type === 'workbench' || targetObj.type === 'furnace') && inRange) {
       togglePanel(true);
     } else {

@@ -218,7 +218,7 @@ function buildSave() {
     v: 1, seed: G.seed, time: G.time, killCount: G.killCount, difficulty: G.difficulty, unsealed: G.unsealed,
     tiles: rleEnc(G.tiles),
     explored: rleEnc(G.explored),
-    objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null, o.stage ?? null, o.t ?? null, o.nestType ?? null, o.dir ?? null, o.fuel ?? null]),
+    objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null, o.stage ?? null, o.t ?? null, o.nestType ?? null, o.dir ?? null, o.fuel ?? null, o.items ?? null]),
     // lv/dur 一起存:掉在地上的強化裝備讀檔回來不能被洗白(0 與 undefined 用 null 佔位)
     drops: G.drops.map(d => [d.item, d.n, d.x, d.y, d.lv || 0, d.dur ?? null]),
     animals: G.animals.map(a => [a.type, Math.round(a.x * 10) / 10, Math.round(a.y * 10) / 10, Math.round(a.hp), Math.round(a.fedT || 0)]),
@@ -264,7 +264,7 @@ function applySave(s, name) {
   G.explored = rleDec(s.explored, MAP_W * MAP_H, Uint8Array);
   G.dmg = new Float32Array(MAP_W * MAP_H);
   G.objects.clear(); G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.cropIdx.clear(); G.minerIdx.clear(); G.beltIdx.clear(); G.mushCount = 0;
-  for (const [i, type, hp, ammo, off, owner, stage, t, nestType, dir, fuel] of s.objects) {
+  for (const [i, type, hp, ammo, off, owner, stage, t, nestType, dir, fuel, items] of s.objects) {
     const o = hp === null ? { type } : { type, hp };
     if (ammo !== null && ammo !== undefined) o.ammo = ammo;
     if (off) o.off = true;
@@ -274,6 +274,7 @@ function applySave(s, name) {
     if (nestType !== null && nestType !== undefined) o.nestType = nestType;
     if (dir !== null && dir !== undefined) o.dir = dir;     // 傳輸帶方向
     if (fuel !== null && fuel !== undefined) o.fuel = fuel;  // 自動採礦機光晶燃料
+    if (items !== null && items !== undefined) o.items = items; // 儲物箱內容
     G.objects.set(i, o);
     if (type === 'mushroom') G.mushCount++;
     const key = TOWER_IDX_SETS[type]; if (key) G[key].add(i);
