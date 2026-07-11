@@ -123,7 +123,10 @@ function spawnEnemy(type, x, y, extra = {}) {
   const base = ENEMY_TYPES[type].hp;
   const elite = !!extra.elite;
   const hp = elite ? Math.round(base * ELITE_CFG.hpMult) : base;
-  const e = { id: nextEid++, type, x, y, hp, maxhp: hp, dmgMult: elite ? ELITE_CFG.dmgMult : 1,
+  // 難度傷害倍率疊乘在精英倍率之上(困難模式的精英怪理應更痛),不動 hp——
+  // 血量只受精英倍率影響,難度差異體現在「更痛更多」而不是「更肉」
+  const diffDmgMult = (DIFFICULTY_CFG[G.difficulty] || DIFFICULTY_CFG.normal).enemyDmgMult;
+  const e = { id: nextEid++, type, x, y, hp, maxhp: hp, dmgMult: (elite ? ELITE_CFG.dmgMult : 1) * diffDmgMult,
     vx: 0, vy: 0, hopT: Math.random(), hitT: 0, wave: false, ...extra };
   G.enemies.push(e);
   return e;
@@ -195,10 +198,13 @@ function killEnemy(e, killer) {
 // 爆裂蝕影引信歸零時觸發:範圍內玩家/星核/牆壁一起炸,cfg = { r, dmg, wallDmg, core }
 function explodeAt(x, y, cfg) {
   emitFx({ k: 'sfx', s: 'hurt' });
-  emitFx({ k: 'ft', x, y: y - 0.3, txt: '💥', color: '#ffb35c' });
+  emitFx({ k: 'ft', x, y: y - 0.3, txt: cfg.slow ? '❄️' : '💥', color: cfg.slow ? '#a8e8ff' : '#ffb35c' });
   for (const p of G.players.values()) {
     if (p.dead) continue;
-    if (dist(x, y, p.x, p.y) < cfg.r) damagePlayer(p, cfg.dmg);
+    if (dist(x, y, p.x, p.y) < cfg.r) {
+      damagePlayer(p, cfg.dmg);
+      if (cfg.slow) { p.buffs = p.buffs || {}; p.buffs.slow = { mult: cfg.slow.mult, t: cfg.slow.dur }; }
+    }
   }
   if (dist(x, y, G.core.x, G.core.y) < cfg.r + 1) {
     G.core.energy = Math.max(0, G.core.energy - cfg.core);
@@ -395,7 +401,7 @@ function updateProjs(dt) {
     // 敵方彈道帶 aoe(火球):不論是撞到玩家死、還是撞牆/出圖自然死,
     // 落地那一刻都炸一次範圍傷害(直擊玩家改由爆炸傷害統一處理,避免命中+爆炸疊加兩次傷害)
     if (dead && pj.aoe && pj.from === 'e') {
-      explodeAt(pj.x, pj.y, { r: pj.aoe.r, dmg: pj.dmg, wallDmg: pj.aoe.wallDmg, core: 0 });
+      explodeAt(pj.x, pj.y, { r: pj.aoe.r, dmg: pj.dmg, wallDmg: pj.aoe.wallDmg, core: 0, slow: pj.aoe.slow || null });
     }
     if (dead) G.projs.splice(i, 1);
   }
@@ -638,6 +644,14 @@ function doMine(p, x, y) {
     }
     return;
   }
+  // 軌道:非固體地形一般敲不掉(下面 !info.solid 就 return),靠 rail 旗標開一條回收路徑。
+  // 定位是玩家自己鋪的通道,一敲即回收(不做耐久),踩掉重鋪很順手
+  if (info.rail) {
+    if (info.drop) spawnDrop(info.drop.id, info.drop.n, x + 0.5, y + 0.5);
+    setTile(x, y, T.FLOOR);
+    emitFx({ k: 'sfx', s: 'break_' });
+    return;
+  }
   if (!info.solid || info.hp === Infinity) return;
   const pick = bestPick(p);
   if (pick.tier < info.tier) {
@@ -713,8 +727,23 @@ function doPlace(p, slot, x, y) {
       return;
     }
   }
-  // 會擋路的東西不能蓋在任何人/怪身上
-  const solidPlace = it.placeTile !== undefined || OBJ_SOLID[it.place];
+  // 自動採礦機:設計張力折衷之一——只能架在已探索的格子(玩家得先冒險把地圖點亮才能佈署),
+  // 且每人數量上限避免整片礦區被機器佔滿失去探索意義
+  if (it.place === 'auto_miner') {
+    if (!G.explored[idx(x, y)]) {
+      addFloater(x + 0.5, y + 0.5, '只能架在探索過的區域', '#ff9d5c');
+      return;
+    }
+    let owned = 0;
+    for (const [, o] of G.objects) if (o.type === 'auto_miner' && o.owner === p.id) owned++;
+    if (owned >= AUTO_MINER_CFG.maxPerPlayer) {
+      addFloater(x + 0.5, y + 0.5, `每人最多 ${AUTO_MINER_CFG.maxPerPlayer} 台採礦機`, '#ff9d5c');
+      return;
+    }
+  }
+  // 會擋路的東西不能蓋在任何人/怪身上;非固體地形(如軌道)可站上去,不受這個限制
+  // (否則玩家站原地就沒法在自己腳下鋪軌道),所以查地形的 solid 屬性而不是「只要用 placeTile 就當擋路」
+  const solidPlace = (it.placeTile !== undefined && TILE_INFO[it.placeTile].solid) || OBJ_SOLID[it.place];
   if (solidPlace) {
     for (const pl of G.players.values())
       if (!pl.dead && Math.abs(pl.x - x - 0.5) < 0.5 + pl.r && Math.abs(pl.y - y - 0.5) < 0.5 + pl.r) return;
@@ -726,9 +755,17 @@ function doPlace(p, slot, x, y) {
   else {
     const o = { type: it.place, hp: OBJ_HP[it.place] };
     if (it.place === 'archer_tower') { o.owner = p.id; o.ammo = 0; }
+    if (it.place === 'auto_miner') { o.owner = p.id; o.fuel = 0; } // 空燃料放置,靠玩家右鍵光晶供電
+    // 傳輸帶方向依玩家「放置時面向」決定(0=右 1=下 2=左 3=上),之後可右鍵空手旋轉
+    if (it.place === 'belt') { o.owner = p.id; o.dir = dirFromAngle(p.aim); }
     setObj(x, y, o);
   }
   emitFx({ k: 'sfx', s: 'place' });
+}
+
+// 把瞄準角度(弧度)量化成 4 向:0=右 1=下 2=左 3=上(y 軸向下,跟世界座標一致)
+function dirFromAngle(ang) {
+  return ((Math.round(ang / (Math.PI / 2)) % 4) + 4) % 4;
 }
 
 // 農耕:鏟子翻土(不消耗、不扣格數,單純是把地板變農地),右鍵觸發
@@ -1094,6 +1131,88 @@ function updateArcherTowers(dt) {
       emitFx({ k: 'sfx', s: 'shoot' });
     }
   }
+}
+
+// ===== 自動採礦機(房主):慢慢採鄰近礦脈,採出的礦掉腳邊靠傳輸帶/玩家搬走 =====
+// 定位是「後期省事 QoL」:cd 長(產量遠低於手動)、需光晶供電、會消耗礦脈(採完周圍要搬機器)
+let minerTick = 0;
+function updateMiners(dt) {
+  minerTick -= dt;
+  if (minerTick > 0) return;
+  minerTick = 0.5; // 半秒掃一次,實際採礦節奏由每台機器自己的 cd 計時器控制
+  for (const i of G.minerIdx) {
+    const o = G.objects.get(i);
+    o.mineT = (o.mineT ?? AUTO_MINER_CFG.cd) - 0.5;
+    if (o.mineT > 0) continue;
+    o.mineT = AUTO_MINER_CFG.cd;
+    if ((o.fuel || 0) <= 0) continue; // 沒燃料就停機(不重置 cd 也沒關係,反正下輪還是沒燃料)
+    const mx = (i % MAP_W), my = ((i / MAP_W) | 0);
+    // 掃相鄰 8 格找可採礦脈(有 ore 礦點且鎬階級夠),採到第一個就停(一次採一格)
+    let done = false;
+    for (let dy = -AUTO_MINER_CFG.range; dy <= AUTO_MINER_CFG.range && !done; dy++) {
+      for (let dx = -AUTO_MINER_CFG.range; dx <= AUTO_MINER_CFG.range && !done; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        const tx = mx + dx, ty = my + dy;
+        if (!inMap(tx, ty)) continue;
+        const info = TILE_INFO[tileAt(tx, ty)];
+        if (!info.ore || !info.solid || !info.drop) continue;       // 只採礦脈,不挖普通牆
+        if (info.tier > AUTO_MINER_CFG.tier) continue;              // 挖不動的高階礦(鑽石)跳過
+        // 採掉這格礦脈:消耗 1 燃料、礦物掉在採礦機腳邊(往機器方向噴一點好被傳輸帶接)
+        o.fuel = Math.max(0, (o.fuel || 0) - AUTO_MINER_CFG.fuelPerMine);
+        spawnDrop(info.drop.id, info.drop.n, mx + 0.5, my + 0.5);
+        setTile(tx, ty, T.FLOOR);
+        emitFx({ k: 'ft', x: mx + 0.5, y: my + 0.3, txt: '⛏️', color: '#ffd23f' });
+        emitFx({ k: 'sfx', s: 'mine' });
+        setObj(mx, my, o, false); // 廣播更新後的燃料量給客戶端(HUD 顯示用)
+        done = true;
+      }
+    }
+  }
+}
+
+// ===== 傳輸帶(房主):把地上的掉落物往 dir 方向推,連成道鏈集中礦機產出 =====
+const BELT_VX = [1, 0, -1, 0], BELT_VY = [0, 1, 0, -1]; // dir 0=右 1=下 2=左 3=上
+function updateBelts(dt) {
+  if (G.beltIdx.size === 0) return;
+  for (const d of G.drops) {
+    const bi = idx(Math.floor(d.x), Math.floor(d.y));
+    if (!G.beltIdx.has(bi)) continue;
+    const o = G.objects.get(bi);
+    const dir = o.dir || 0;
+    // 直接加位移(不動 vx/vy,避免跟磁吸/摩擦力互相打架);撞牆就不推
+    const nx = d.x + BELT_VX[dir] * BELT_CFG.push * dt;
+    const ny = d.y + BELT_VY[dir] * BELT_CFG.push * dt;
+    if (!circleHitsSolid(nx, d.y, 0.15)) d.x = nx;
+    if (!circleHitsSolid(d.x, ny, 0.15)) d.y = ny;
+  }
+}
+
+// 玩家右鍵拿光晶對準採礦機:補燃料(比照箭塔補箭)
+function doFuelMiner(p, x, y) {
+  const o = objAt(x, y);
+  if (!o || o.type !== 'auto_miner') return;
+  if (dist(p.x, p.y, x + 0.5, y + 0.5) > 3.8) return;
+  const have = countItem(p, 'lumite');
+  if (have <= 0) { addFloater(x + 0.5, y + 0.5, '沒有光晶', '#8899aa'); return; }
+  const room = AUTO_MINER_CFG.maxFuel - (o.fuel || 0);
+  if (room <= 0) { addFloater(x + 0.5, y + 0.5, '燃料已滿', '#8899aa'); return; }
+  const use = Math.min(have, room);
+  payCost(p, { lumite: use });
+  o.fuel = (o.fuel || 0) + use;
+  addFloater(x + 0.5, y + 0.5, `+${use} 💠`, '#7ef0ff');
+  emitFx({ k: 'sfx', s: 'place' });
+  setObj(x, y, o, false);
+}
+
+// 玩家右鍵空手對傳輸帶:順時針旋轉方向(右→下→左→上→右)
+function doRotateBelt(p, x, y) {
+  const o = objAt(x, y);
+  if (!o || o.type !== 'belt') return;
+  if (dist(p.x, p.y, x + 0.5, y + 0.5) > 3.8) return;
+  o.dir = ((o.dir || 0) + 1) % 4;
+  addFloater(x + 0.5, y + 0.5, ['➡️', '⬇️', '⬅️', '⬆️'][o.dir], '#7ef0ff');
+  emitFx({ k: 'sfx', s: 'place' });
+  setObj(x, y, o, false);
 }
 
 // 玩家右鍵拿箭矢對準箭塔:補彈藥(最多補到上限,多的箭矢留在背包)

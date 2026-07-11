@@ -87,8 +87,36 @@
 - 貼圖走跟怪物同一套「`Image` 快取+找不到檔案自動退回畫法」機制(`traderImg()`,找 `assets/npcs/trader.png`),失敗時退回 emoji(`TRADER_CFG.icon`)+ 金色光暈圓的向量畫法。
 - 右鍵觸發判斷寫在 `main.js` `localControl` 右鍵區塊最前面(比照動物判斷 `G.animals.find(a => dist(...) < 0.8)` 的寫法),優先於箭塔/工作台判斷。
 
-## 神殿 Boss 差異化(2026-07,第三批,拆三次上線,目前完成第 1 隻火系)
-- `G.shrines` 每筆多帶 `boss` 欄位(字串,對應 `ENEMY_TYPES` 的 key),世界生成時(`world.js` 步驟 6)用固定陣列 `SHRINE_BOSSES = ['fire_boss','sentinel','sentinel']` 依生成順序 `k` 指定;之後補第 2、3 隻只要換陣列裡的 key,不用動生成迴圈本身。`spawnShrineBosses()`(原 `spawnSentinels`,game.js)讀 `s.boss || 'sentinel'` 生成對應敵人,`||` 是舊存檔沒有 `boss` 欄位時的相容 fallback。
-- **神殿死亡判斷是通用的,不是寫死 type**:`killEnemy`(entities.js)用 `e.home` 有沒有值判斷「是不是神殿守衛」,不用每加一隻新 Boss 就複製一次碎片/`shrine.dead=true` 的邏輯;各 Boss 的加碼掉落量查 `SHRINE_BOSS_LOOT[e.type]`(config.js)。**順序陷阱**:`e.type==='sentinel' && !e.home` 這支要放在通用 `e.home` 分支之前,擋住暗潮最終波那隻「裸體 sentinel」(`game.js` 生成時沒帶 `home`),否則牠死亡會被誤判成神殿守衛、不該給的碎片/神殿標記會被觸發。
+## 神殿 Boss 差異化(2026-07,第三批,三隻全數上線:火系/冰系/穿牆系)
+- `G.shrines` 每筆多帶 `boss` 欄位(字串,對應 `ENEMY_TYPES` 的 key),世界生成時(`world.js` 步驟 6)用固定陣列 `SHRINE_BOSSES = ['fire_boss','frost_boss','void_boss']` 依生成順序 `k` 指定。`spawnShrineBosses()`(原 `spawnSentinels`,game.js)讀 `s.boss || 'sentinel'` 生成對應敵人,`||` 是舊存檔沒有 `boss` 欄位時的相容 fallback(舊存檔會退回原本的 `sentinel`)。
+- **神殿死亡判斷是通用的,不是寫死 type**:`killEnemy`(entities.js)用 `e.home` 有沒有值判斷「是不是神殿守衛」,不用每加一隻新 Boss 就複製一次碎片/`shrine.dead=true` 的邏輯;各 Boss 的加碼掉落量查 `SHRINE_BOSS_LOOT[e.type]`(config.js)。**順序陷阱**:`e.type==='sentinel' && !e.home` 這支要放在通用 `e.home` 分支之前,擋住暗潮最終波那隻「裸體 sentinel」(`game.js` 生成時沒帶 `home`),否則牠死亡會被誤判成神殿守衛、不該給的碎片/神殿標記會被觸發。三隻新 Boss 上線過程完全沒再碰過這支通用邏輯,驗證了當初「架構打通」的設計。
 - **火系 Boss(`fire_boss`)機制**:遠程吐火球彈道+命中或落地時範圍爆炸,做法是幫**投射物**加一個 `aoe:{r,wallDmg}` 欄位(`spawnProj`),不是幫 `ENEMY_TYPES` 加新的行為擴充欄位——`et.ranged.aoe` 設定值原封不動透過 `spawnProj` 傳給彈道,`updateProjs` 偵測到 `pj.aoe` 且這幀判定死亡(不論命中玩家、撞牆、出圖、ttl到期)就呼叫既有的 `explodeAt()` 一次。**傷害不疊加**:`pj.aoe` 存在時,命中判定內故意跳過 `damagePlayer` 直接扣血,只讓爆炸傷害算一次,避免正中紅心的玩家吃兩次傷害。
-- `elem:'fire'` 讓既有 `ELEM_VS` 表自動生效(冰系武器 1.6 倍剋制、火系武器 0.6 倍打折),不用改 `elemMult`。渲染的 boss 描邊判斷已從寫死 `e.type==='sentinel'` 通用化成 `et.boss`(render.js),之後新 Boss 自動有描邊,不用逐一加分支。
+- **冰系 Boss(`frost_boss`)機制**:沿用同一套 `aoe` 彈道架構,`aoe` 多帶一個可選的 `slow:{mult,dur}` 子欄位,`explodeAt(x,y,cfg)` 對應新增可選的 `cfg.slow`——範圍內玩家中彈時額外寫入 `p.buffs.slow`。**`bomber`/火球等既有呼叫端不傳 `slow`,`explodeAt` 內用 `if (cfg.slow)` 短路,完全不影響原行為**(這是修改共用函式時的關鍵防線)。
+- **減速用獨立的 `p.buffs.slow` key,不是 `speed`**:`p.buffs.speed` 已被料理疾行 buff(`mult>1`)佔用,若共用同一個 key,玩家被冰凍後吃一口疾行料理會直接把減速洗掉,是規則漏洞。`main.js` 的移速公式改成 `buffMult('speed') × buffMult('slow')` 兩個獨立倍率相乘,兩種效果可以共存疊乘,互不覆蓋。`p.buffs` 整包已經在 `snap.me.buffs` 同步(net.js),`slow` 不需要新增任何網路協定,且 `updatePlayersHost` 的 buff 倒數迴圈(`for k in p.buffs`)本來就是通用的,新 key 自動被涵蓋。
+- **穿牆系 Boss(`void_boss`「虛境潛獵者」)機制**:直接複用既有的 `et.ghost` 欄位(`phantom` 穿牆幽影本來就在用),`updateEnemies` 對 `ghost` 敵人已經是「無視牆壁直接飄,不啃牆」的通用處理,完全不用新寫移動邏輯——這隻 Boss 的機制差異化**只靠複用一個既有 boolean 欄位**,是三隻裡實作量最小的一隻,佐證了「先查現有欄位能不能組出新機制,而不是急著加新欄位」的做法。純近戰(無 `ranged`),定位是靠穿牆突襲繞過玩家的牆/圍籬直取後排,不是靠彈道花樣。
+- `elem:'fire'`/`elem:'frost'`/`elem:'dark'` 讓既有 `ELEM_VS` 表自動生效(冰剋火、火剋冰、光剋暗,`void_boss` 是目前唯一會被光系武器剋制的神殿 Boss,不用改 `elemMult`)。渲染的 boss 描邊判斷已從寫死 `e.type==='sentinel'` 通用化成 `et.boss`(render.js),描邊顏色依 `e.type` 三元判斷分流(火紅/冰藍/幽紫/預設灰),之後若要再加新 Boss 只要照樣加一支三元分支。
+- 目前仍缺美術素材(`assets/monsters/void_boss.png` 不存在),自動 fallback 成向量畫法(`shape:'ghost'`,顏色/描邊與另兩隻區隔),不影響遊戲運作。
+
+## 難度選項(2026-07,第三批)
+- `DIFFICULTY_CFG`(config.js)三檔 easy/normal/hard,各帶 `coreDrainMult`/`waveCountMult`/`enemyDmgMult` 三個倍率,只乘進**既有計算點**,不複製一份平衡數值表:`updateCore` 的 `CORE_CFG.drain`、`startWave` 的怪物數量 `count`、`spawnEnemy` 建立時的 `dmgMult`(與精英倍率 `ELITE_CFG.dmgMult` 相乘疊加,不衝突)。**故意不動敵人血量**——難度差異體現在「更痛更多」而不是「更肉」,血量只受精英倍率影響。
+- `G.difficulty` 存 key(預設 `'normal'`),只在 `startNewGame(name, difficulty)` 建新世界時決定,之後整局不變;`genWorld()` 本身不碰這個欄位(難度是規則參數,不是地圖生成參數)。存讀檔走 `buildSave`/`applySave` 的 `difficulty` 欄位,舊存檔沒有這欄位一律 fallback `'normal'`。
+- **房主權威,但客戶端也要知道**:雖然難度只影響房主端模擬(星核流失/暗潮數量/敵人傷害都在房主跑),但客戶端 UI(ESC 選單「統計」分頁)想顯示目前難度就得知道這個值——比照商人/神殿的做法,**放進 `init` 封包一次性同步**(`net.js` 的 `hi` 回應與 `case 'init'` 兩處各加一行),不用進 10Hz `snap`(開局後不會變動)。
+- UI 入口:主選單「新世界」按鈕上方新增三顆難度按鈕(`ui.js` `setOverlay('start')`),點擊切換 `UI.selectedDifficulty`(純前端暫存,不影響任何遊戲狀態,選完才在 `beginGame()` 傳給 `startNewGame`),選中態用金色高亮(`.diffbtn.selected`,呼應天賦/Boss 的既有金色強調色 `--gold`)。戰敗畫面的「新世界」按鈕(`btnNew2`)是直接 `location.reload()` 回主選單重新走一次選擇流程,不用額外處理。
+
+## 軌道快速移動(2026-07,第四批,v1「加速地板」)
+- `T.RAIL`(config.js)是**非固體地形**(`solid: false`,可站上去),站在上面移速 ×`RAIL_CFG.speedMult`(2.6),定位是打通基地↔遠方礦區/神殿的快速通道。v1 只做「加速地板」,不做真的沿軌前進的礦車實體(v2 會需要軌道連通圖+尋路,先不做)。
+- **移速判定在 `main.js` `localControl`**(客戶端本地移動預測):`tileAt(玩家格) === T.RAIL` 就把倍率乘進既有移速公式(與疾行 buff/減速 debuff/衝刺/健步天賦全部**獨立相乘**)。軌道地形靠 `setTile` 廣播、`init` 全量 `rleEnc(G.tiles)` 同步,雙端都知道哪裡有軌道,所以每個玩家在自己的 `localControl` 算得出一致移速——**不需要新增任何網路協定**。敵人的 `updateEnemies` 不看軌道(怪不該因為踩到玩家鋪的軌道就變快)。
+- **`doPlace` 的 `solidPlace` 判定要看地形的 `solid` 屬性,不是「只要用 `placeTile` 就當擋路」**:原本 `it.placeTile !== undefined` 一律當固體,會導致玩家站原地時沒法在腳下鋪軌道(非固體地形本該可蓋在自己身上)。改成 `it.placeTile !== undefined && TILE_INFO[it.placeTile].solid`,圍籬/水這種固體地形仍受「不能蓋在玩家/怪身上」檢查,軌道則放行。
+- **非固體地形的回收要靠 `rail` 旗標**:`doMine` 的地形挖掘分支開頭 `if (!info.solid) return`,非固體地形一般敲不掉。軌道加了 `rail: true` 旗標,`doMine` 在「敲回收放置物件(obj)」分支之後、`!info.solid` return 之前插一條:偵測到 `info.rail` 就一敲即回收(不做耐久,踩掉重鋪很順手)、掉回 `rail` 物品、還原 `FLOOR`。
+- **渲染疊在地板上(貼圖須透明背景)**:軌道走 `render.js` 的 `!info.solid` 分支,但不能用自己的 `tex` 當地板底(會蓋掉整格)——比照農地/圍籬,先強制鋪 `FLOOR` 底(含區域分層 floor_mid/deep),再疊軌道貼圖 `rail.png`;貼圖不存在時 fallback 向量畫法(白色雙鋼軌+深色枕木)。
+- 存讀檔/多人同步**完全免額外處理**:軌道是 `G.tiles` 的一部分,`buildSave` 的 `rleEnc(G.tiles)` 與 `init` 的全量地圖同步自動涵蓋(跟圍籬同一條路徑)。
+- **高速不會穿牆**:`moveCircle` 本來就把大位移拆成 `step=0.4` 子步逐格檢查,軌道+疾行+衝刺疊到 ~38 格/秒,單幀位移仍被子步保護,不會跳過牆體。
+
+## 自動化道鏈:自動採礦機 + 傳輸帶(2026-07,第四批)
+- **設計張力三重折衷同時生效**(全自動化會削弱「黑暗生怪、玩家主動冒險挖礦」的核心迴圈,`AUTO_MINER_CFG` 用三道限制壓制):(1) 只能架在**已探索格子**(`doPlace` 查 `G.explored[i]`,玩家得先冒險點亮地圖)(2) **產量遠低於手動**(cd 4 秒 vs 玩家 0.26s)(3) **需光晶持續供電**(`o.fuel`,跟星核資源迴圈掛勾)。外加每人數量上限 4 台。
+- **自動採礦機(`auto_miner`,固體物件,`G.minerIdx`)**:比照塔類用獨立 idx Set + `updateMiners`(半秒掃一次,每台自己的 `o.mineT` 計 cd)。掃相鄰 8 格找「有 `info.ore` 礦點的礦脈」(排除普通牆),受 `AUTO_MINER_CFG.tier`(2)限制——**採不動鑽石礦(tier 3),最強礦物仍要玩家親自下礦**。採礦會**消耗礦脈**(`setTile → FLOOR`),礦物 `spawnDrop` 掉機器腳邊,採完周圍要搬機器,不是無限產出。右鍵拿光晶補燃料(`doFuelMiner`,比照箭塔補箭)。
+- **傳輸帶(`belt`,非固體物件,`G.beltIdx`,帶 `dir` 0=右1=下2=左3=上)**:做成**物件而非地形**,因為地形是 `Uint8Array` 存不了方向。`updateBelts` 偵測掉落物所在格有 belt 就往 `dir` 加位移(撞牆不推)。**呼叫順序:`updateMiners`(產出)→ `updateBelts`(推)→ `updateDrops`(磁吸+撿)**——玩家靠近時磁吸能蓋過傳輸帶推力(期望行為)。放置方向依玩家 `p.aim` 量化(`dirFromAngle`),右鍵空手 `doRotateBelt` 順時針旋轉。
+- **物件多帶 `dir`/`fuel` 兩個新欄位,存讀檔/init 的固定欄位順序陣列要四處一起改**:`buildSave`(game.js)、`init` 封包(net.js `hi`)兩個編碼端,`applySave`(game.js)、`case 'init'`(net.js)兩個解碼端,在 `nestType` 之後append `o.dir ?? null, o.fuel ?? null`(舊存檔沒這兩格 = undefined,解碼端 `!== null && !== undefined` 守衛跳過)。`setObj` 的廣播用通用 `{ ...o }` spread,增量更新(補燃料/旋轉/採礦扣燃料)自動帶新欄位,不用改。
+- **兩個新 idx Set(`minerIdx`/`beltIdx`)要在三處 `.clear()` 一起清**:`genWorld`(world.js)、`applySave`(game.js)、`case 'init'`(net.js),跟既有 towerIdx/cropIdx 同一行。`TOWER_IDX_SETS`(world.js)註冊 `auto_miner→minerIdx`/`belt→beltIdx`,`setObj` 增減物件時自動維護。
+- **TDZ 陷阱**:`ITEMS.auto_miner` 的 desc 模板字串引用了 `AUTO_MINER_CFG.maxPerPlayer`,所以 `AUTO_MINER_CFG`/`BELT_CFG` 必須定義在 `ITEMS` **之前**(緊接 `ARCHER_TOWER_CFG`),否則 `const` 暫時性死區會讓 config.js 載入即崩(整個遊戲白屏)。加需要被 ITEMS desc 引用的 CFG 時務必注意順序。
+- 渲染:採礦機是站立機台(⚙️ emoji + 青色燃料條,比照箭塔彈藥條);傳輸帶是**貼地方向箭頭**(自畫兩個青色雪佛龍,按 `dir` 旋轉,跳過通用的底影+emoji 畫法),`render.js` 物件迴圈開頭 `if (o.type === 'belt') {...; continue;}`。

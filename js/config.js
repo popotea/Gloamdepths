@@ -21,6 +21,18 @@ const WAVE_CFG = {
   spawnDist: 28,      // 從離星核多遠的黑暗處出現
 };
 
+// 難度選項:開新世界時選定,存進 G.difficulty(存讀檔一起帶)。
+// 三個倍率各自乘進既有計算點(星核流失/暗潮數量/敵人傷害),不改動基礎數值表,
+// 才不用把 easy/normal/hard 三份平衡分開維護。
+const DIFFICULTY_CFG = {
+  easy:   { label: '輕鬆', desc: '星核流失慢、暗潮較少較弱,適合想悠閒探索建造的玩家',
+            coreDrainMult: 0.7, waveCountMult: 0.75, enemyDmgMult: 0.75 },
+  normal: { label: '一般', desc: '標準難度,原汁原味的挑戰曲線',
+            coreDrainMult: 1,   waveCountMult: 1,    enemyDmgMult: 1 },
+  hard:   { label: '困難', desc: '星核流失快、暗潮更多更痛,適合想要硬核生存壓力的玩家',
+            coreDrainMult: 1.35, waveCountMult: 1.4, enemyDmgMult: 1.3 },
+};
+
 // 玩家等級設定:每級 +HP、+攻擊力%(疊加在裝備傷害上),打怪獲得經驗
 const LEVEL_CFG = {
   maxLv: 10,
@@ -31,13 +43,15 @@ const LEVEL_CFG = {
 // 各怪物擊殺經驗值
 const ENEMY_XP = {
   imp: 4, spore: 2, hunter: 9, spitter: 7, bomber: 6,
-  phantom: 8, breaker: 20, abyss: 16, sentinel: 60, fire_boss: 65,
+  phantom: 8, breaker: 20, abyss: 16, sentinel: 60, fire_boss: 65, frost_boss: 68, void_boss: 70,
 };
 
 // 神殿 Boss 額外掉落(除了必掉 2 張強化卷軸 + 1 顆星核碎片給擊殺者之外的加碼獎勵)
 const SHRINE_BOSS_LOOT = {
-  sentinel:  { gold_ore: 3 },
-  fire_boss: { gold_ore: 2, lumite: 4 },   // 火系加碼一點光晶,呼應「火」與能量的意象
+  sentinel:   { gold_ore: 3 },
+  fire_boss:  { gold_ore: 2, lumite: 4 },   // 火系加碼一點光晶,呼應「火」與能量的意象
+  frost_boss: { gold_ore: 2, iron_bar: 2 }, // 冰系加碼鐵錠,呼應「寒霜」與武裝意象
+  void_boss:  { gold_ore: 3, lumite: 2 },   // 穿牆系加碼一點金礦+光晶,不特別偏武裝/能量
 };
 function xpToNext(lv) { return LEVEL_CFG.xpNeed(lv); }
 
@@ -78,7 +92,7 @@ const T = {
   COPPER: 4, IRON: 5, GOLD: 6, LUMITE: 7, ROOT: 8,
   BEDROCK: 9, GLOW: 10, WOODWALL: 11, STONEWALL: 12,
   GRAVEL: 13, COAL: 14, DIAMOND: 15, FARMLAND: 16,
-  WATER: 17, FENCE: 18,
+  WATER: 17, FENCE: 18, RAIL: 19,
 };
 
 // 地形資料:hp=挖掘耐久, tier=所需鎬階級, light=自帶光半徑
@@ -109,7 +123,13 @@ const TILE_INFO = {
   [T.WATER]:    { solid: true, liquid: true, low: true, hp: Infinity, tier: 99, name: '幽光水池', light: 2, c1: '#16455f', c2: '#0e2c40', tex: 'water.png' },
   // 圍籬:矮牆,擋移動但箭矢/光束/暗影彈都飛得過(low);比木牆脆,定位是圈農地/牧場不是防線
   [T.FENCE]:    { solid: true, low: true, fence: true, hp: 25, tier: 0, name: '木圍籬', drop: { id: 'fence', n: 1 }, c1: '#c09454', c2: '#96743e', tex: 'fence_tile.png' },
+  // 軌道:非固體(可站上去),站上去移速大幅提升(RAIL_CFG),定位是打通基地↔遠方礦區/神殿的快速通道。
+  // rail:true 讓 doMine 能敲掉回收(非固體地形一般敲不掉,靠這個旗標開一條回收路徑);渲染疊在地板上(貼圖須透明背景)
+  [T.RAIL]:     { solid: false, rail: true, name: '軌道', drop: { id: 'rail', n: 1 }, tex: 'rail.png' },
 };
+
+// 軌道加速:站在 T.RAIL 上時移速倍率(v1 只做「加速地板」,不做真的礦車實體)
+const RAIL_CFG = { speedMult: 2.6 };
 
 // ── 箭塔:玩家手動補箭矢的防禦建築,彈藥打完就停火,靠玩家回來補給形成天然上限 ──
 // dmg 比光塔(12)高,但沒箭就是廢鐵;每人可蓋數量上限避免堆成怪打不穿的彈幕牆
@@ -117,6 +137,20 @@ const ARCHER_TOWER_CFG = {
   maxAmmo: 20, dmg: 20, range: 6, cd: 0.9,
   maxPerPlayer: 3,
 };
+
+// 自動採礦機:定位是「後期省事的 QoL」而非「取代探索的效率解」,三重設計張力折衷同時生效——
+// (1) 只能架在已探索格子(玩家得先冒險點亮地圖)(2) 產量遠低於手動(cd 長)(3) 需光晶持續供電(跟星核資源迴圈掛勾)
+// 定義在 ITEMS 之前:ITEMS.auto_miner 的 desc 用模板字串引用了 maxPerPlayer(const TDZ,晚定義會載入即崩)
+const AUTO_MINER_CFG = {
+  tier: 2,          // 可挖到金礦脈(tier 2),挖不動鑽石礦(tier 3)——最強礦物仍要玩家親自下礦
+  cd: 4.0,          // 每 4 秒才採一次(玩家手動約 0.26s CD,產量遠低於手動)
+  range: 1,         // 掃描相鄰 8 格(切比雪夫距離 1)內的礦脈
+  maxFuel: 20,      // 光晶燃料上限
+  fuelPerMine: 1,   // 每採一次礦消耗 1 光晶燃料
+  maxPerPlayer: 4,  // 每人數量上限(避免整片礦區被機器佔滿,失去探索意義)
+};
+// 傳輸帶:把掉落物往 dir 方向推(0=右 1=下 2=左 3=上),定位是把偏遠礦機產出集中送到好撿的點
+const BELT_CFG = { push: 3.2, maxPerPlayer: 40 }; // push=推力(格/秒);上限寬鬆,長距離鋪設用
 
 // ── 料理 buff:食物可帶 buff 欄位 { kind, mult 或 value, dur 秒 },doEat 時寫進 p.buffs[kind],
 // 同種 buff 重複吃 = 重置時間(不疊加倍率,避免數值爆掉);計時與失效在 updatePlayersHost。
@@ -246,6 +280,16 @@ const ITEMS = {
   // 圍籬:擋怪(也擋人)但箭矢飛得過,拿來圈農地/牧場;怪照樣啃得爛,別當防線用
   fence:           { name: '木圍籬', icon: '🚧', placeTile: T.FENCE,
                      desc: '矮柵欄:擋住怪物走動,但箭塔/弓箭可以越過它射擊;耐久比木牆低' },
+  // 軌道:放在地板上的加速地帶,站上去移速大增,拿來打通基地↔遠方礦區/神殿的快速通道
+  rail:            { name: '軌道', icon: '🛤️', placeTile: T.RAIL,
+                     desc: '鋪在地板上,站上去移動速度大幅提升;可用鎬敲掉回收' },
+  // 自動採礦機:架在已探索的礦脈旁,右鍵拿光晶供電,自動慢慢採礦(掉在腳邊)
+  auto_miner:      { name: '自動採礦機', icon: '⚙️', place: 'auto_miner',
+                     desc: `架在已探索區域的礦脈旁,右鍵拿光晶供電後自動採集鄰近礦脈(可採到金礦,挖不動鑽石)。
+產量遠低於手動,是省事用的;每人最多蓋 ${AUTO_MINER_CFG.maxPerPlayer} 台` },
+  // 傳輸帶:把地上的掉落物往箭頭方向推,連成道鏈把偏遠礦機的產出送回好撿的點;右鍵空手旋轉方向
+  belt:            { name: '傳輸帶', icon: '➡️', place: 'belt',
+                     desc: '鋪在地板上,把地上的掉落物往箭頭方向推送;右鍵空手可旋轉方向,可站上去、可敲掉回收' },
   // 動物養殖:產物與肉,接進料理系統
   egg:             { name: '幽光蛋', icon: '🥚', food: 12, desc: '幽穴雞餵食後定時產下;可做菇蛋燒' },
   milk:            { name: '苔奶', icon: '🥛', food: 15, desc: '苔絨牛餵食後定時產出;可做奶菇濃湯' },
@@ -299,6 +343,11 @@ const RECIPES = [
   { out: 'fish_soup',    n: 1, cost: { crystal_fish: 1, glowcap: 1 }, station: 'furnace' },
   // 圍籬
   { out: 'fence',        n: 6, cost: { wood: 2 },             station: 'workbench' },
+  // 軌道:一次產 4 段,鐵錠+木材(金屬軌+木枕木的意象);要中期鐵器才鋪得起,但單段夠便宜可長距離鋪設
+  { out: 'rail',         n: 4, cost: { iron_bar: 1, wood: 2 }, station: 'workbench' },
+  // 自動化道鏈:採礦機是後期建築(金錠級,呼應「金鎬才挖得動金礦」),傳輸帶便宜可長距離鋪
+  { out: 'auto_miner',   n: 1, cost: { gold_bar: 2, iron_bar: 3, lumite: 5 }, station: 'workbench' },
+  { out: 'belt',         n: 4, cost: { iron_bar: 1, lumite: 1 },              station: 'workbench' },
   // 動物養殖產物料理
   { out: 'cooked_meat',  n: 1, cost: { meat: 1 },              station: 'furnace' },
   { out: 'omelet',       n: 1, cost: { egg: 1, mushroom: 1 },  station: 'furnace' },
@@ -325,6 +374,12 @@ const ENEMY_TYPES = {
                color: '#b8442a', eye: '#ffb35c', shape: 'tank', elem: 'fire', boss: true, icon: 'fire_boss.png',
                ranged: { range: 6.5, cd: 2.6, dmg: 16, speed: 6.5,
                           aoe: { r: 1.8, wallDmg: 30 } } },
+  frost_boss: { name: '寒霜巨像', hp: 400, dmg: 20, r: 0.90, speed: 4.2, hopCD: 2.0,
+                color: '#3a6a8a', eye: '#c8f4ff', shape: 'tank', elem: 'frost', boss: true, icon: 'frost_boss.png',
+                ranged: { range: 6.5, cd: 2.8, dmg: 14, speed: 6.0,
+                           aoe: { r: 1.8, wallDmg: 26, slow: { mult: 0.5, dur: 2.5 } } } },
+  void_boss: { name: '虛境潛獵者', hp: 360, dmg: 26, r: 0.85, speed: 5.4, hopCD: 1.6,
+               color: '#4a3568', eye: '#ff8cf0', shape: 'ghost', elem: 'dark', boss: true, ghost: true, icon: 'void_boss.png' },
 };
 
 // ── 屬性相剋:attackElem → enemyElem → 倍率(未列 = 1.0)──
@@ -356,11 +411,11 @@ function isEnhancable(id) {
 }
 
 // 已放置物件的耐久
-const OBJ_HP = { torch: 4, workbench: 20, furnace: 20, tower: 50, archer_tower: 40, chest: 12, nest: 60 };
-// 物件光照半徑
-const OBJ_LIGHT = { torch: 7, tower: 6, furnace: 3, workbench: 2.5, archer_tower: 3 };
-// 會擋路的物件
-const OBJ_SOLID = { workbench: true, furnace: true, tower: true, archer_tower: true, chest: true, nest: true };
+const OBJ_HP = { torch: 4, workbench: 20, furnace: 20, tower: 50, archer_tower: 40, chest: 12, nest: 60, auto_miner: 30, belt: 8 };
+// 物件光照半徑(自動採礦機自帶微光,呼應「需供電」的能量意象也順便讓機器周圍看得清)
+const OBJ_LIGHT = { torch: 7, tower: 6, furnace: 3, workbench: 2.5, archer_tower: 3, auto_miner: 3 };
+// 會擋路的物件(自動採礦機是機台,擋路;傳輸帶是地面軌道,不擋路可站上去)
+const OBJ_SOLID = { workbench: true, furnace: true, tower: true, archer_tower: true, chest: true, nest: true, auto_miner: true };
 
 // ── 世界據點(隨機生成)──
 // chest=廢墟寶箱(敲開拿戰利品) / nest=蝕影巢穴(持續生怪,拆掉噴光晶+卷軸)

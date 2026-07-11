@@ -7,8 +7,9 @@ function msgAll(text) {
 }
 
 // 開新世界(房主/單機)
-function startNewGame(name) {
+function startNewGame(name, difficulty) {
   genWorld((Math.random() * 0xffffffff) >>> 0);
+  G.difficulty = DIFFICULTY_CFG[difficulty] ? difficulty : 'normal';
   G.players.clear();
   G.playersByName = {};
   G.myId = 0;
@@ -37,9 +38,11 @@ function simTick(dt) {
   updateProjs(dt);
   updateTowers(dt);
   updateArcherTowers(dt);
+  updateMiners(dt);
   updateNests(dt);
   updateCrops(dt);
   updateAnimals(dt);
+  updateBelts(dt);  // 先推(傳輸帶)再撿(磁吸):玩家靠近時 updateDrops 的磁吸能蓋過傳輸帶推力
   updateDrops(dt);
   updateWave(dt);
   updateCore(dt);
@@ -53,7 +56,8 @@ function simTick(dt) {
 
 function updateCore(dt) {
   const c = G.core;
-  c.energy = Math.max(0, c.energy - CORE_CFG.drain * dt);
+  const dcfg = DIFFICULTY_CFG[G.difficulty] || DIFFICULTY_CFG.normal;
+  c.energy = Math.max(0, c.energy - CORE_CFG.drain * dcfg.coreDrainMult * dt);
   for (const th of [30, 15, 5]) {
     if (c.energy <= th && !G.warned['e' + th]) {
       G.warned['e' + th] = true;
@@ -96,8 +100,9 @@ function startWave() {
   const players = Math.max(1, alive.length);
   const avgLv = alive.length ? alive.reduce((s, p) => s + (p.lv || 1), 0) / alive.length : 1;
   const lvMult = 1 + (avgLv - 1) * 0.12; // 隊伍平均等級每高一級,數量再多 12%
-  let count = Math.round((4 + 3 * w.n) * (0.7 + 0.3 * players) * lvMult);
-  if (w.final) count = Math.round(20 * (0.7 + 0.3 * players) * lvMult);
+  const waveMult = (DIFFICULTY_CFG[G.difficulty] || DIFFICULTY_CFG.normal).waveCountMult;
+  let count = Math.round((4 + 3 * w.n) * (0.7 + 0.3 * players) * lvMult * waveMult);
+  if (w.final) count = Math.round(20 * (0.7 + 0.3 * players) * lvMult * waveMult);
   msgAll(w.final ? '🌑💥 最終暗潮來襲!!撐過去,星核就會甦醒!' : `🌊 第 ${w.n} 波暗潮來襲!共 ${count} 隻`);
   emitFx({ k: 'sfx', s: 'wave' });
   for (let k = 0; k < count; k++) {
@@ -203,10 +208,10 @@ function buildSave() {
     G.playersByName[p.name] = { inv: p.inv, hp: p.hp, x: p.x, y: p.y, lv: p.lv, xp: p.xp, talents: p.talents };
   }
   return {
-    v: 1, seed: G.seed, time: G.time, killCount: G.killCount,
+    v: 1, seed: G.seed, time: G.time, killCount: G.killCount, difficulty: G.difficulty,
     tiles: rleEnc(G.tiles),
     explored: rleEnc(G.explored),
-    objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null, o.stage ?? null, o.t ?? null, o.nestType ?? null]),
+    objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null, o.stage ?? null, o.t ?? null, o.nestType ?? null, o.dir ?? null, o.fuel ?? null]),
     // lv/dur 一起存:掉在地上的強化裝備讀檔回來不能被洗白(0 與 undefined 用 null 佔位)
     drops: G.drops.map(d => [d.item, d.n, d.x, d.y, d.lv || 0, d.dur ?? null]),
     animals: G.animals.map(a => [a.type, Math.round(a.x * 10) / 10, Math.round(a.y * 10) / 10, Math.round(a.hp), Math.round(a.fedT || 0)]),
@@ -251,8 +256,8 @@ function applySave(s, name) {
   G.tiles = rleDec(s.tiles, MAP_W * MAP_H, Uint8Array);
   G.explored = rleDec(s.explored, MAP_W * MAP_H, Uint8Array);
   G.dmg = new Float32Array(MAP_W * MAP_H);
-  G.objects.clear(); G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.cropIdx.clear(); G.mushCount = 0;
-  for (const [i, type, hp, ammo, off, owner, stage, t, nestType] of s.objects) {
+  G.objects.clear(); G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.cropIdx.clear(); G.minerIdx.clear(); G.beltIdx.clear(); G.mushCount = 0;
+  for (const [i, type, hp, ammo, off, owner, stage, t, nestType, dir, fuel] of s.objects) {
     const o = hp === null ? { type } : { type, hp };
     if (ammo !== null && ammo !== undefined) o.ammo = ammo;
     if (off) o.off = true;
@@ -260,6 +265,8 @@ function applySave(s, name) {
     if (stage !== null && stage !== undefined) o.stage = stage;
     if (t !== null && t !== undefined) o.t = t;
     if (nestType !== null && nestType !== undefined) o.nestType = nestType;
+    if (dir !== null && dir !== undefined) o.dir = dir;     // 傳輸帶方向
+    if (fuel !== null && fuel !== undefined) o.fuel = fuel;  // 自動採礦機光晶燃料
     G.objects.set(i, o);
     if (type === 'mushroom') G.mushCount++;
     const key = TOWER_IDX_SETS[type]; if (key) G[key].add(i);
@@ -283,6 +290,7 @@ function applySave(s, name) {
   G.playersByName = s.playersByName || {};
   G.time = s.time || 0;
   G.killCount = s.killCount || 0;
+  G.difficulty = DIFFICULTY_CFG[s.difficulty] ? s.difficulty : 'normal'; // 舊存檔沒有這欄位就退回一般難度
   G.over = s.won ? 'win' : null;
   rebuildLights();
   spawnShrineBosses();

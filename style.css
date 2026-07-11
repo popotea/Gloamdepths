@@ -245,6 +245,9 @@ button.mini { font-size: 11px; padding: 3px 9px; border-radius: 6px; }
   border: 1px solid var(--line); border-radius: var(--radius-md); text-align: center; margin-bottom: 14px;
   transition: box-shadow .12s, border-color .12s; }
 .menu input:focus { border-color: var(--glow); box-shadow: 0 0 0 3px var(--glow-soft); }
+.menu .diffrow { display: flex; gap: 8px; justify-content: center; margin-bottom: 14px; }
+.menu .diffbtn { padding: 8px 16px; font-size: 14px; opacity: .55; }
+.menu .diffbtn.selected { opacity: 1; border-color: var(--gold); box-shadow: 0 2px 0 #0006, 0 0 0 1px #ffd23f66 inset, 0 0 10px #ffd23f44; color: var(--gold); }
 .menu .btnrow, .menu .joinrow { display: flex; gap: 10px; justify-content: center; margin-bottom: 14px; }
 .menu .joinrow input { width: 150px; margin: 0; text-transform: uppercase; }
 .menu .help { text-align: left; font-size: 13px; line-height: 1.9; color: #9fb0c8; background: var(--ink-700);

@@ -114,9 +114,11 @@ function localControl(me, dt) {
 
   if (dx || dy) {
     const len = Math.hypot(dx, dy);
-    // 疾行 buff(料理)× 健步如飛天賦:客戶端自己的 buffs/talents 由快照同步,本地預測才會跟房主一致
-    const spd = 4.6 * (me.dashT > 0 ? DASH_CFG.mult : 1) * buffMult(me, 'speed')
-      * (1 + TALENTS.swift.val * talRank(me, 'swift'));
+    // 疾行 buff(料理)× 冰系減速 debuff × 健步如飛天賦:客戶端自己的 buffs/talents 由快照同步,本地預測才會跟房主一致
+    // 軌道加速:腳下 tile 是軌道就大幅提速(軌道地形靠 setTile 廣播,雙端都知道哪裡有軌道,本地預測算得出一致移速)
+    const onRail = tileAt(Math.floor(me.x), Math.floor(me.y)) === T.RAIL;
+    const spd = 4.6 * (me.dashT > 0 ? DASH_CFG.mult : 1) * buffMult(me, 'speed') * buffMult(me, 'slow')
+      * (1 + TALENTS.swift.val * talRank(me, 'swift')) * (onRail ? RAIL_CFG.speedMult : 1);
     moveCircle(me, dx / len * spd * dt, dy / len * spd * dt);
   }
   // 瞄準
@@ -164,6 +166,17 @@ function localControl(me, dt) {
       openTraderPanel();
     } else if (targetObj && targetObj.type === 'archer_tower' && inRange) {
       openTowerPanel(tx0, ty0);
+    } else if (targetObj && targetObj.type === 'auto_miner' && inRange) {
+      // 採礦機:手持光晶補燃料(不然什麼都不做,避免誤觸)
+      const s = me.inv[me.sel];
+      if (s && s.id === 'lumite') {
+        if (NET.isHost()) doFuelMiner(me, tx0, ty0);
+        else NET.act({ t: 'fuelminer', x: tx0, y: ty0 });
+      } else addFloater(tx0 + 0.5, ty0 + 0.5, '手持光晶💠 右鍵供電', '#8899aa');
+    } else if (targetObj && targetObj.type === 'belt' && inRange && !me.inv[me.sel]) {
+      // 傳輸帶:空手右鍵旋轉方向(手上有東西時走下面的放置邏輯,才能在傳輸帶旁繼續鋪別的)
+      if (NET.isHost()) doRotateBelt(me, tx0, ty0);
+      else NET.act({ t: 'rotatebelt', x: tx0, y: ty0 });
     } else if (targetObj && (targetObj.type === 'workbench' || targetObj.type === 'furnace') && inRange) {
       togglePanel(true);
     } else {

@@ -9,6 +9,7 @@ const G = {
   // 直接掃 G.objects 要連蘑菇/火把等大量無關物件一起看過一遍;setObj 增減物件時同步維護,
   // 讓這幾個 tick 函式只掃自己關心的那一小撮,不受地圖上其他建築/採集物數量影響
   towerIdx: new Set(), archerTowerIdx: new Set(), nestIdx: new Set(), cropIdx: new Set(),
+  minerIdx: new Set(), beltIdx: new Set(), // 自動採礦機/傳輸帶的獨立索引(updateMiners/updateBelts 用,不掃全部 objects)
   lights: new Map(),    // idx -> 光半徑(地形光 + 物件光)
   players: new Map(),   // id -> player
   myId: 0,
@@ -24,6 +25,7 @@ const G = {
   mushCount: 0, warned: {},
   paused: false,  // 只有單機模式能暫停(多人共享同一個模擬,暫停會卡住其他人)
   killCount: 0,   // 統計面板用:全隊累計擊殺數(killEnemy 累加,存讀檔保留)
+  difficulty: 'normal', // DIFFICULTY_CFG 的 key,開新世界時選定;只影響房主模擬,不用同步給客戶端
 };
 
 function idx(x, y) { return y * MAP_W + x; }
@@ -64,7 +66,7 @@ function setTile(x, y, v, fromNet = false) {
 
 function objAt(x, y) { return G.objects.get(idx(x, y)) || null; }
 
-const TOWER_IDX_SETS = { tower: 'towerIdx', archer_tower: 'archerTowerIdx', nest: 'nestIdx', crop: 'cropIdx' };
+const TOWER_IDX_SETS = { tower: 'towerIdx', archer_tower: 'archerTowerIdx', nest: 'nestIdx', crop: 'cropIdx', auto_miner: 'minerIdx', belt: 'beltIdx' };
 // 放置/移除物件(o=null 移除)
 function setObj(x, y, o, fromNet = false) {
   const i = idx(x, y);
@@ -131,6 +133,7 @@ function genWorld(seed) {
   G.explored = new Uint8Array(MAP_W * MAP_H);
   G.objects.clear(); G.lights.clear(); G.cracks.clear();
   G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.cropIdx.clear();
+  G.minerIdx.clear(); G.beltIdx.clear();
   G.enemies = []; G.drops = []; G.floaters = []; G.projs = []; G.animals = [];
   G.shrines = []; G.traders = []; G.mushCount = 0; G.warned = {}; G.killCount = 0;
   G.core = { x: CX + 0.5, y: CY + 0.5, energy: CORE_CFG.maxE, shards: 0 };
@@ -233,9 +236,8 @@ function genWorld(seed) {
   }
 
   // 6) 三座守衛神殿(外圈,120 度間隔),各自固定分配不同屬性 Boss(呼應元素相剋系統)
-  // 目前只有 1 隻新 Boss(fire_boss),其餘 2 座暫時仍用 sentinel 頂位;
-  // 之後補冰系/穿牆系只要把這個陣列改成 3 個不同 key,不用動生成迴圈本身
-  const SHRINE_BOSSES = ['fire_boss', 'sentinel', 'sentinel'];
+  // 火系/冰系/穿牆系三隻新 Boss 已全數上線
+  const SHRINE_BOSSES = ['fire_boss', 'frost_boss', 'void_boss'];
   const baseAng = rnd() * TAU;
   for (let k = 0; k < 3; k++) {
     const ang = baseAng + k * TAU / 3;

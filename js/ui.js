@@ -11,6 +11,7 @@ const UI = {
   towerPos: null, towerT: 0,
   mapOpen: false, mapZoom: 3, mapPanX: 0, mapPanY: 0, mapDrag: null,
   traderOpen: false, traderT: 0,
+  selectedDifficulty: 'normal',
 };
 
 function $id(s) { return document.getElementById(s); }
@@ -750,6 +751,7 @@ function renderMenu() {
         <p>⚔️ 累計擊殺:<b>${G.killCount || 0}</b></p>
         <p>⏱️ 存活時間:<b>${timeText}</b></p>
         <p>🌊 暗潮波數:<b>${G.wave.n || 0}</b></p>
+        <p>🎚️ 難度:<b>${(DIFFICULTY_CFG[G.difficulty] || DIFFICULTY_CFG.normal).label}</b></p>
       </div>
       <div class="btnrow"><button id="mStatsBack">← 返回</button></div>`;
     $id('mStatsBack').onclick = () => { UI.menuView = 'main'; renderMenu(); };
@@ -1009,6 +1011,12 @@ function setOverlay(mode) {
         <h1>微光深淵</h1>
         <p class="sub">守護星核,奪回光明 — 1~4 人合作生存</p>
         <input id="nameInput" maxlength="12" placeholder="你的名字" value="${savedName}">
+        <div class="diffrow" id="diffRow">
+          ${Object.entries(DIFFICULTY_CFG).map(([key, d]) => `
+            <button class="diffbtn${UI.selectedDifficulty === key ? ' selected' : ''}"
+                    data-diff="${key}" title="${d.desc}">${d.label}</button>
+          `).join('')}
+        </div>
         <div class="btnrow">
           <button id="btnNew">🌍 新世界</button>
           <button id="btnLoad" ${hasSave() ? '' : 'disabled'}>📂 繼續存檔</button>
@@ -1031,6 +1039,12 @@ function setOverlay(mode) {
           讀取後,你就能以新房主身分開房,讓大家用原本的名字加入拿回進度。
         </div>
       </div>`;
+    for (const btn of ov.querySelectorAll('.diffbtn')) {
+      btn.onclick = () => {
+        UI.selectedDifficulty = btn.dataset.diff;
+        for (const b of ov.querySelectorAll('.diffbtn')) b.classList.toggle('selected', b === btn);
+      };
+    }
     $id('btnNew').onclick = () => beginGame(false);
     $id('btnLoad').onclick = () => beginGame(true);
     $id('btnImport').onclick = () => $id('importFile').click();
@@ -1093,10 +1107,11 @@ function getName() {
 
 function beginGame(load) {
   const name = getName();
+  const diff = UI.selectedDifficulty;
   SFX.unlock();
   if (load) {
-    if (!loadGame(name)) { showMsg('⚠️ 讀檔失敗,改開新世界'); startNewGame(name); }
-  } else startNewGame(name);
+    if (!loadGame(name)) { showMsg('⚠️ 讀檔失敗,改開新世界'); startNewGame(name, diff); }
+  } else startNewGame(name, diff);
   UI.mmDirty = true; UI.invDirty = true;
   setOverlay(null);
 }

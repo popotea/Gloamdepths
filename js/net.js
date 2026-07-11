@@ -62,9 +62,9 @@ const NET = {
       conn.send({
         t: 'init', id: pid,
         tiles: rleEnc(G.tiles), explored: rleEnc(G.explored),
-        objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null, o.stage ?? null, o.t ?? null, o.nestType ?? null]),
+        objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null, o.stage ?? null, o.t ?? null, o.nestType ?? null, o.dir ?? null, o.fuel ?? null]),
         core: { energy: G.core.energy, shards: G.core.shards },
-        shrines: G.shrines, traders: G.traders, wave: G.wave, time: G.time,
+        shrines: G.shrines, traders: G.traders, wave: G.wave, time: G.time, difficulty: G.difficulty,
         players: [...G.players.values()].map(pl => [pl.id, pl.name, pl.x, pl.y, pl.hp, pl.dead ? 1 : 0, pl.lv || 1, pl.xp || 0]),
         inv: p.inv, over: G.over,
       });
@@ -99,6 +99,8 @@ const NET = {
       }
       case 'fill_tower': doFillTower(p, d.x | 0, d.y | 0); break;
       case 'toggle_tower': doToggleTower(p, d.x | 0, d.y | 0); break;
+      case 'fuelminer': doFuelMiner(p, d.x | 0, d.y | 0); break;
+      case 'rotatebelt': doRotateBelt(p, d.x | 0, d.y | 0); break;
       case 'eat': doEat(p, d.slot | 0); break;
       case 'deposit': doDeposit(p); break;
       case 'drop': doDropItem(p, d.slot | 0); break;
@@ -201,8 +203,8 @@ const NET = {
         G.tiles = rleDec(d.tiles, MAP_W * MAP_H, Uint8Array);
         G.explored = rleDec(d.explored, MAP_W * MAP_H, Uint8Array);
         G.dmg = new Float32Array(MAP_W * MAP_H);
-        G.objects.clear(); G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.cropIdx.clear(); G.mushCount = 0;
-        for (const [i, type, hp, ammo, off, owner, stage, t, nestType] of d.objects) {
+        G.objects.clear(); G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.cropIdx.clear(); G.minerIdx.clear(); G.beltIdx.clear(); G.mushCount = 0;
+        for (const [i, type, hp, ammo, off, owner, stage, t, nestType, dir, fuel] of d.objects) {
           const o = hp === null ? { type } : { type, hp };
           if (ammo !== null && ammo !== undefined) o.ammo = ammo;
           if (off) o.off = true;
@@ -210,12 +212,15 @@ const NET = {
           if (stage !== null && stage !== undefined) o.stage = stage;
           if (t !== null && t !== undefined) o.t = t;
           if (nestType !== null && nestType !== undefined) o.nestType = nestType;
+          if (dir !== null && dir !== undefined) o.dir = dir;     // 傳輸帶方向
+          if (fuel !== null && fuel !== undefined) o.fuel = fuel;  // 自動採礦機光晶燃料
           G.objects.set(i, o);
           if (type === 'mushroom') G.mushCount++;
           const key = TOWER_IDX_SETS[type]; if (key) G[key].add(i);
         }
         G.core.energy = d.core.energy; G.core.shards = d.core.shards;
         G.shrines = d.shrines; G.traders = d.traders || []; G.wave = d.wave; G.time = d.time;
+        G.difficulty = DIFFICULTY_CFG[d.difficulty] ? d.difficulty : 'normal';
         G.enemies = []; G.drops = []; G.floaters = []; G.cracks.clear(); G.projs = []; G.animals = [];
         G.players.clear();
         for (const [id, name, x, y, hp, dead, lv, xp] of d.players) {

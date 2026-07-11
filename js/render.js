@@ -112,9 +112,11 @@ function render(dt) {
         ctx.fillRect(sx + TILE * 0.12, sy + TILE * 0.22, TILE * 0.34, TILE * 0.1);
         ctx.fillRect(sx + TILE * 0.52, sy + TILE * 0.62, TILE * 0.3, TILE * 0.09);
       } else if (!info.solid) {
+        // 軌道疊在地板上(貼圖須透明背景),所以它的底層不能用自己的 tex 當地板——強制鋪 FLOOR 底
+        const isRail = t === T.RAIL;
         // 地板貼圖跟色塊一樣分層:外圈用 floor.png,中層/深層有專屬貼圖就換,沒有就共用外圈的
-        let ftex = tex;
-        if (t === T.FLOOR || t === T.GLOW) {
+        let ftex = isRail ? tileTex(T.FLOOR) : tex;
+        if (t === T.FLOOR || t === T.GLOW || isRail) {
           const z = zoneOf(tx + 0.5, ty + 0.5);
           if (z === 1) ftex = tileTexFile('floor_mid.png') || ftex;
           else if (z === 2) ftex = tileTexFile('floor_deep.png') || ftex;
@@ -138,6 +140,25 @@ function render(dt) {
             ctx.moveTo(sx + TILE * 0.08, sy + TILE * row);
             ctx.lineTo(sx + TILE * 0.92, sy + TILE * row);
             ctx.stroke();
+          }
+        } else if (isRail) {
+          // 軌道貼圖(透明背景)疊在地板上;沒貼圖就用向量畫:兩條淺色鋼軌 + 深色枕木
+          if (tex) ctx.drawImage(tex, sx, sy);
+          else {
+            ctx.strokeStyle = '#4a3c2c'; ctx.lineWidth = 3; // 枕木
+            for (let c = 0.18; c < 1; c += 0.28) {
+              ctx.beginPath();
+              ctx.moveTo(sx + TILE * 0.2, sy + TILE * c);
+              ctx.lineTo(sx + TILE * 0.8, sy + TILE * c);
+              ctx.stroke();
+            }
+            ctx.strokeStyle = '#b8bcc8'; ctx.lineWidth = 3; // 鋼軌
+            for (const rx of [0.34, 0.66]) {
+              ctx.beginPath();
+              ctx.moveTo(sx + TILE * rx, sy + TILE * 0.06);
+              ctx.lineTo(sx + TILE * rx, sy + TILE * 0.94);
+              ctx.stroke();
+            }
           }
         }
       } else {
@@ -210,13 +231,34 @@ function render(dt) {
 
   // ---- 物件 ----
   const OBJ_ICON = { mushroom: '🍄', torch: '🕯️', workbench: '🛠️', furnace: '🔥', tower: '🗼', archer_tower: '🏹',
-    chest: '🎁', nest: '🕸️' };
+    chest: '🎁', nest: '🕸️', auto_miner: '⚙️' };
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   for (const [i, o] of G.objects) {
     const tx = i % MAP_W, ty = (i / MAP_W) | 0;
     if (tx < x0 || tx > x1 || ty < y0 || ty > y1) continue;
     if (lightOf(tx + 0.5, ty + 0.5) < 0.05) continue;
     const [sx, sy] = worldToScreen(tx + 0.5, ty + 0.5);
+    // 傳輸帶:貼地的方向箭頭(不是站著的機台),自己畫、跳過下面的底影+emoji 通用畫法
+    if (o.type === 'belt') {
+      const dir = o.dir || 0;
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.rotate(dir * Math.PI / 2); // 0=右基準,順時針旋轉到下/左/上
+      // 帶面(深灰底條)
+      ctx.fillStyle = 'rgba(40,44,54,0.55)';
+      ctx.fillRect(-TILE * 0.42, -TILE * 0.28, TILE * 0.84, TILE * 0.56);
+      // 流向箭頭(青色,兩個雪佛龍)
+      ctx.strokeStyle = '#7ef0ff'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+      for (const ox of [-TILE * 0.14, TILE * 0.12]) {
+        ctx.beginPath();
+        ctx.moveTo(ox - TILE * 0.1, -TILE * 0.16);
+        ctx.lineTo(ox + TILE * 0.08, 0);
+        ctx.lineTo(ox - TILE * 0.1, TILE * 0.16);
+        ctx.stroke();
+      }
+      ctx.restore();
+      continue;
+    }
     ctx.globalAlpha = o.type === 'archer_tower' && o.off ? 0.45 : 1;
     // 深色底影:emoji 物件(火把/工作台等)放在貼圖地板上才看得見
     ctx.fillStyle = 'rgba(5,5,10,0.42)';
@@ -250,6 +292,13 @@ function render(dt) {
       ctx.fillRect(sx - w / 2, sy + TILE * 0.42, w, 4);
       ctx.fillStyle = o.off ? '#8899aa' : '#ffd23f';
       ctx.fillRect(sx - w / 2, sy + TILE * 0.42, w * ammoR, 4);
+    } else if (o.type === 'auto_miner') {
+      // 燃料條(光晶青色);沒燃料時整條變暗提示要供電
+      const w = TILE * 0.8, fuelR = (o.fuel || 0) / AUTO_MINER_CFG.maxFuel;
+      ctx.fillStyle = '#3336';
+      ctx.fillRect(sx - w / 2, sy + TILE * 0.42, w, 4);
+      ctx.fillStyle = fuelR > 0 ? '#7ef0ff' : '#664';
+      ctx.fillRect(sx - w / 2, sy + TILE * 0.42, w * fuelR, 4);
     }
   }
 
@@ -431,7 +480,7 @@ function render(dt) {
       ctx.ellipse(sx, sy, er * TILE * squash, er * TILE / squash, 0, 0, TAU);
       ctx.fill();
       if (et.boss) {
-        ctx.strokeStyle = e.type === 'fire_boss' ? '#ff8f4a' : '#8a90a5';
+        ctx.strokeStyle = e.type === 'fire_boss' ? '#ff8f4a' : e.type === 'frost_boss' ? '#bfe8ff' : e.type === 'void_boss' ? '#e0a0ff' : '#8a90a5';
         ctx.lineWidth = 3; ctx.stroke();
       }
       // 發光的眼睛(黑暗氛圍重點)
