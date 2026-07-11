@@ -205,6 +205,17 @@ function render(dt) {
           ctx.arc(sx + TILE * 0.42, sy + TILE * 0.72, rr * 0.8, 0, TAU);
           ctx.fill();
         }
+        // 封印牆:脈動的紫色符文光,一眼認出是「通關才能破除的神秘屏障」(貼圖版可自帶符文,這裡是 fallback 疊光)
+        if (info.seal) {
+          const pulse = 0.4 + Math.sin(performance.now() / 500 + tx * 0.7 + ty * 0.5) * 0.3;
+          ctx.fillStyle = `rgba(180,120,255,${pulse})`;
+          ctx.beginPath();
+          ctx.arc(sx + TILE * 0.5, sy + TILE * 0.5, TILE * 0.22, 0, TAU);
+          ctx.fill();
+          ctx.strokeStyle = `rgba(220,180,255,${pulse * 0.8})`;
+          ctx.lineWidth = 2;
+          ctx.strokeRect(sx + TILE * 0.2, sy + TILE * 0.2, TILE * 0.6, TILE * 0.6);
+        }
         // 挖掘裂痕
         const cr = G.cracks.get(i);
         if (cr) {

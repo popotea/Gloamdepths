@@ -44,6 +44,7 @@ const LEVEL_CFG = {
 const ENEMY_XP = {
   imp: 4, spore: 2, hunter: 9, spitter: 7, bomber: 6,
   phantom: 8, breaker: 20, abyss: 16, sentinel: 60, fire_boss: 65, frost_boss: 68, void_boss: 70,
+  revenant: 24, voidling: 18,
 };
 
 // 神殿 Boss 額外掉落(除了必掉 2 張強化卷軸 + 1 顆星核碎片給擊殺者之外的加碼獎勵)
@@ -93,6 +94,7 @@ const T = {
   BEDROCK: 9, GLOW: 10, WOODWALL: 11, STONEWALL: 12,
   GRAVEL: 13, COAL: 14, DIAMOND: 15, FARMLAND: 16,
   WATER: 17, FENCE: 18, RAIL: 19,
+  VOIDROCK: 20, SEAL: 21, // 第五區域「淵核區」:淵岩(比黑曜更硬)/ 封印牆(通關前擋住,通關後解除)
 };
 
 // 地形資料:hp=挖掘耐久, tier=所需鎬階級, light=自帶光半徑
@@ -126,6 +128,10 @@ const TILE_INFO = {
   // 軌道:非固體(可站上去),站上去移速大幅提升(RAIL_CFG),定位是打通基地↔遠方礦區/神殿的快速通道。
   // rail:true 讓 doMine 能敲掉回收(非固體地形一般敲不掉,靠這個旗標開一條回收路徑);渲染疊在地板上(貼圖須透明背景)
   [T.RAIL]:     { solid: false, rail: true, name: '軌道', drop: { id: 'rail', n: 1 }, tex: 'rail.png' },
+  // 第五區域「淵核區」(通關後解封才進得去):淵岩比黑曜更硬(tier 3 鑽石鎬才挖得動),掉黑曜石當建材
+  [T.VOIDROCK]: { solid: true, hp: 40, tier: 3, name: '淵岩', drop: { id: 'stone', n: 2 }, c1: '#3a2a52', c2: '#241830', tex: 'voidrock.png' },
+  // 封印牆:通關前圍住淵核區,hp:Infinity 挖不掉(靠通關事件解除),自帶紫色封印光暈(render 特判)
+  [T.SEAL]:     { solid: true, seal: true, hp: Infinity, tier: 99, name: '遠古封印', light: 1.5, c1: '#5a3a8e', c2: '#3c2868', tex: 'seal.png' },
 };
 
 // 軌道加速:站在 T.RAIL 上時移速倍率(v1 只做「加速地板」,不做真的礦車實體)
@@ -380,6 +386,10 @@ const ENEMY_TYPES = {
                            aoe: { r: 1.8, wallDmg: 26, slow: { mult: 0.5, dur: 2.5 } } } },
   void_boss: { name: '虛境潛獵者', hp: 360, dmg: 26, r: 0.85, speed: 5.4, hopCD: 1.6,
                color: '#4a3568', eye: '#ff8cf0', shape: 'ghost', elem: 'dark', boss: true, ghost: true, icon: 'void_boss.png' },
+  // 第五區域「淵核區」專屬深層怪(比深淵蝕影強一階,但非 Boss;成群出現才危險)
+  revenant: { name: '淵魂',   hp: 140, dmg: 28, r: 0.55, speed: 4.8, hopCD: 1.1, color: '#5a2a6e', eye: '#ff6cf0', shape: 'spike', elem: 'dark', icon: 'revenant.png' },
+  voidling: { name: '蝕裂者', hp: 90,  dmg: 16, r: 0.46, speed: 3.8, hopCD: 1.5, color: '#3e2a6a', eye: '#c88cff', shape: 'mouth', elem: 'dark', wallMult: 3, icon: 'voidling.png',
+              ranged: { range: 6, cd: 2.0, dmg: 16, speed: 8 } },
 };
 
 // ── 屬性相剋:attackElem → enemyElem → 倍率(未列 = 1.0)──

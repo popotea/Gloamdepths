@@ -26,6 +26,7 @@ const G = {
   paused: false,  // 只有單機模式能暫停(多人共享同一個模擬,暫停會卡住其他人)
   killCount: 0,   // 統計面板用:全隊累計擊殺數(killEnemy 累加,存讀檔保留)
   difficulty: 'normal', // DIFFICULTY_CFG 的 key,開新世界時選定;只影響房主模擬,不用同步給客戶端
+  unsealed: false,      // 第五區域「淵核區」是否已解封(通關後 true);存讀檔保留,重連靠 init 同步
 };
 
 function idx(x, y) { return y * MAP_W + x; }
@@ -84,6 +85,19 @@ function setObj(x, y, o, fromNet = false) {
   }
   UI.mmDirty = true;
   if (!fromNet && NET.isHost()) NET.sendAll({ t: 'obj', i, o: o ? { ...o } : null });
+}
+
+// 解封淵核區(第五區域):把整圈封印牆 SEAL 換成 FLOOR,玩家就能挖進去了。
+// 通關事件觸發(房主呼叫並廣播 { t:'unseal' } 讓客戶端也跑一次);存讀檔靠 G.unsealed 記憶,
+// 直接改 G.tiles(不逐格 setTile 廣播,避免幾百格封包)並清掉封印光源、重掃光照。
+function unsealVoidZone(fromNet = false) {
+  if (G.unsealed) return;
+  G.unsealed = true;
+  for (let i = 0; i < G.tiles.length; i++) {
+    if (G.tiles[i] === T.SEAL) { G.tiles[i] = T.FLOOR; G.lights.delete(i); G.dmg[i] = 0; G.cracks.delete(i); }
+  }
+  UI.mmDirty = true;
+  if (!fromNet && NET.isHost()) NET.sendAll({ t: 'unseal' });
 }
 
 // 重掃全地圖光源(生成/讀檔/連線初始化後呼叫一次)
@@ -157,13 +171,19 @@ function genWorld(seed) {
   }
 
   // 2) 依距離分區指定材質
+  // 第五區域「淵核區」(96~116)在最外圈,外邊界 BEDROCK 推到 116;94~96 是「封印環」——
+  // 一圈強制填滿的 SEAL 牆(不看細胞自動機,才不會有洞讓玩家通關前溜進去),通關事件才解除
   for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) {
     const d = Math.hypot(x + 0.5 - CX, y + 0.5 - CY);
     let t;
-    if (d >= 96) t = T.BEDROCK;
+    // 地圖最外 2 格強制基岩:淵核區外邊界推到 116 後,上下左右方向(x=0/199 距中心才 ~100)
+    // 會直接撞地圖邊緣,用這圈基岩收邊,不會露出「地圖被切平」的直邊
+    if (x < 2 || y < 2 || x >= MAP_W - 2 || y >= MAP_H - 2) t = T.BEDROCK;
+    else if (d >= 116) t = T.BEDROCK;
+    else if (d >= 94 && d < 96) t = T.SEAL;              // 封印環:完整封閉,擋住淵核區
     else if (d < 6) t = d < 3.5 ? T.GLOW : T.FLOOR;
     else if (!a[idx(x, y)]) t = T.FLOOR;
-    else t = d < 42 ? T.DIRT : d < 72 ? T.STONE : T.OBSIDIAN;
+    else t = d < 42 ? T.DIRT : d < 72 ? T.STONE : d < 96 ? T.OBSIDIAN : T.VOIDROCK;
     G.tiles[idx(x, y)] = t;
   }
 
@@ -224,6 +244,9 @@ function genWorld(seed) {
   vein(50, 8, 16, [T.DIRT], T.GRAVEL, 8, 42);
   vein(90, 4, 8, [T.DIRT, T.STONE], T.COAL, 8, 72);
   vein(28, 2, 4, [T.OBSIDIAN], T.DIAMOND, 72, 94);
+  // 淵核區(第五區域):鑽石礦脈更密集,呼應「更深區域更好的礦物」(通關解封後才採得到)
+  vein(45, 3, 6, [T.VOIDROCK], T.DIAMOND, 96, 114);
+  vein(40, 2, 4, [T.VOIDROCK], T.LUMITE, 96, 114);
 
   // 5) 螢光蘑菇(泥土區地面)
   for (let n = 0; n < 300 && G.mushCount < 120; n++) {
@@ -328,7 +351,7 @@ function genWorld(seed) {
 
 function zoneOf(x, y) {
   const d = Math.hypot(x - CX, y - CY);
-  return d < 42 ? 0 : d < 72 ? 1 : 2;
+  return d < 42 ? 0 : d < 72 ? 1 : d < 96 ? 2 : 3; // zone 3 = 第五區域「淵核區」(通關後解封)
 }
 
 // ===== RLE 壓縮(存檔 / 連線初始傳輸用) =====

@@ -158,7 +158,10 @@ function ambientSpawn(dt) {
   if (dist(x + 0.5, y + 0.5, G.core.x, G.core.y) < 12) return;
   if (lightAtPoint(x + 0.5, y + 0.5) > 0.12) return; // 亮處不生怪
   const zone = zoneOf(x + 0.5, y + 0.5);
-  spawnEnemy(zone === 0 ? 'imp' : zone === 1 ? 'hunter' : 'abyss', x + 0.5, y + 0.5);
+  // 淵核區(zone 3)生更兇的專屬怪(淵魂/蝕裂者各半);通關解封前玩家進不去,自然也不會在那生
+  const type = zone === 0 ? 'imp' : zone === 1 ? 'hunter' : zone === 2 ? 'abyss'
+    : (Math.random() < 0.5 ? 'revenant' : 'voidling');
+  spawnEnemy(type, x + 0.5, y + 0.5);
 }
 
 // 蘑菇緩慢重生
@@ -193,6 +196,9 @@ function gameOver(win) {
   if (win) {
     msgAll('🏆 星核甦醒!微光深淵重見光明,通關!');
     emitFx({ k: 'sfx', s: 'win' });
+    // 通關獎勵:解除淵核區(第五區域)的封印,開放更深、更危險的探索
+    if (NET.isHost()) unsealVoidZone();
+    msgAll('🔓 遠古封印崩解……最深處的「淵核區」開放了,那裡有更兇險的敵人與豐厚的礦藏!');
   } else {
     msgAll('💀 星核熄滅了……全隊失敗');
     emitFx({ k: 'sfx', s: 'lose' });
@@ -208,7 +214,7 @@ function buildSave() {
     G.playersByName[p.name] = { inv: p.inv, hp: p.hp, x: p.x, y: p.y, lv: p.lv, xp: p.xp, talents: p.talents };
   }
   return {
-    v: 1, seed: G.seed, time: G.time, killCount: G.killCount, difficulty: G.difficulty,
+    v: 1, seed: G.seed, time: G.time, killCount: G.killCount, difficulty: G.difficulty, unsealed: G.unsealed,
     tiles: rleEnc(G.tiles),
     explored: rleEnc(G.explored),
     objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null, o.stage ?? null, o.t ?? null, o.nestType ?? null, o.dir ?? null, o.fuel ?? null]),
@@ -291,6 +297,7 @@ function applySave(s, name) {
   G.time = s.time || 0;
   G.killCount = s.killCount || 0;
   G.difficulty = DIFFICULTY_CFG[s.difficulty] ? s.difficulty : 'normal'; // 舊存檔沒有這欄位就退回一般難度
+  G.unsealed = !!s.unsealed; // 淵核區解封狀態(SEAL→FLOOR 已寫進 tiles 存下來,這旗標只防重複解封)
   G.over = s.won ? 'win' : null;
   rebuildLights();
   spawnShrineBosses();

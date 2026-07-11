@@ -161,7 +161,7 @@ function killEnemy(e, killer) {
   // 精英怪(來自精英巢穴):額外保底掉卷軸+光晶,補償比一般怪更強的戰鬥難度
   if (e.elite) { spawnDrop('enh_scroll', 1, e.x, e.y); spawnDrop('lumite', 3, e.x, e.y); }
   // 戰利品:蝕影掉光晶,回饋防守循環;各怪都有機率掉強化卷軸(衝裝來源)
-  const SCROLL_RATE = { imp: 0.03, spore: 0.02, hunter: 0.06, spitter: 0.08, bomber: 0.08, phantom: 0.1, breaker: 0.12, abyss: 0.1 };
+  const SCROLL_RATE = { imp: 0.03, spore: 0.02, hunter: 0.06, spitter: 0.08, bomber: 0.08, phantom: 0.1, breaker: 0.12, abyss: 0.1, revenant: 0.18, voidling: 0.15 };
   if (SCROLL_RATE[e.type] && Math.random() < SCROLL_RATE[e.type]) spawnDrop('enh_scroll', 1, e.x, e.y);
   if (e.type === 'imp') { if (Math.random() < 0.4) spawnDrop('lumite', 1, e.x, e.y); }
   else if (e.type === 'spore') { if (Math.random() < 0.25) spawnDrop('lumite', 1, e.x, e.y); }
@@ -173,6 +173,15 @@ function killEnemy(e, killer) {
   else if (e.type === 'abyss') {
     spawnDrop('lumite', 2, e.x, e.y);
     if (Math.random() < 0.25) spawnDrop('gold_ore', 1, e.x, e.y);
+  }
+  else if (e.type === 'revenant') {
+    // 淵核區深層怪:通關後內容,獎勵豐厚(光晶+機率鑽石)
+    spawnDrop('lumite', 3, e.x, e.y);
+    if (Math.random() < 0.35) spawnDrop('diamond', 1, e.x, e.y);
+  }
+  else if (e.type === 'voidling') {
+    spawnDrop('lumite', 2, e.x, e.y);
+    if (Math.random() < 0.2) spawnDrop('diamond', 1, e.x, e.y);
   }
   else if (e.type === 'sentinel' && !e.home) {
     // 暗潮最終波的裸體石像守衛(game.js):不是神殿 Boss,維持原掉落,不進神殿死亡流程

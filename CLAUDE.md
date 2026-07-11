@@ -120,3 +120,10 @@
 - **兩個新 idx Set(`minerIdx`/`beltIdx`)要在三處 `.clear()` 一起清**:`genWorld`(world.js)、`applySave`(game.js)、`case 'init'`(net.js),跟既有 towerIdx/cropIdx 同一行。`TOWER_IDX_SETS`(world.js)註冊 `auto_miner→minerIdx`/`belt→beltIdx`,`setObj` 增減物件時自動維護。
 - **TDZ 陷阱**:`ITEMS.auto_miner` 的 desc 模板字串引用了 `AUTO_MINER_CFG.maxPerPlayer`,所以 `AUTO_MINER_CFG`/`BELT_CFG` 必須定義在 `ITEMS` **之前**(緊接 `ARCHER_TOWER_CFG`),否則 `const` 暫時性死區會讓 config.js 載入即崩(整個遊戲白屏)。加需要被 ITEMS desc 引用的 CFG 時務必注意順序。
 - 渲染:採礦機是站立機台(⚙️ emoji + 青色燃料條,比照箭塔彈藥條);傳輸帶是**貼地方向箭頭**(自畫兩個青色雪佛龍,按 `dir` 旋轉,跳過通用的底影+emoji 畫法),`render.js` 物件迴圈開頭 `if (o.type === 'belt') {...; continue;}`。
+
+## 第五區域「淵核區」通關後解封(2026-07,第四批,原 3.1 選項B)
+- **地圖幾何**:`zoneOf` 加第四級(`d < 96 ? 2 : 3`)。地形生成(world.js 步驟2)把 BEDROCK 外邊界從 96 推到 **116**,96~116 是淵核區(`T.VOIDROCK` 淵岩,tier 3 鑽石鎬才挖得動),94~96 是**封印環**(`T.SEAL`,一圈**強制填滿不看細胞自動機**才不會有洞)。鑽石/光晶礦脈延伸進淵核區(更密集)。
+- **地圖尺寸幾何陷阱**:地圖 200×200、中心到「正上下左右」邊緣只有 100 格(角落才 141),所以 d=116 的外邊界圓在正方向會**超出地圖、露出被切平的直邊**——用「最外 2 格強制 BEDROCK」(`x<2||y<2||x>=MAP_W-2||...`,優先於距離判定)收邊。結果:淵核區是「四個胖角落 + 四條窄邊」的不規則環,約 8000 格可探索(佔全圖 20%),形狀不規則但面積充足。
+- **封印機制**:`T.SEAL` 是 `hp: Infinity` 挖不掉的牆(通關前擋住淵核區,BFS 驗證過玩家挖不進去)。通關 `gameOver(true)` 時房主呼叫 `unsealVoidZone()`(world.js):掃全圖把 SEAL→FLOOR、清封印光源,設 `G.unsealed=true`。**不逐格 `setTile` 廣播**(1200 格會發爆封包),改直接改 `G.tiles` + 發一個 `{ t:'unseal' }` 小封包,客戶端 `case 'unseal'` 各自跑同一個 `unsealVoidZone(true)`。
+- **存讀檔/同步**:`G.unsealed` 進 buildSave/applySave/init(舊存檔沒有 = false)。但 SEAL→FLOOR 的地形變化**已寫進 `G.tiles`**,RLE 存檔與 init 全量同步自動保存,所以 reload/新客戶端加入看到的就是解封後的地圖;`G.unsealed` 旗標只用來**防止重複解封**(通關後存檔再讀不會又跑一次)。
+- **新怪(只新區域+新怪,不做新裝備線)**:`revenant`(淵魂,高血高傷近戰)/`voidling`(蝕裂者,遠程+拆牆 `wallMult:3`),比 `abyss` 強一階但非 Boss;`ambientSpawn` 的 zone 3 生它們(通關解封前玩家進不去,自然不會在那生),掉落豐厚(高卷軸率+機率鑽石)。渲染:VOIDROCK 走既有固體地形 c1/c2 分支;SEAL 額外疊脈動紫色符文光(`info.seal` 特判,一眼認出是屏障)。小地圖色表(ui.js)補了 RAIL/VOIDROCK/SEAL 三色。

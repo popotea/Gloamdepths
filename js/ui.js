@@ -856,6 +856,7 @@ function drawMinimap() {
       [T.WOODWALL]: 0xff3e6a8a, [T.STONEWALL]: 0xff968a8a,
       [T.GRAVEL]: 0xff787e8a, [T.COAL]: 0xff2a2a2a, [T.DIAMOND]: 0xffffc76a,
       [T.FARMLAND]: 0xff1c3a5c, [T.WATER]: 0xff8a622a, [T.FENCE]: 0xff5494c0,
+      [T.RAIL]: 0xff6a5a4a, [T.VOIDROCK]: 0xff522a3a, [T.SEAL]: 0xff8e3a5a,
     };
     for (let i = 0; i < G.tiles.length; i++) {
       px[i] = G.explored[i] ? (C[G.tiles[i]] || 0xff000000) : 0xff000000;

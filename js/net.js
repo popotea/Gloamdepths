@@ -64,7 +64,7 @@ const NET = {
         tiles: rleEnc(G.tiles), explored: rleEnc(G.explored),
         objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null, o.stage ?? null, o.t ?? null, o.nestType ?? null, o.dir ?? null, o.fuel ?? null]),
         core: { energy: G.core.energy, shards: G.core.shards },
-        shrines: G.shrines, traders: G.traders, wave: G.wave, time: G.time, difficulty: G.difficulty,
+        shrines: G.shrines, traders: G.traders, wave: G.wave, time: G.time, difficulty: G.difficulty, unsealed: G.unsealed,
         players: [...G.players.values()].map(pl => [pl.id, pl.name, pl.x, pl.y, pl.hp, pl.dead ? 1 : 0, pl.lv || 1, pl.xp || 0]),
         inv: p.inv, over: G.over,
       });
@@ -221,6 +221,7 @@ const NET = {
         G.core.energy = d.core.energy; G.core.shards = d.core.shards;
         G.shrines = d.shrines; G.traders = d.traders || []; G.wave = d.wave; G.time = d.time;
         G.difficulty = DIFFICULTY_CFG[d.difficulty] ? d.difficulty : 'normal';
+        G.unsealed = !!d.unsealed;
         G.enemies = []; G.drops = []; G.floaters = []; G.cracks.clear(); G.projs = []; G.animals = [];
         G.players.clear();
         for (const [id, name, x, y, hp, dead, lv, xp] of d.players) {
@@ -288,6 +289,7 @@ const NET = {
         break;
       }
       case 'tile': setTile(d.i % MAP_W, (d.i / MAP_W) | 0, d.v, true); break;
+      case 'unseal': unsealVoidZone(true); break; // 房主通關 → 客戶端也把封印牆 SEAL 換成 FLOOR
       case 'obj': setObj(d.i % MAP_W, (d.i / MAP_W) | 0, d.o, true); break;
       case 'fx': applyFx(d.f); break;
       case 'msg': showMsg(d.text); break;
