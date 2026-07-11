@@ -122,8 +122,16 @@
 - 渲染:採礦機是站立機台(⚙️ emoji + 青色燃料條,比照箭塔彈藥條);傳輸帶是**貼地方向箭頭**(自畫兩個青色雪佛龍,按 `dir` 旋轉,跳過通用的底影+emoji 畫法),`render.js` 物件迴圈開頭 `if (o.type === 'belt') {...; continue;}`。
 
 ## 第五區域「淵核區」通關後解封(2026-07,第四批,原 3.1 選項B)
-- **地圖幾何**:`zoneOf` 加第四級(`d < 96 ? 2 : 3`)。地形生成(world.js 步驟2)把 BEDROCK 外邊界從 96 推到 **116**,96~116 是淵核區(`T.VOIDROCK` 淵岩,tier 3 鑽石鎬才挖得動),94~96 是**封印環**(`T.SEAL`,一圈**強制填滿不看細胞自動機**才不會有洞)。鑽石/光晶礦脈延伸進淵核區(更密集)。
+- **地圖幾何**:`zoneOf` 加第四級(`d < 96 ? 2 : 3`)。地形生成(world.js 步驟2)把 BEDROCK 外邊界從 96 推到 **116**,96~116 是淵核區(`T.VOIDROCK` 淵岩,tier 3——金鎬即頂級鎬 tier 3,沒有「鑽石鎬」這一階),94~96 是**封印環**(`T.SEAL`,一圈**強制填滿不看細胞自動機**才不會有洞)。鑽石/光晶礦脈延伸進淵核區(更密集)。
 - **地圖尺寸幾何陷阱**:地圖 200×200、中心到「正上下左右」邊緣只有 100 格(角落才 141),所以 d=116 的外邊界圓在正方向會**超出地圖、露出被切平的直邊**——用「最外 2 格強制 BEDROCK」(`x<2||y<2||x>=MAP_W-2||...`,優先於距離判定)收邊。結果:淵核區是「四個胖角落 + 四條窄邊」的不規則環,約 8000 格可探索(佔全圖 20%),形狀不規則但面積充足。
 - **封印機制**:`T.SEAL` 是 `hp: Infinity` 挖不掉的牆(通關前擋住淵核區,BFS 驗證過玩家挖不進去)。通關 `gameOver(true)` 時房主呼叫 `unsealVoidZone()`(world.js):掃全圖把 SEAL→FLOOR、清封印光源,設 `G.unsealed=true`。**不逐格 `setTile` 廣播**(1200 格會發爆封包),改直接改 `G.tiles` + 發一個 `{ t:'unseal' }` 小封包,客戶端 `case 'unseal'` 各自跑同一個 `unsealVoidZone(true)`。
 - **存讀檔/同步**:`G.unsealed` 進 buildSave/applySave/init(舊存檔沒有 = false)。但 SEAL→FLOOR 的地形變化**已寫進 `G.tiles`**,RLE 存檔與 init 全量同步自動保存,所以 reload/新客戶端加入看到的就是解封後的地圖;`G.unsealed` 旗標只用來**防止重複解封**(通關後存檔再讀不會又跑一次)。
 - **新怪(只新區域+新怪,不做新裝備線)**:`revenant`(淵魂,高血高傷近戰)/`voidling`(蝕裂者,遠程+拆牆 `wallMult:3`),比 `abyss` 強一階但非 Boss;`ambientSpawn` 的 zone 3 生它們(通關解封前玩家進不去,自然不會在那生),掉落豐厚(高卷軸率+機率鑽石)。渲染:VOIDROCK 走既有固體地形 c1/c2 分支;SEAL 額外疊脈動紫色符文光(`info.seal` 特判,一眼認出是屏障)。小地圖色表(ui.js)補了 RAIL/VOIDROCK/SEAL 三色。
+
+## Q 版視覺與主題改版(2026-07-12,詳見《Q版改版計畫.md》)
+- **風格定位「黑暗的世界,可愛的居民」**:光照/黑暗系統是遊戲性**不動**,Q 版化的是角色/UI/文案。三支柱:圓潤厚實(膠囊/大圓角)、大發光眼=情感核心、暗底×糖果色(`--candy-pink/yellow/mint`,**限回饋時刻**使用,平常仍以 `--glow` 青藍為識別)。敘事支點:「蝕影不是邪惡,是怕光又想搶光的小生物」——所有文案語氣的統一依據。
+- **AI Hub 三套產圖模板已改 v2 貼紙卡通風**(`AI/index.html`):`ASSET_LIB.master`/`MASTER_TILE`/`MASTER_CREATURE`,移除 pixel art/16色,改厚描邊 sticker+cel shading。**特徵字陷阱**:`applySpec` 靠 `true top-down`/`fills the entire square`/`full body from head to feet` 三句判斷「已套用模板」,改模板措辭**務必保留這三句**。怪物描述原則:配色/輪廓關鍵字保留(遊戲辨識),兇狠詞(menacing/imposing)全換表情詞(鼓臉/瞇眼壞笑)。`isTileTexture` 的透明例外=fence_tile+rail;`specKindOf` npcs→creature。**模板改版後素材要整組同批重生**,混批風格會漂移。
+- **主題定名**:玩家=「螢火隊」、商人=「莫勾」(`TRADER_CFG.name/motto`)、三神殿 Boss=守望者(火・燼/冰・凜/影・寞,`ENEMY_TYPES` name);擊殺守望者訊息是「喚醒」語氣+`SHRINE_BOSS_QUOTES` 專屬台詞(config.js)。文案語氣「再放飛」尺度:全面梗化+emoji 用滿,**唯暗潮警告/星核低電量保留緊張感**,⚠️ 錯誤訊息保持清楚不搞笑。
+- **UI Q 版化**(style.css):血條膠囊化(`border-radius:999px`,`.bar` 本有 `overflow:hidden` 不露角)、主選單按鈕全膠囊、按鈕 active 擠壓(squash & stretch)、快捷欄選中呼吸發光(`slotBreath`)、標題浮動。canvas floater 的糖果色直接寫 hex(canvas 吃不到 CSS 變數):回復類=薄荷綠 `#7dffb2`、動物好感=糖果粉 `#ff9de2`。
+- **向量畫法 Q 版**(render.js):怪物 fallback 眼睛放大 20%+白色高光點;玩家大眼 3.5+淡粉腮紅,**血量 <30% 眼睛變「><」**(用 `p.hp/p.maxhp` 判斷——雙端都有這兩個欄位,客戶端不用等快照同步新欄位)。
+- 金鎬(tier 3)即頂級鎬,**沒有「鑽石鎬」這一階**——鑽石/淵岩都是金鎬挖。

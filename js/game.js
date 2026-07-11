@@ -17,8 +17,9 @@ function startNewGame(name, difficulty) {
   G.players.set(0, p);
   spawnShrineBosses();
   G.started = true;
-  showMsg('🌑 星核能量正在流失,挖光晶(藍色礦脈)按 F 餵它!');
-  showMsg('⛏️ 左鍵挖牆/攻擊、右鍵放置、E 開背包');
+  showMsg('🕯️ 星核熄滅後,黑暗湧回深淵——而你們是「螢火隊」,來把光帶回來的!');
+  showMsg('🌑 星核肚子咕嚕叫了!挖光晶💠(藍色礦脈)按 F 餵它一口~');
+  showMsg('⛏️ 左鍵挖挖挖/打打打、右鍵放東西、E 開背包,出發!');
 }
 
 // 依 G.shrines 各自的 boss 欄位生成對應神殿守衛(舊存檔沒有 boss 欄位時退回 sentinel,
@@ -61,7 +62,7 @@ function updateCore(dt) {
   for (const th of [30, 15, 5]) {
     if (c.energy <= th && !G.warned['e' + th]) {
       G.warned['e' + th] = true;
-      msgAll(`⚠️ 星核能量剩 ${th}!快挖光晶回來按 F 灌入!`);
+      msgAll(`⚠️ 星核快沒電了(剩 ${th})!光晶!快!現在!馬上!`);
     }
     if (c.energy > th + 10) G.warned['e' + th] = false;
   }
@@ -75,7 +76,7 @@ function updateWave(dt) {
     w.timer -= dt;
     if (w.timer <= WAVE_CFG.warn) {
       w.state = 'warn';
-      msgAll(`🌊 暗潮將至!${WAVE_CFG.warn} 秒後來襲,守住星核!`);
+      msgAll(`🌊 蝕影大軍聞到光的味道了!${WAVE_CFG.warn} 秒後殺到,快回防星核!`);
       emitFx({ k: 'sfx', s: 'wave' });
     }
   } else if (w.state === 'warn') {
@@ -88,7 +89,7 @@ function updateWave(dt) {
       if (w.final) { gameOver(true); return; }
       w.state = 'calm';
       w.timer = WAVE_CFG.interval;
-      msgAll('☀️ 暗潮退去了,把握時間補給與建設!');
+      msgAll('☀️ 守住了!!蝕影哭著回家了~把握時間補給蓋牆!');
     }
   }
 }
@@ -138,7 +139,7 @@ function triggerFinalWave() {
   const w = G.wave;
   if (w.final) return;
   w.final = true; w.state = 'warn'; w.timer = 20;
-  msgAll('✨ 星核開始甦醒……黑暗發出怒吼,最終暗潮 20 秒後來襲!');
+  msgAll('✨ 星核要醒了!黑暗氣到跳腳——最終暗潮 20 秒後全軍壓上,大家站穩!');
   emitFx({ k: 'sfx', s: 'wave' });
 }
 
@@ -194,13 +195,13 @@ function gameOver(win) {
   if (G.over) return;
   G.over = win ? 'win' : 'lose';
   if (win) {
-    msgAll('🏆 星核甦醒!微光深淵重見光明,通關!');
+    msgAll('🏆 星核醒來了!!整個深淵都亮起來了——你們就是傳說!✨🎉');
     emitFx({ k: 'sfx', s: 'win' });
     // 通關獎勵:解除淵核區(第五區域)的封印,開放更深、更危險的探索
     if (NET.isHost()) unsealVoidZone();
-    msgAll('🔓 遠古封印崩解……最深處的「淵核區」開放了,那裡有更兇險的敵人與豐厚的礦藏!');
+    msgAll('🔓 咔啦——遠古封印碎了!最深處的「淵核區」開門營業:怪更兇、礦更肥,敢不敢?');
   } else {
-    msgAll('💀 星核熄滅了……全隊失敗');
+    msgAll('💀 星核睡著了……沒關係,深淵永遠歡迎再來一次(牠沒生氣,牠只是想睡)');
     emitFx({ k: 'sfx', s: 'lose' });
   }
   if (NET.isHost()) { NET.sendAll({ t: 'over', win }); saveGame(); }
@@ -235,7 +236,7 @@ function saveGame() {
   if (!G.started || !NET.isHost()) return;
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(buildSave()));
-    showMsg('💾 已自動存檔(存在房主電腦)');
+    showMsg('💾 進度存好了(乖乖躺在房主電腦裡)');
   } catch (e) { showMsg('⚠️ 存檔失敗:' + e.message); }
 }
 
@@ -319,7 +320,7 @@ function applySave(s, name) {
   }
   G.players.set(0, p);
   G.started = true;
-  showMsg('📂 讀取存檔完成,歡迎回到微光深淵');
+  showMsg('📂 歡迎回家!深淵想你們了~');
   return true;
 }
 

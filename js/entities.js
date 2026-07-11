@@ -34,7 +34,7 @@ function grantXp(p, amount) {
     addFloater(p.x, p.y - 0.8, `升級!Lv.${p.lv}`, '#ffd23f');
     addFloater(p.x, p.y - 1.15, '🌟 +1 天賦點(按 T 分配)', '#ffe9a0');
     emitFx({ k: 'sfx', s: 'craft' });
-    msgAll(`✨ ${p.name} 升到 Lv.${p.lv}!`);
+    msgAll(`✨ ${p.name} 升到 Lv.${p.lv}!變強了變強了!`);
   }
 }
 
@@ -197,7 +197,9 @@ function killEnemy(e, killer) {
     if (shrine) shrine.dead = true;
     if (owner) {
       if (addItem(owner, 'shard', 1) > 0) spawnDrop('shard', 1, e.x, e.y);
-      msgAll(`⚔️ ${owner.name} 擊敗了${et.name},取得星核碎片!帶回星核吧!`);
+      // Q版主題:打敗守望者=把被黑暗纏繞的它「喚醒」,不是殺戮
+      msgAll(`⚔️ ${owner.name} 喚醒了${et.name}!它揉揉眼睛,交出了星核碎片——快帶回去!`);
+      if (SHRINE_BOSS_QUOTES[e.type]) msgAll(SHRINE_BOSS_QUOTES[e.type]);
     }
     const loot = SHRINE_BOSS_LOOT[e.type] || SHRINE_BOSS_LOOT.sentinel;
     for (const id in loot) spawnDrop(id, loot[id], e.x, e.y);
@@ -426,7 +428,7 @@ function damagePlayer(p, amount) {
   if (p.hp <= 0) {
     p.hp = 0; p.dead = true; p.respawnT = 5;
     p.buffs = {}; p.fish = null; // 死亡清空料理 buff 與釣魚狀態
-    msgAll(`💀 ${p.name} 倒下了,5 秒後在星核重生`);
+    msgAll(`💧 ${p.name} 熄火了……5 秒後在星核重新點燃!`);
   }
 }
 
@@ -453,7 +455,7 @@ function toggleInfinite(p) {
 // 但世界共用狀態(星核/暗潮/怪物)本來就會透過快照自然讓所有人看到,這是預期中的。
 function cheatHeal(p) {
   p.hp = p.maxhp;
-  addFloater(p.x, p.y - 0.6, '❤ 已補滿', '#7dff8e');
+  addFloater(p.x, p.y - 0.6, '❤ 已補滿', '#7dffb2'); // candy-mint:回復類回饋統一薄荷綠
 }
 function cheatGodmode(p) {
   p.godmode = !p.godmode;
@@ -887,7 +889,7 @@ function doDeposit(p) {
   G.core.energy = Math.min(CORE_CFG.maxE, G.core.energy + canUse * CORE_CFG.feed);
   addFloater(G.core.x, G.core.y - 1, `+${canUse * CORE_CFG.feed} ⚡`, '#7ef0ff');
   emitFx({ k: 'sfx', s: 'deposit' });
-  msgAll(`💠 ${p.name} 灌入 ${canUse} 顆光晶,星核能量 ${Math.round(G.core.energy)}`);
+  msgAll(`💠 ${p.name} 餵了 ${canUse} 顆光晶,星核滿足地嗡嗡發亮(能量 ${Math.round(G.core.energy)})`);
 }
 
 // ===== 掉落物 =====
@@ -930,11 +932,11 @@ function updateDrops(dt) {
 // 撿到關鍵物品時給新手提示(每種只提示一次)
 function hintOnPickup(p, item) {
   const hints = {
-    lumite: '💠 撿到光晶!站在星核旁按 F 灌入能量,或合成火把',
-    copper_ore: '🟤 撿到銅礦!蓋工作台→熔爐,煉銅錠做銅裝',
-    iron_ore: '⚪ 撿到鐵礦!鐵甲與鐵鎬是深入黑曜區的關鍵',
-    gold_ore: '🟡 撿到金礦!金裝是最強裝備',
-    shard: '🔷 星核碎片!走到星核旁會自動放入',
+    lumite: '💠 光晶 get!星核的最愛——站它旁邊按 F 餵一口,或做成火把',
+    copper_ore: '🟤 銅礦 get!工作台→熔爐→銅裝備,升級之路開張!',
+    iron_ore: '⚪ 鐵礦 get!有鐵才敢往深處走~',
+    gold_ore: '🟡 金礦 get!!最強裝備的原料,發財了發財了!',
+    shard: '🔷 星核碎片!!抱緊它,走到星核旁會自動歸位',
   };
   if (hints[item] && !G.warned['h_' + item]) {
     G.warned['h_' + item] = true;
@@ -949,7 +951,7 @@ function openChest(p, x, y) {
   const table = CHEST_LOOT[zone] || CHEST_LOOT[0];
   const picks = [...table].sort(() => Math.random() - 0.5).slice(0, 2 + (Math.random() < 0.5 ? 1 : 0));
   for (const [id, n] of picks) spawnDrop(id, n, x + 0.5, y + 0.5);
-  msgAll(`📦 ${p.name} 打開了廢墟寶箱!`);
+  msgAll(`📦 ${p.name} 開出寶箱!是誰埋的不重要,現在是我們的了!`);
 }
 
 // 拆巢穴:給光晶+機率卷軸做回饋(補償玩家主動清除生怪源的努力);精英巢穴給雙倍
@@ -1014,7 +1016,7 @@ function doFeed(p, aid, slot) {
   consumeSlot(p, slot);
   a.fedT = at.productCD;
   a.hp = Math.min(a.maxhp, a.hp + 10);
-  addFloater(a.x, a.y - 0.6, `❤ ${Math.round(at.productCD)}秒後產出${ITEMS[at.product].name}`, '#7dff8e');
+  addFloater(a.x, a.y - 0.6, `💕 好吃!${Math.round(at.productCD)}秒後產出${ITEMS[at.product].name}`, '#ff9de2'); // candy-pink:動物好感
   emitFx({ k: 'sfx', s: 'eat' });
 }
 
@@ -1319,7 +1321,7 @@ function updatePlayersHost(dt) {
     if (countItem(p, 'shard') > 0 && dist(p.x, p.y, G.core.x, G.core.y) < 3) {
       removeOne(p, 'shard');
       G.core.shards++;
-      msgAll(`🔷 星核碎片 ${G.core.shards}/${CORE_CFG.needShards} 已放入!`);
+      msgAll(`🔷 碎片歸位 ${G.core.shards}/${CORE_CFG.needShards}!星核開心到嗡嗡叫~`);
       emitFx({ k: 'sfx', s: 'deposit' });
       if (G.core.shards >= CORE_CFG.needShards) triggerFinalWave();
     }

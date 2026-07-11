@@ -54,6 +54,13 @@ const SHRINE_BOSS_LOOT = {
   frost_boss: { gold_ore: 2, iron_bar: 2 }, // 冰系加碼鐵錠,呼應「寒霜」與武裝意象
   void_boss:  { gold_ore: 3, lumite: 2 },   // 穿牆系加碼一點金礦+光晶,不特別偏武裝/能量
 };
+// 守望者甦醒台詞(Q版主題:打敗神殿 Boss 不是殺戮,是把被黑暗纏繞的守望者「喚醒」)
+const SHRINE_BOSS_QUOTES = {
+  sentinel:   '💬「……守望結束了。謝謝你們還記得光。」',
+  fire_boss:  '💬 燼:「……火還暖著。拿去吧,別再讓它熄了。」',
+  frost_boss: '💬 凜:「……好長的一場雪。碎片給你們,我想看看春天。」',
+  void_boss:  '💬 寞:「……影子也想見光,你懂嗎?去吧,帶它回家。」',
+};
 function xpToNext(lv) { return LEVEL_CFG.xpNeed(lv); }
 
 // ── 天賦:每升 1 級得 1 點(滿級共 9 點),總階數 15 刻意大於點數,一輪拿不滿要取捨。
@@ -128,7 +135,7 @@ const TILE_INFO = {
   // 軌道:非固體(可站上去),站上去移速大幅提升(RAIL_CFG),定位是打通基地↔遠方礦區/神殿的快速通道。
   // rail:true 讓 doMine 能敲掉回收(非固體地形一般敲不掉,靠這個旗標開一條回收路徑);渲染疊在地板上(貼圖須透明背景)
   [T.RAIL]:     { solid: false, rail: true, name: '軌道', drop: { id: 'rail', n: 1 }, tex: 'rail.png' },
-  // 第五區域「淵核區」(通關後解封才進得去):淵岩比黑曜更硬(tier 3 鑽石鎬才挖得動),掉黑曜石當建材
+  // 第五區域「淵核區」(通關後解封才進得去):淵岩比黑曜更硬(tier 3,金鎬〔頂級〕才挖得動),掉石頭當建材
   [T.VOIDROCK]: { solid: true, hp: 40, tier: 3, name: '淵岩', drop: { id: 'stone', n: 2 }, c1: '#3a2a52', c2: '#241830', tex: 'voidrock.png' },
   // 封印牆:通關前圍住淵核區,hp:Infinity 挖不掉(靠通關事件解除),自帶紫色封印光暈(render 特判)
   [T.SEAL]:     { solid: true, seal: true, hp: Infinity, tier: 99, name: '遠古封印', light: 1.5, c1: '#5a3a8e', c2: '#3c2868', tex: 'seal.png' },
@@ -376,15 +383,15 @@ const ENEMY_TYPES = {
   breaker:  { name: '裂地者',   hp: 130, dmg: 14, r: 0.55, speed: 3.6, hopCD: 1.9, color: '#6b6250', eye: '#ffd23f', shape: 'tank',  elem: 'earth', wallMult: 4, icon: 'breaker.png' },
   abyss:    { name: '深淵蝕影', hp: 75,  dmg: 20, r: 0.50, speed: 4.6, hopCD: 1.2, color: '#742e42', eye: '#ff5d5d', shape: 'spike', elem: 'dark', icon: 'abyss.png' },
   sentinel: { name: '石像守衛', hp: 350, dmg: 25, r: 0.90, speed: 5.5, hopCD: 2.0, color: '#767c94', eye: '#ffd23f', shape: 'tank',  elem: 'earth', boss: true, icon: 'sentinel.png' },
-  fire_boss: { name: '熔岩魔像', hp: 380, dmg: 22, r: 0.90, speed: 4.8, hopCD: 2.0,
+  fire_boss: { name: '火之守望者・燼', hp: 380, dmg: 22, r: 0.90, speed: 4.8, hopCD: 2.0,
                color: '#b8442a', eye: '#ffb35c', shape: 'tank', elem: 'fire', boss: true, icon: 'fire_boss.png',
                ranged: { range: 6.5, cd: 2.6, dmg: 16, speed: 6.5,
                           aoe: { r: 1.8, wallDmg: 30 } } },
-  frost_boss: { name: '寒霜巨像', hp: 400, dmg: 20, r: 0.90, speed: 4.2, hopCD: 2.0,
+  frost_boss: { name: '冰之守望者・凜', hp: 400, dmg: 20, r: 0.90, speed: 4.2, hopCD: 2.0,
                 color: '#3a6a8a', eye: '#c8f4ff', shape: 'tank', elem: 'frost', boss: true, icon: 'frost_boss.png',
                 ranged: { range: 6.5, cd: 2.8, dmg: 14, speed: 6.0,
                            aoe: { r: 1.8, wallDmg: 26, slow: { mult: 0.5, dur: 2.5 } } } },
-  void_boss: { name: '虛境潛獵者', hp: 360, dmg: 26, r: 0.85, speed: 5.4, hopCD: 1.6,
+  void_boss: { name: '影之守望者・寞', hp: 360, dmg: 26, r: 0.85, speed: 5.4, hopCD: 1.6,
                color: '#4a3568', eye: '#ff8cf0', shape: 'ghost', elem: 'dark', boss: true, ghost: true, icon: 'void_boss.png' },
   // 第五區域「淵核區」專屬深層怪(比深淵蝕影強一階,但非 Boss;成群出現才危險)
   revenant: { name: '淵魂',   hp: 140, dmg: 28, r: 0.55, speed: 4.8, hopCD: 1.1, color: '#5a2a6e', eye: '#ff6cf0', shape: 'spike', elem: 'dark', icon: 'revenant.png' },
@@ -439,7 +446,8 @@ const POI_CFG = {
 // 解鎖階段 = 星核碎片數(0~3,跟已擊敗神殿數一對一對應,且已經是即時同步資料,不用另外做同步)。
 // 各階 offers 採累加制:低階項目在高階依然存在,不會消失。
 const TRADER_CFG = {
-  count: 1, icon: '🧙', name: '流浪商人',
+  // Q版改版:商人定名「莫勾」(鼴鼠商人,戴小提燈帽)——有名字的 NPC 才有記憶點
+  count: 1, icon: '🧙', name: '商人莫勾', motto: '嘿嘿,碎片越多,好貨越多~',
   stages: [
     { need: 0, offers: [
       { give: { stone: 20 },      get: { lumite: 3 } },

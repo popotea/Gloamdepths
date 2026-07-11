@@ -366,7 +366,7 @@ function uiTick(dt) {
 
   // 死亡橫幅
   UI.els.deathbanner.classList.toggle('hidden', !me.dead);
-  if (me.dead) UI.els.deathbanner.textContent = `💀 你倒下了…… ${Math.max(0, Math.ceil(me.respawnT ?? 0))} 秒後在星核重生`;
+  if (me.dead) UI.els.deathbanner.textContent = `💧 你熄火了…… ${Math.max(0, Math.ceil(me.respawnT ?? 0))} 秒後在星核重新點燃`;
 
   if (UI.invDirty) { UI.invDirty = false; refreshSlots(); }
 
@@ -540,7 +540,7 @@ function renderTraderPanel() {
   const n = G.core.shards;
   const offers = traderOffers();
   let html = `<h2>${TRADER_CFG.icon} ${TRADER_CFG.name}</h2>
-    <p class="hint">已擊敗 ${n}/3 座神殿,擊敗更多神殿解鎖更好的兌換。點一下立即成交(比例固定)。</p>
+    <p class="hint">「${TRADER_CFG.motto}」已喚醒 ${n}/3 位守望者——喚醒越多,好貨越多。點一下立即成交(比例固定)。</p>
     <div class="power-grid">`;
   offers.forEach((o, i) => {
     const giveText = Object.entries(o.give).map(([id, c]) => `${ITEMS[id].icon}${ITEMS[id].name}×${c}`).join(' + ');
@@ -1010,7 +1010,7 @@ function setOverlay(mode) {
     ov.innerHTML = `
       <div class="menu">
         <h1>微光深淵</h1>
-        <p class="sub">守護星核,奪回光明 — 1~4 人合作生存</p>
+        <p class="sub">一起把光帶回深淵吧!1~4 人合作の地底大冒險</p>
         <input id="nameInput" maxlength="12" placeholder="你的名字" value="${savedName}">
         <div class="diffrow" id="diffRow">
           ${Object.entries(DIFFICULTY_CFG).map(([key, d]) => `
@@ -1080,13 +1080,13 @@ function setOverlay(mode) {
     };
   } else if (mode === 'win') {
     ov.innerHTML = `<div class="menu"><h1>🏆 通關!</h1>
-      <p class="sub">星核甦醒,微光深淵重見光明。感謝遊玩!</p>
-      <div class="btnrow"><button id="btnCont">✨ 繼續自由遊玩</button></div></div>`;
+      <p class="sub">星核醒了,深淵亮了——都是你們的功勞!<br>聽說最深處的「淵核區」剛剛解封了……✨</p>
+      <div class="btnrow"><button id="btnCont">⛏️ 衝淵核區!繼續玩</button></div></div>`;
     $id('btnCont').onclick = () => setOverlay(null);
   } else if (mode === 'lose') {
     const host = NET.isHost();
-    ov.innerHTML = `<div class="menu"><h1>💀 星核熄滅了</h1>
-      <p class="sub">黑暗吞噬了一切……</p>
+    ov.innerHTML = `<div class="menu"><h1>💤 星核睡著了</h1>
+      <p class="sub">牠沒有生氣,牠只是想睡……揉揉眼睛,再來一次吧!</p>
       <div class="btnrow">${host
         ? `<button id="btnLoad2" ${hasSave() ? '' : 'disabled'}>📂 讀取存檔</button><button id="btnNew2">🌍 新世界</button>`
         : '<p class="sub">等待房主決定重來,或重新整理頁面回主選單</p>'}</div></div>`;
@@ -1127,7 +1127,7 @@ function openRoom() {
     UI.els.roomcode.textContent = `🔗 房號:${code}(點擊複製)`;
     UI.els.roomcode.classList.remove('hidden');
     UI.els.hostBtn.classList.add('hidden');
-    showMsg('✅ 開房成功!把房號告訴朋友,他們在主選單輸入即可加入');
+    showMsg('✅ 開房成功!把房號丟給朋友,一起來挖!');
   }, err => {
     showMsg('⚠️ ' + err);
     UI.els.hostBtn.disabled = false;

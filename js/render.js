@@ -494,12 +494,17 @@ function render(dt) {
         ctx.strokeStyle = e.type === 'fire_boss' ? '#ff8f4a' : e.type === 'frost_boss' ? '#bfe8ff' : e.type === 'void_boss' ? '#e0a0ff' : '#8a90a5';
         ctx.lineWidth = 3; ctx.stroke();
       }
-      // 發光的眼睛(黑暗氛圍重點)
+      // 發光的眼睛(黑暗氛圍重點;Q版改版:放大 20% + 白色高光點,一顆高光讓眼睛「活」起來)
       ctx.fillStyle = et.eye;
-      const ex = er * TILE * 0.35;
+      const ex = er * TILE * 0.35, eyeR = er * TILE * 0.17;
       ctx.beginPath();
-      ctx.arc(sx - ex, sy - er * TILE * 0.15, er * TILE * 0.14, 0, TAU);
-      ctx.arc(sx + ex, sy - er * TILE * 0.15, er * TILE * 0.14, 0, TAU);
+      ctx.arc(sx - ex, sy - er * TILE * 0.15, eyeR, 0, TAU);
+      ctx.arc(sx + ex, sy - er * TILE * 0.15, eyeR, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = '#ffffffcc';
+      ctx.beginPath();
+      ctx.arc(sx - ex + eyeR * 0.3, sy - er * TILE * 0.15 - eyeR * 0.3, eyeR * 0.32, 0, TAU);
+      ctx.arc(sx + ex + eyeR * 0.3, sy - er * TILE * 0.15 - eyeR * 0.3, eyeR * 0.32, 0, TAU);
       ctx.fill();
     }
     // 血條
@@ -566,13 +571,32 @@ function render(dt) {
     ctx.fill();
     ctx.strokeStyle = outline; ctx.lineWidth = outlineW * 0.8; ctx.stroke();
 
-    // 面向的眼睛
-    ctx.fillStyle = '#222';
+    // 面向的眼睛(Q版改版:眼睛加大;低血時變「><」求救臉,雙端都有 hp/maxhp 可判)
     const ex = Math.cos(p.aim) * R * 0.3, ey = Math.sin(p.aim) * R * 0.3;
-    ctx.beginPath();
-    ctx.arc(hx0 + ex - Math.sin(p.aim) * 4, hy0 + ey + Math.cos(p.aim) * 4, 2.5, 0, TAU);
-    ctx.arc(hx0 + ex + Math.sin(p.aim) * 4, hy0 + ey - Math.cos(p.aim) * 4, 2.5, 0, TAU);
-    ctx.fill();
+    const e1x = hx0 + ex - Math.sin(p.aim) * 4.5, e1y = hy0 + ey + Math.cos(p.aim) * 4.5;
+    const e2x = hx0 + ex + Math.sin(p.aim) * 4.5, e2y = hy0 + ey - Math.cos(p.aim) * 4.5;
+    if (p.hp / p.maxhp < 0.3) {
+      // 「><」瀕死表情:比血條更直覺的求救訊號
+      ctx.strokeStyle = '#222'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+      for (const [cx0, cy0, flip] of [[e1x, e1y, 1], [e2x, e2y, -1]]) {
+        ctx.beginPath();
+        ctx.moveTo(cx0 - 3 * flip, cy0 - 3); ctx.lineTo(cx0 + 3 * flip, cy0);
+        ctx.lineTo(cx0 - 3 * flip, cy0 + 3);
+        ctx.stroke();
+      }
+    } else {
+      ctx.fillStyle = '#222';
+      ctx.beginPath();
+      ctx.arc(e1x, e1y, 3.5, 0, TAU);
+      ctx.arc(e2x, e2y, 3.5, 0, TAU);
+      ctx.fill();
+      // 淡粉腮紅:Q 版臉頰的靈魂,順著臉的朝向擺在眼睛外側下方
+      ctx.fillStyle = 'rgba(255,157,226,0.35)';
+      ctx.beginPath();
+      ctx.ellipse(e1x - Math.sin(p.aim) * 5, e1y + Math.cos(p.aim) * 5 + 2, 3.2, 2.2, 0, 0, TAU);
+      ctx.ellipse(e2x + Math.sin(p.aim) * 5, e2y - Math.cos(p.aim) * 5 + 2, 3.2, 2.2, 0, 0, TAU);
+      ctx.fill();
+    }
     // 揮擊弧光
     if (p.swing > 0) {
       ctx.strokeStyle = `rgba(255,255,255,${p.swing / 0.22 * 0.8})`;

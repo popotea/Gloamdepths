@@ -45,7 +45,7 @@ const NET = {
       // 跟 buildSave 存同一組欄位:少了 lv/xp 的話,朋友離線再重連會掉回 1 等
       G.playersByName[p.name] = { inv: p.inv, hp: p.hp, x: p.x, y: p.y, lv: p.lv, xp: p.xp, talents: p.talents };
       G.players.delete(conn.pid);
-      msgAll(`👋 ${p.name} 離開了遊戲`);
+      msgAll(`👋 ${p.name} 先下線了,深淵會想念他的~`);
       this.sendAll({ t: 'bye', id: conn.pid });
     }
     conn.pid = undefined;
@@ -69,7 +69,7 @@ const NET = {
         inv: p.inv, over: G.over,
       });
       this.sendAllExcept(pid, { t: 'join', id: pid, name, x: p.x, y: p.y });
-      msgAll(`🎉 ${name} 加入了遊戲!`);
+      msgAll(`🎉 ${name} 空降深淵!人多好挖礦!`);
       return;
     }
     const p = G.players.get(conn.pid);

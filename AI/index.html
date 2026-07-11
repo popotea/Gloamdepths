@@ -255,7 +255,7 @@
           <div class="card-body">
             <div id="fileGroups"></div>
             <div class="status" id="batchStatus"></div>
-            <div class="hint" id="targetHint" style="margin-top:10px">點單一項目=帶入 Prompt 與目標;按「⚡ 整組補齊」=缺少的檔案全自動生成並存入,連點都不用點</div>
+            <div class="hint" id="targetHint" style="margin-top:10px">點單一項目=帶入 Prompt 與目標;按「⚡ 整組補齊」=缺少的檔案全自動生成並存入,連點都不用點。⚠️ 模板改版(2026-07 Q版貼紙風 v2)後,建議把舊圖清掉整組重生——同資料夾同一批、同一模型生成,風格才不會漂移混雜</div>
             <label>下載檔名(留空=自動用 Prompt 主體命名;下載一律轉存 PNG)</label>
             <input id="dlName" placeholder="例如:imp">
           </div>
@@ -856,8 +856,10 @@ function initPresets() {
 
 // ---------- 遊戲素材範本(來自《2D Top-Down AI 美術規範》) ----------
 const ASSET_LIB = {
-  master: 'Pixel art game asset, true top-down (90-degree overhead), top-down orthographic view, transparent background, 32x32 sprite, clean pixel art, cute chibi style, soft rounded shapes and corners, chunky proportions, 16-color palette, dark outline, centered object, game-ready PNG.',
-  negative: 'isometric,45 degree,side view,3D,realistic,painting,anime,background,text,watermark,logo,sharp corners,thin spindly shapes',
+  // v2 貼紙卡通風(2026-07 Q版改版):移除 pixel art/16色限制,改厚描邊貼紙感+平塗 cel shading。
+  // 「true top-down」是 applySpec 的特徵字,改模板措辭務必保留這三個字
+  master: 'Cute chibi game asset, kawaii sticker art style, true top-down (90-degree overhead) view, transparent background, soft rounded blob shapes, chunky short proportions, bold thick dark outline like a sticker, flat cel shading with one soft highlight, vivid saturated colors that pop on a dark background, centered single subject, game-ready PNG.',
+  negative: 'isometric,45 degree,side view,3D,realistic,photo,horror,scary,creepy,gritty,anime,background,text,watermark,logo,sharp corners,thin spindly shapes,muted dull colors',
   cats: {
     '地形': ['Grass', 'Dirt', 'Stone', 'Sand', 'Snow', 'Ice', 'Water', 'Lava', 'Wood Floor', 'Brick', 'Cave', 'Swamp'],
     '植物與資源': ['Oak Tree', 'Pine', 'Bush', 'Flower', 'Mushroom', 'Crystal', 'Coal Ore', 'Iron Ore', 'Gold Ore', 'Diamond Ore'],
@@ -904,20 +906,30 @@ function initAssetLib() {
 // 每個項目:[檔名, 遊戲內名稱, 生圖用英文外觀描述(照 config.js 的配色/形狀/元素寫)]
 const GAME_ASSETS = [
   { dir: 'assets/monsters/', note: '怪物 — 遊戲會自動載入,檔名須完全一致', files: [
-    // 描述照 config.js 的 shape(blob/mono/spike/mouth/ghost/tank)與配色寫,輪廓對了遊戲裡才認得出是誰
-    ['imp.png', '小蝕影', 'small round blob-shaped shadow slime creature, dark navy blue body, two big glowing cyan eyes, no limbs, single creature'],
-    ['spore.png', '蝕影孢子', 'tiny round dark teal spore creature, one single big glowing aqua eye in the middle, very small and simple, single creature'],
-    ['hunter.png', '蝕影獵手', 'lean dark purple shadow beast covered in sharp spikes, glowing violet eyes, crouched aggressive hunting stance, single creature'],
-    ['spitter.png', '吐影者', 'dark magenta shadow creature with one huge gaping mouth full of glowing teeth, glowing pink eyes, single creature'],
-    ['bomber.png', '爆裂蝕影', 'round bulging rust-red creature, swollen body glowing orange from inside like about to explode, glowing orange eyes, single creature'],
-    ['phantom.png', '穿牆幽影', 'pale ice-blue ghost, translucent wispy body fading into a trailing tail instead of legs, glowing white eyes, single creature'],
-    ['breaker.png', '裂地者', 'massive bulky rock golem, brown-grey stone armored body, short thick limbs, glowing yellow eyes, heavy and wide, single creature'],
-    ['abyss.png', '深淵蝕影', 'menacing crimson shadow beast with long sharp spikes, glowing blood-red eyes, single creature'],
-    ['sentinel.png', '石像守衛', 'giant ancient stone statue guardian, cracked grey stone body with ornate carvings, glowing golden eyes, imposing boss, single creature'],
+    // 描述照 config.js 的 shape(blob/mono/spike/mouth/ghost/tank)與配色寫,輪廓對了遊戲裡才認得出是誰。
+    // v2 Q版改版原則:配色/輪廓關鍵字保留(遊戲辨識),兇狠詞(menacing/imposing/aggressive)
+    // 全面換成「表情詞」(鼓臉/瞇眼壞笑/噘嘴)——兇狠感用表情表達,不用尖刺獠牙
+    ['imp.png', '小蝕影', 'small round blob shadow slime, dark navy body, two huge glowing cyan puppy eyes, tiny happy smile, bouncy and squishy, single creature'],
+    ['spore.png', '蝕影孢子', 'tiny round dark teal spore ball, one single huge glowing aqua eye blinking curiously, very small and simple, single creature'],
+    ['hunter.png', '蝕影獵手', 'chubby dark purple shadow cat-like beast with short soft rounded spikes like plush fur, big glowing violet eyes with a mischievous grin, single creature'],
+    ['spitter.png', '吐影者', 'round dark magenta shadow puffball with one big open mouth showing tiny glowing teeth like a singing frog, cheerful glowing pink eyes, single creature'],
+    ['bomber.png', '爆裂蝕影', 'round bulging rust-red creature puffing its cheeks, body glowing warm orange from inside like a lantern, wide surprised glowing eyes, single creature'],
+    ['phantom.png', '穿牆幽影', 'pale ice-blue ghost with a soft wispy trailing tail, shy sleepy glowing white eyes, floating gently, adorable, single creature'],
+    ['breaker.png', '裂地者', 'chunky round rock golem, brown-grey pebble body, stubby little arms, grumpy pouting glowing yellow eyes, single creature'],
+    ['abyss.png', '深淵蝕影', 'plump crimson shadow ball with short soft rounded spikes like a plush sea urchin, big glowing red eyes with a naughty frown, single creature'],
+    ['sentinel.png', '石像守衛', 'big round ancient stone statue guardian, smooth cracked grey body with cute carved patterns, calm sleepy glowing golden eyes, gentle giant, single creature'],
+    ['fire_boss.png', '熔岩魔像', 'big round lava golem, warm red-orange rocky body with glowing magma cracks, puffy cheeks, fierce but cute glowing amber eyes, gentle giant boss, single creature'],
+    ['frost_boss.png', '寒霜巨像', 'big round ice golem, pale blue frosty body with snow patches, chubby arms, proud sparkling ice-blue eyes, gentle giant boss, single creature'],
+    ['void_boss.png', '虛境潛獵者', 'large round dark violet ghost with a wispy tail, mysterious glowing pink crescent eyes like a smiling mask, floating, spooky-cute boss, single creature'],
+    ['revenant.png', '淵魂', 'plump dark purple shadow spirit with short soft spikes, intense glowing magenta eyes, determined pout, single creature'],
+    ['voidling.png', '蝕裂者', 'small dark indigo shadow creature with a big round open mouth, glowing lavender eyes, cheeky expression, single creature'],
   ] },
   { dir: 'assets/animals/', note: '動物(ANIMAL_TYPES)— 遊戲尚未讀取,先分類備存', files: [
-    ['hen.png', '幽穴雞', 'plump small pale cave hen, soft faint glow, cute and round, single animal'],
-    ['cow.png', '苔絨牛', 'chubby fluffy cow covered in soft teal glowing moss, cute, four legs visible, single animal'],
+    ['hen.png', '幽穴雞', 'plump small pale cave hen, soft faint glow, tiny gentle smiling eyes, cute and round, single animal'],
+    ['cow.png', '苔絨牛', 'chubby fluffy cow covered in soft teal glowing moss, big sweet sleepy eyes, four legs visible, single animal'],
+  ] },
+  { dir: 'assets/npcs/', note: 'NPC — 遊戲會自動載入(traderImg),檔名須完全一致', files: [
+    ['trader.png', '商人莫勾', 'round friendly mole merchant wearing a tiny lantern hat, carrying a big backpack full of shiny goods, warm golden glow, big kind sparkly eyes, single character'],
   ] },
   { dir: 'assets/tiles/', note: '地形(TILE_INFO)— 遊戲會自動載入(v39 起),整格材質不去背', files: [
     ['floor.png', '洞穴地板(外圈泥土區)', 'plain smooth packed brown dirt floor, very subtle fine grain only, no rocks, no objects, minimal detail, muted dark colors, almost flat'],
@@ -940,6 +952,9 @@ const GAME_ASSETS = [
     ['wall_wood.png', '木牆(建)', 'bright wooden plank wall, neat vertical planks, warm wood color'],
     ['wall_stone.png', '石牆(建)', 'bright light grey stone brick wall, regular brick pattern'],
     ['fence_tile.png', '木圍籬', 'wooden fence with three vertical posts and two horizontal rails'],
+    ['rail.png', '軌道', 'straight vertical mine cart rail track, two shiny metal rails with wooden sleepers, spanning from top edge to bottom edge'],
+    ['voidrock.png', '淵岩', 'deep violet dense void rock wall, faint glowing purple cracks, mysterious but cozy'],
+    ['seal.png', '遠古封印', 'dark purple ancient barrier wall texture with faint glowing rune engravings, soft magical glow'],
   ] },
   { dir: 'assets/items/', note: '材料(ITEMS)— 遊戲尚未讀取,先分類備存', files: [
     ['wood.png', '木材', 'bundle of wooden logs'],
@@ -1009,6 +1024,9 @@ const GAME_ASSETS = [
     ['wood_wall.png', '木牆', 'wooden wall block'],
     ['stone_wall.png', '石牆', 'stone brick wall block'],
     ['fence.png', '木圍籬', 'wooden fence section'],
+    ['rail.png', '軌道', 'mine cart rail track segment with wooden sleepers'],
+    ['auto_miner.png', '自動採礦機', 'small round friendly mining robot with a spinning drill and glowing cyan power core, stubby legs'],
+    ['belt.png', '傳輸帶', 'conveyor belt segment with glowing cyan direction arrows'],
   ] },
 ];
 let saveTarget = null; // 目前選定的「存入遊戲」目標 {dir:'monsters', file:'imp.png'}
@@ -1216,19 +1234,21 @@ async function saveToGame(src, target, ow) {
   }
 }
 // 地形材質要「鋪滿整格、無縫」,跟一般素材的「置中物件、透明背景」相反,用獨立模板
-const MASTER_TILE = 'Pixel art seamless terrain tile texture for a top-down game, viewed from directly above, cute cozy style, soft rounded shapes in the pattern, 16-color palette, fills the entire square, evenly distributed pattern, uniform lighting, no border, no single centered object, game-ready.';
-const NEG_TILE = 'isometric,3D,realistic,photo,single object,character,border,frame,vignette,text,watermark,logo';
+// v2 貼紙卡通風:與生物/物品同風格家族(圓潤平塗),「fills the entire square」是 applySpec 特徵字,務必保留
+const MASTER_TILE = 'Cute cartoon seamless terrain tile texture for a top-down game, viewed from directly above, cozy rounded shapes in the pattern, flat cel shading, soft saturated colors, fills the entire square, evenly distributed pattern, uniform lighting, no border, no single centered object, game-ready.';
+const NEG_TILE = 'isometric,3D,realistic,photo,horror,scary,gritty,single object,character,border,frame,vignette,text,watermark,logo,muted dull colors';
 // 生物(怪物/動物)用:90° 正俯視只會看到背,AI 又愛只畫一顆頭;
 // 改用「全身 + 站姿 + 3/4 俯視 RPG 視角」,負面詞把頭像/半身/裁切都擋掉
-const MASTER_CREATURE = 'Pixel art game creature sprite, cute chibi style, big head small round body, soft rounded shapes, full body from head to feet, entire body visible including all legs, standing pose, three-quarter top-down RPG view, transparent background, centered, 16-color palette, dark outline, game-ready PNG.';
-const NEG_CREATURE = 'portrait,face only,head only,headshot,bust,cropped,close-up,half body,isometric,3D,realistic,painting,anime,background,text,watermark,logo,scary,horror,grim,sharp thin shapes';
-// 判斷這個目標是不是「整格材質」:地形都是,唯獨圍籬是透明物件(要去背、疊在地板上)
-function isTileTexture(target) { return !!target && target.dir === 'tiles' && target.file !== 'fence_tile.png'; }
-// 依目標決定 Prompt 模板種類:地形=整格材質、怪物與動物=全身生物、其餘=置中物件
+// v2 貼紙卡通風:「full body from head to feet」是 applySpec 特徵字,務必保留
+const MASTER_CREATURE = 'Cute chibi game creature sprite, kawaii sticker art style, big head small round body, soft rounded blob shapes, big glowing friendly eyes, bold thick dark outline like a sticker, flat cel shading with one soft highlight, vivid saturated colors, full body from head to feet, entire body visible including all legs, standing pose, three-quarter top-down RPG view, transparent background, centered, game-ready PNG.';
+const NEG_CREATURE = 'portrait,face only,head only,headshot,bust,cropped,close-up,half body,isometric,3D,realistic,painting,anime,background,text,watermark,logo,scary,horror,grim,creepy,gritty,sharp thin shapes,muted dull colors';
+// 判斷這個目標是不是「整格材質」:地形都是,唯獨圍籬/軌道是透明物件(要去背、疊在地板上)
+function isTileTexture(target) { return !!target && target.dir === 'tiles' && target.file !== 'fence_tile.png' && target.file !== 'rail.png'; }
+// 依目標決定 Prompt 模板種類:地形=整格材質、怪物/動物/NPC=全身生物、其餘=置中物件
 function specKindOf(target) {
   if (!target) return '';
   if (isTileTexture(target)) return 'tile';
-  if (target.dir === 'monsters' || target.dir === 'animals') return 'creature';
+  if (target.dir === 'monsters' || target.dir === 'animals' || target.dir === 'npcs') return 'creature';
   return '';
 }
 // 自動套用需求書:Prompt 裡沒有模板特徵字時,把使用者輸入當「主體」包進對應模板
