@@ -121,7 +121,7 @@ const NET = {
         tiles: rleEnc(G.tiles), explored: rleEnc(G.explored),
         objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null, o.stage ?? null, o.t ?? null, o.nestType ?? null, o.dir ?? null, o.fuel ?? null, o.items ?? null]),
         core: { energy: G.core.energy, shards: G.core.shards },
-        shrines: G.shrines, traders: G.traders, wave: G.wave, time: G.time, difficulty: G.difficulty, unsealed: G.unsealed,
+        shrines: G.shrines, traders: G.traders, wave: G.wave, time: G.time, difficulty: G.difficulty, unsealed: G.unsealed, won: G.won,
         players: [...G.players.values()].map(pl => [pl.id, pl.name, pl.x, pl.y, pl.hp, pl.dead ? 1 : 0, pl.lv || 1, pl.xp || 0]),
         inv: p.inv, over: G.over,
       });
@@ -239,7 +239,7 @@ const NET = {
       drops: G.drops.map(d => [d.id, d.item, d.n, r2(d.x), r2(d.y), d.lv || 0]),
       projs: G.projs.map(pj => [pj.id, r2(pj.x), r2(pj.y), pj.from === 'e' ? 1 : 0]),
       core: { e: r2(G.core.energy), s: G.core.shards },
-      wave: { n: G.wave.n, state: G.wave.state, timer: Math.round(G.wave.timer), alive: G.wave.alive || 0, final: G.wave.final },
+      wave: { n: G.wave.n, state: G.wave.state, timer: Math.round(G.wave.timer), alive: G.wave.alive || 0, final: G.wave.final, endless: G.wave.endless || false, en: G.wave.en || 0 },
       kills: G.killCount,
     };
     for (const [pid, c] of this.conns) {
@@ -372,6 +372,7 @@ const NET = {
         G.shrines = d.shrines; G.traders = d.traders || []; G.wave = d.wave; G.time = d.time;
         G.difficulty = DIFFICULTY_CFG[d.difficulty] ? d.difficulty : 'normal';
         G.unsealed = !!d.unsealed;
+        G.won = !!d.won;
         G.enemies = []; G.drops = []; G.floaters = []; G.cracks.clear(); G.projs = []; G.animals = [];
         G.players.clear();
         for (const [id, name, x, y, hp, dead, lv, xp] of d.players) {
@@ -463,7 +464,11 @@ const NET = {
         if (me) { me.x = d.x; me.y = d.y; }
         break;
       }
-      case 'over': G.over = d.win ? 'win' : 'lose'; setOverlay(G.over); if (d.win) SFX.win(); else SFX.lose(); break;
+      // 勝利不設 G.over(遊戲進無盡模式繼續跑),只秀慶祝畫面;失敗才是真正的結束
+      case 'over':
+        if (d.win) { G.won = true; setOverlay('win'); SFX.win(); }
+        else { G.over = 'lose'; setOverlay('lose'); SFX.lose(); }
+        break;
     }
   },
 

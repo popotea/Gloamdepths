@@ -357,13 +357,13 @@ function uiTick(dt) {
   const w = G.wave;
   if (w.state === 'calm') {
     const t = Math.max(0, Math.ceil(w.timer));
-    UI.els.wavebox.textContent = `🌊 下一波暗潮 ${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+    UI.els.wavebox.textContent = `${w.endless ? '🌑 下一波無盡暗潮' : '🌊 下一波暗潮'} ${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
     UI.els.wavebox.className = '';
   } else if (w.state === 'warn') {
     UI.els.wavebox.textContent = `⚠️ 暗潮來襲倒數 ${Math.max(0, Math.ceil(w.timer))} 秒!`;
     UI.els.wavebox.className = 'warn';
   } else {
-    UI.els.wavebox.textContent = (w.final ? '🌑 最終暗潮!' : `🌊 第 ${w.n} 波暗潮!`) + ` 剩餘 ${w.alive ?? '?'} 隻`;
+    UI.els.wavebox.textContent = (w.final ? '🌑 最終暗潮!' : w.endless ? `🌑 無盡暗潮第 ${w.en || 0} 波!` : `🌊 第 ${w.n} 波暗潮!`) + ` 剩餘 ${w.alive ?? '?'} 隻`;
     UI.els.wavebox.className = 'warn';
   }
 
@@ -827,6 +827,7 @@ function renderMenu() {
         <p>⚔️ 累計擊殺:<b>${G.killCount || 0}</b></p>
         <p>⏱️ 存活時間:<b>${timeText}</b></p>
         <p>🌊 暗潮波數:<b>${G.wave.n || 0}</b></p>
+        ${G.won ? `<p>🌑 無盡暗潮:<b>已撐過 ${G.wave.en || 0} 波</b></p>` : ''}
         <p>🎚️ 難度:<b>${(DIFFICULTY_CFG[G.difficulty] || DIFFICULTY_CFG.normal).label}</b></p>
       </div>
       <div class="btnrow"><button id="mStatsBack">← 返回</button></div>`;
@@ -1222,8 +1223,9 @@ function setOverlay(mode) {
     $id('btnSlotBack').onclick = () => setOverlay('start');
   } else if (mode === 'win') {
     ov.innerHTML = `<div class="menu"><h1>🏆 通關!</h1>
-      <p class="sub">星核醒了,深淵亮了——都是你們的功勞!<br>聽說最深處的「淵核區」剛剛解封了……✨</p>
-      <div class="btnrow"><button id="btnCont">⛏️ 衝淵核區!繼續玩</button></div></div>`;
+      <p class="sub">星核醒了,深淵亮了——都是你們的功勞!<br>聽說最深處的「淵核區」剛剛解封了……✨<br>
+      而且深淵沒打算安靜:「<b>無盡暗潮</b>」開始醞釀,一波更比一波兇,星核也還是要餵——看你們能撐到第幾波!</p>
+      <div class="btnrow"><button id="btnCont">⛏️ 衝淵核區!迎戰無盡暗潮</button></div></div>`;
     $id('btnCont').onclick = () => setOverlay(null);
   } else if (mode === 'lose') {
     const host = NET.isHost();

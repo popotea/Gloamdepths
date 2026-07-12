@@ -139,17 +139,25 @@ function updateWave(dt) {
     const alive = G.enemies.filter(e => e.wave).length;
     w.alive = alive;
     if (alive === 0) {
-      if (w.final) { gameOver(true); return; }
+      if (w.final) { winGame(); return; }
       w.state = 'calm';
       w.timer = WAVE_CFG.interval;
-      msgAll('☀️ 守住了!!蝕影哭著回家了~把握時間補給蓋牆!');
+      msgAll(w.endless
+        ? `☀️ 無盡暗潮第 ${w.en || 0} 波退散!(蝕影:怎麼還打不下來啊)`
+        : '☀️ 守住了!!蝕影哭著回家了~把握時間補給蓋牆!');
     }
   }
+}
+
+// 無盡暗潮的敵人傷害倍率:每波 +6%、封頂 3 倍(數量成長走既有 wave.n 公式,這裡只管傷害)
+function endlessDmgMult() {
+  return Math.min(ENDLESS_CFG.dmgCap, 1 + ENDLESS_CFG.dmgPerWave * (G.wave.en || 0));
 }
 
 function startWave() {
   const w = G.wave;
   w.n++; w.state = 'active';
+  if (w.endless) w.en = (w.en || 0) + 1;
   const alive = [...G.players.values()];
   const players = Math.max(1, alive.length);
   const avgLv = alive.length ? alive.reduce((s, p) => s + (p.lv || 1), 0) / alive.length : 1;
@@ -157,17 +165,27 @@ function startWave() {
   const waveMult = (DIFFICULTY_CFG[G.difficulty] || DIFFICULTY_CFG.normal).waveCountMult;
   let count = Math.round((4 + 3 * w.n) * (0.7 + 0.3 * players) * lvMult * waveMult);
   if (w.final) count = Math.round(20 * (0.7 + 0.3 * players) * lvMult * waveMult);
-  msgAll(w.final ? '🌑💥 最終暗潮來襲!!撐過去,星核就會甦醒!' : `🌊 第 ${w.n} 波暗潮來襲!共 ${count} 隻`);
+  msgAll(w.final ? '🌑💥 最終暗潮來襲!!撐過去,星核就會甦醒!'
+    : w.endless ? `🌑 無盡暗潮第 ${w.en} 波來襲!共 ${count} 隻,一波更比一波兇!`
+    : `🌊 第 ${w.n} 波暗潮來襲!共 ${count} 隻`);
   emitFx({ k: 'sfx', s: 'wave' });
   for (let k = 0; k < count; k++) {
     const pos = findWaveSpawn();
     if (!pos) continue;
     let type = 'imp';
     const roll = Math.random(), n = w.final ? 6 : w.n;
-    if (n >= 5 && roll < 0.3) type = 'abyss';
+    if (w.endless) {
+      // 無盡波:淵核區的高階蝕影加入陣容,越後面占比越高(最高一半)
+      const hi = Math.min(0.5, 0.15 + w.en * 0.03);
+      if (roll < hi * 0.4) type = 'voidling';
+      else if (roll < hi) type = 'revenant';
+      else if (roll < hi + 0.25) type = 'abyss';
+      else if (roll < hi + 0.5) type = 'hunter';
+    } else if (n >= 5 && roll < 0.3) type = 'abyss';
     else if (n >= 3 && roll < 0.6) type = 'hunter';
     const e = spawnEnemy(type, pos.x, pos.y);
     e.wave = true;
+    if (w.endless) e.dmgMult *= endlessDmgMult(); // 疊在難度/精英倍率之上
   }
   if (w.final) {
     const pos = findWaveSpawn();
@@ -244,21 +262,33 @@ function animalRegrow(dt) {
   spawnAnimal(kinds[(Math.random() * kinds.length) | 0], x + 0.5, y + 0.5);
 }
 
+// 真正的結局只有失敗:G.over='lose' 會凍結模擬(main.js 的 simTick 守衛)。
+// 勝利不再走這裡凍結遊戲——改走 winGame() 進無盡模式(修掉「通關後全世界凍結、
+// 掉落物撿不起來、淵核區名存實亡」的舊 bug)
 function gameOver(win) {
+  if (win) return winGame();
   if (G.over) return;
-  G.over = win ? 'win' : 'lose';
-  if (win) {
-    msgAll('🏆 星核醒來了!!整個深淵都亮起來了——你們就是傳說!✨🎉');
-    emitFx({ k: 'sfx', s: 'win' });
-    // 通關獎勵:解除淵核區(第五區域)的封印,開放更深、更危險的探索
-    if (NET.isHost()) unsealVoidZone();
-    msgAll('🔓 咔啦——遠古封印碎了!最深處的「淵核區」開門營業:怪更兇、礦更肥,敢不敢?');
-  } else {
-    msgAll('💀 星核睡著了……沒關係,深淵永遠歡迎再來一次(牠沒生氣,牠只是想睡)');
-    emitFx({ k: 'sfx', s: 'lose' });
-  }
-  if (NET.isHost()) { NET.sendAll({ t: 'over', win }); saveGame(); }
-  setOverlay(G.over);
+  G.over = 'lose';
+  msgAll('💀 星核睡著了……沒關係,深淵永遠歡迎再來一次(牠沒生氣,牠只是想睡)');
+  emitFx({ k: 'sfx', s: 'lose' });
+  if (NET.isHost()) { NET.sendAll({ t: 'over', win: false }); saveGame(); }
+  setOverlay('lose');
+}
+
+// 通關:慶祝+解封淵核區,接著進入無盡模式——模擬不停、暗潮照來、星核照樣要餵,
+// 能量歸零依然全隊失敗。G.won 只是「已通關」的旗標(存檔/顯示用),不影響模擬
+function winGame() {
+  if (G.won) return;
+  G.won = true;
+  msgAll('🏆 星核醒來了!!整個深淵都亮起來了——你們就是傳說!✨🎉');
+  emitFx({ k: 'sfx', s: 'win' });
+  // 通關獎勵:解除淵核區(第五區域)的封印,開放更深、更危險的探索
+  if (NET.isHost()) unsealVoidZone();
+  msgAll('🔓 咔啦——遠古封印碎了!最深處的「淵核區」開門營業:怪更兇、礦更肥,敢不敢?');
+  G.wave = { n: G.wave.n, state: 'calm', timer: ENDLESS_CFG.rest, final: false, endless: true, en: 0 };
+  msgAll('🌊 不過深淵沒打算就此安靜——「無盡暗潮」開始醞釀,一波更比一波兇。看你們能撐到第幾波!');
+  if (NET.isHost()) { NET.sendAll({ t: 'over', win: true }); saveGame(); }
+  setOverlay('win');
 }
 
 // ===== 存檔(只存在房主/單機的瀏覽器) =====
@@ -278,12 +308,12 @@ function buildSave() {
     drops: G.drops.map(d => [d.item, d.n, d.x, d.y, d.lv || 0, d.dur ?? null]),
     animals: G.animals.map(a => [a.type, Math.round(a.x * 10) / 10, Math.round(a.y * 10) / 10, Math.round(a.hp), Math.round(a.fedT || 0)]),
     core: { energy: G.core.energy, shards: G.core.shards },
-    wave: { n: G.wave.n, timer: Math.max(45, G.wave.state === 'calm' ? G.wave.timer : 45), final: G.wave.final && G.core.shards < CORE_CFG.needShards ? false : G.wave.final },
+    wave: { n: G.wave.n, timer: Math.max(45, G.wave.state === 'calm' ? G.wave.timer : 45), final: G.wave.final && G.core.shards < CORE_CFG.needShards ? false : G.wave.final, en: G.wave.en || 0 },
     shrines: G.shrines.map(s => ({ x: s.x, y: s.y, dead: s.dead, boss: s.boss })),
     traders: G.traders.map(t => ({ x: t.x, y: t.y })),
     playersByName: G.playersByName,
     hostName: G.players.get(G.myId)?.name || '',
-    won: G.over === 'win',
+    won: G.won,
   };
 }
 
@@ -348,7 +378,9 @@ function applySave(s, name) {
       a.fedT = fedT || 0;
     }
   }
-  G.core.energy = s.core.energy; G.core.shards = s.core.shards;
+  // 戰敗當下存的檔能量是 0,原樣讀回來第一個 tick 就再敗一次(讀檔即輸的死循環)——
+  // 給一口急救能量,玩家至少有機會衝去挖光晶搶救
+  G.core.energy = Math.max(s.core.energy, 25); G.core.shards = s.core.shards;
   G.wave = { n: s.wave.n, state: 'calm', timer: s.wave.timer, final: false };
   G.shrines = s.shrines;
   G.traders = s.traders || G.traders;
@@ -357,7 +389,11 @@ function applySave(s, name) {
   G.killCount = s.killCount || 0;
   G.difficulty = DIFFICULTY_CFG[s.difficulty] ? s.difficulty : 'normal'; // 舊存檔沒有這欄位就退回一般難度
   G.unsealed = !!s.unsealed; // 淵核區解封狀態(SEAL→FLOOR 已寫進 tiles 存下來,這旗標只防重複解封)
-  G.over = s.won ? 'win' : null;
+  // 通關過的存檔:讀回來直接是無盡模式(G.over 只留給 lose,勝利不凍結模擬)。
+  // 舊版存檔沒有 wave.en 就從 0 起算,給 90 秒喘息再開下一波
+  G.won = !!s.won;
+  G.over = null;
+  if (s.won) G.wave = { n: s.wave.n, state: 'calm', timer: Math.max(90, s.wave.timer || 90), final: false, endless: true, en: s.wave.en || 0 };
   rebuildLights();
   spawnShrineBosses();
   if (s.core.shards >= CORE_CFG.needShards && !s.won) G.wave = { n: s.wave.n, state: 'warn', timer: 20, final: true };

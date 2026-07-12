@@ -170,3 +170,9 @@
 - **餵料統一走 `smelterFeed(o,id,n)`**(回傳吃不下的量):傳輸帶(`updateBelts` 比照儲物箱的「正前方一格」分支,**帶 lv/dur 的強化裝備掉落不吸**,免得被熔掉)與玩家右鍵(`doFeedSmelter`,手持煤=補燃料/手持可熔礦=整批投料,協定 `{t:'smelter',x,y}`)共用。
 - **出料口是固定方位**:成品掉在第一個相鄰非固體格(右→下→左→上順序),在那格鋪傳輸帶就能自動接走——爐子本身是固體,掉自己腳下的話帶子推不到,道鏈會斷。
 - `updateSmelters` 在 simTick 排在 `updateBelts` 之前(剛出爐的錠同幀就能被帶子接走);敲爛時 `spillSmelter` 把緩衝礦石+剩煤全噴出來,不憑空消失。渲染:🏭 + 橘色燃料條(沒煤變暗)+ 上方細灰白條=緩衝量(render.js)。
+
+## 無盡模式(2026-07-12,原 3.1 選項A)
+- **`G.over` 只留給真正的結局(lose),通關改設 `G.won` 旗標**——這順手修掉一個舊 bug:過去 `G.over='win'` 永遠不清,`simTick` 被 `!G.over` 擋住,通關後全世界凍結(敵人不動、掉落物撿不起來),淵核區名存實亡。勝利入口是 `winGame()`(冪等,`gameOver(true)` 相容轉呼叫),失敗照走 `gameOver(false)`。
+- **通關後暗潮進入無盡循環**:`G.wave.endless=true` + `en`(無盡波數),喘息 `ENDLESS_CFG.rest`(150s)後照 `WAVE_CFG.interval` 排波。強度遵守難度設計鐵律「**更痛更多、不更肉**」:數量走既有 `wave.n` 線性成長、傷害每波 +6% 封頂 3 倍(`endlessDmgMult()` 疊乘在難度/精英倍率之上)、淵核區高階怪(revenant/voidling)進場占比隨波數升到最高 50%。**星核照樣耗能、歸零照樣輸**——通關不是免死金牌。
+- **同步/存讀檔**:`won` 進 buildSave/init(客戶端靠 init 拿 `G.won`、靠 snap 的 wave 拿 `endless/en`);讀通關存檔一律進無盡模式(舊存檔沒有 `wave.en` 從 0 起算)。net 的 `over` 訊息:win 不再設 client 的 `G.over`,只秀慶祝畫面。
+- **讀檔急救能量**(連帶修復):戰敗當下存的檔能量是 0,原樣讀回第一個 tick 就再敗——applySave 給 `max(存檔值, 25)` 的地板值,讀檔至少有機會搶救。

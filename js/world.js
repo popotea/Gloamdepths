@@ -153,7 +153,7 @@ function genWorld(seed) {
   G.shrines = []; G.traders = []; G.mushCount = 0; G.warned = {}; G.killCount = 0;
   G.core = { x: CX + 0.5, y: CY + 0.5, energy: CORE_CFG.maxE, shards: 0 };
   G.wave = { n: 0, state: 'calm', timer: WAVE_CFG.first, final: false };
-  G.time = 0; G.over = null;
+  G.time = 0; G.over = null; G.won = false;
 
   // 1) 細胞自動機長洞穴
   let a = new Uint8Array(MAP_W * MAP_H);
