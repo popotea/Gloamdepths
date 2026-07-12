@@ -13,6 +13,7 @@ const UI = {
   traderOpen: false, traderT: 0,
   storagePos: null, storageT: 0,
   selectedDifficulty: 'normal',
+  spec: null, // 觀戰自由鏡頭 {x, y, auto};null = 鏡頭跟著自己(auto = 死亡自動啟用,復活自動收回)
 };
 
 function $id(s) { return document.getElementById(s); }
@@ -368,7 +369,7 @@ function uiTick(dt) {
 
   // 死亡橫幅
   UI.els.deathbanner.classList.toggle('hidden', !me.dead);
-  if (me.dead) UI.els.deathbanner.textContent = `💧 你熄火了…… ${Math.max(0, Math.ceil(me.respawnT ?? 0))} 秒後在星核重新點燃`;
+  if (me.dead) UI.els.deathbanner.textContent = `💧 你熄火了…… ${Math.max(0, Math.ceil(me.respawnT ?? 0))} 秒後在星核重新點燃(WASD 可移動鏡頭觀戰)`;
 
   if (UI.invDirty) { UI.invDirty = false; refreshSlots(); }
 
@@ -784,10 +785,18 @@ function toggleMenu(open) {
 }
 
 function saveSizeText() {
-  let raw = null;
-  try { raw = localStorage.getItem(SAVE_KEY); } catch (e) { }
+  const raw = slotRaw(SAVE_SLOT);
   if (!raw) return '目前尚無存檔';
   return `約 ${(raw.length / 1024).toFixed(1)} KB`;
+}
+
+// 遊玩時間格式化(統計頁/存檔列表共用):有小時才顯示小時
+function fmtPlayTime(sec) {
+  const t = Math.floor(sec || 0);
+  const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
+  return h > 0
+    ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+    : `${m}:${String(s).padStart(2, '0')}`;
 }
 
 function renderMenu() {
@@ -811,11 +820,7 @@ function renderMenu() {
   }
   // ---- 統計 ----
   if (UI.menuView === 'stats') {
-    const t = Math.floor(G.time);
-    const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
-    const timeText = h > 0
-      ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-      : `${m}:${String(s).padStart(2, '0')}`;
+    const timeText = fmtPlayTime(G.time);
     panel.innerHTML = `
       <h2>📊 統計</h2>
       <div class="btnrow col" style="align-items:stretch;text-align:left;gap:4px;">
@@ -844,7 +849,7 @@ function renderMenu() {
     body = `
       <p>💾 <b>地圖存檔存在房主(你)的電腦裡</b>,每 30 秒自動存一次,關閉分頁前也會存一次。</p>
       <p>${originNote}</p>
-      <p>存檔識別碼(key):<code>${SAVE_KEY}</code><br>目前存檔大小:${saveSizeText()}</p>
+      <p>目前使用存檔欄位:<b>欄位 ${SAVE_SLOT}</b>(識別碼 <code>${saveKeyOf(SAVE_SLOT)}</code>)<br>目前存檔大小:${saveSizeText()}</p>
       <p>📤 <b>匯出成檔案</b>:下載一份地圖存檔到電腦,可以傳給別人。若你之後要關機、
       或想把房主交給別人,對方可以在主選單用「匯入存檔檔案」讀取這份檔案,以新房主身分
       開房繼續(地圖、怪物進度、所有人的背包都會保留)。</p>
@@ -888,8 +893,7 @@ function renderMenu() {
   if (isHost) {
     $id('mSaveNow').onclick = () => { saveGame(); renderMenu(); };
     $id('mExportSave').onclick = () => {
-      let raw = null;
-      try { raw = localStorage.getItem(SAVE_KEY); } catch (e) { }
+      const raw = slotRaw(SAVE_SLOT);
       if (!raw) { showMsg('⚠️ 尚無存檔可匯出'); return; }
       const blob = new Blob([raw], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -901,8 +905,8 @@ function renderMenu() {
       showMsg('📤 存檔已匯出,傳給朋友後對方可用「匯入存檔檔案」接手當房主');
     };
     $id('mClearSave').onclick = () => {
-      if (confirm('確定要清除自動存檔嗎?這個動作無法復原。')) {
-        try { localStorage.removeItem(SAVE_KEY); } catch (e) { }
+      if (confirm(`確定要清除欄位 ${SAVE_SLOT} 的自動存檔嗎?這個動作無法復原。`)) {
+        try { localStorage.removeItem(saveKeyOf(SAVE_SLOT)); } catch (e) { }
         showMsg('🗑️ 存檔已清除');
         renderMenu();
       }
@@ -1077,6 +1081,7 @@ function setOverlay(mode) {
   ov.classList.remove('hidden');
   const savedName = localStorage.getItem('gld_name') || '';
   if (mode === 'start') {
+    migrateLegacySave(); // 舊版單一存檔先搬進槽位,下面的 anySave()/存檔列表才看得到
     const netOK = NET.available();
     ov.innerHTML = `
       <div class="menu">
@@ -1091,7 +1096,7 @@ function setOverlay(mode) {
         </div>
         <div class="btnrow">
           <button id="btnNew">🌍 新世界</button>
-          <button id="btnLoad" ${hasSave() ? '' : 'disabled'}>📂 繼續存檔</button>
+          <button id="btnLoad" ${anySave() ? '' : 'disabled'}>📂 繼續存檔</button>
         </div>
         <div class="btnrow">
           <button id="btnImport">📤 匯入存檔檔案</button>
@@ -1107,8 +1112,9 @@ function setOverlay(mode) {
           打敗外圈三座神殿的守衛、集齊 3 塊碎片,撐過最終暗潮即通關。<br>
           <b>操作</b>:WASD 移動|左鍵 挖牆/攻擊|右鍵 放置/吃|1–8 快捷欄|E 背包合成|F 餵星核|T 天賦<br>
           <b>連線</b>:進入遊戲後點右上「開房邀請朋友」,把房號給朋友即可;存檔在房主電腦。<br>
-          <b>換房主</b>:原房主可在選單(Esc)「設定」裡匯出存檔檔案傳給你,用「匯入存檔檔案」
-          讀取後,你就能以新房主身分開房,讓大家用原本的名字加入拿回進度。
+          <b>房主斷線?</b>沒關係——遊戲會自動把房主交棒給最早加入的隊友,其他人自動跟過去,
+          進度與背包都不會丟(也可以用選單「設定」裡的匯出/匯入存檔手動換房主)。<br>
+          <b>觀戰</b>:按 <b>V</b> 進入自由鏡頭看隊友,再按 V 回來;倒下等復活時也能移動鏡頭。
         </div>
       </div>`;
     for (const btn of ov.querySelectorAll('.diffbtn')) {
@@ -1117,8 +1123,12 @@ function setOverlay(mode) {
         for (const b of ov.querySelectorAll('.diffbtn')) b.classList.toggle('selected', b === btn);
       };
     }
-    $id('btnNew').onclick = () => beginGame(false);
-    $id('btnLoad').onclick = () => beginGame(true);
+    $id('btnNew').onclick = () => {
+      const slot = firstEmptySlot();
+      if (slot) beginGame(false, slot);
+      else { UI.slotPick = 'new'; setOverlay('slots'); } // 三格都滿:讓玩家自己挑一格覆蓋
+    };
+    $id('btnLoad').onclick = () => { UI.slotPick = 'load'; setOverlay('slots'); };
     $id('btnImport').onclick = () => $id('importFile').click();
     $id('importFile').onchange = () => {
       const file = $id('importFile').files[0];
@@ -1127,8 +1137,21 @@ function setOverlay(mode) {
       reader.onload = () => {
         let s;
         try { s = JSON.parse(reader.result); } catch (e) { showMsg('⚠️ 檔案格式錯誤,無法讀取'); return; }
+        // 匯入前先決定之後自動存檔要寫進哪一格:優先空格,都滿了挑最舊的一格並問過玩家
+        let slot = firstEmptySlot();
+        if (!slot) {
+          let oldest = 1, oldestAt = Infinity;
+          for (let n = 1; n <= SAVE_SLOTS; n++) {
+            const info = slotInfo(n);
+            const at = (info && info.savedAt) || 0;
+            if (at < oldestAt) { oldestAt = at; oldest = n; }
+          }
+          if (!confirm(`存檔欄位都滿了,匯入後的進度會覆蓋最舊的欄位 ${oldest},確定嗎?`)) return;
+          slot = oldest;
+        }
         const name = getName();
         SFX.unlock();
+        SAVE_SLOT = slot;
         if (loadGameFromObject(s, name)) {
           UI.mmDirty = true; UI.invDirty = true;
           setOverlay(null);
@@ -1149,6 +1172,54 @@ function setOverlay(mode) {
         () => setOverlay(null),
         err => { showMsg('⚠️ ' + err); $id('btnJoin').disabled = false; $id('btnJoin').textContent = '🔗 加入房間'; });
     };
+  } else if (mode === 'slots') {
+    // 存檔欄位選擇:UI.slotPick = 'load'(讀哪一格)或 'new'(三格全滿時挑一格覆蓋開新世界)
+    const forNew = UI.slotPick === 'new';
+    const rows = [];
+    for (let n = 1; n <= SAVE_SLOTS; n++) {
+      const info = slotInfo(n);
+      let meta;
+      if (!info) meta = '<span class="dim">(空欄位)</span>';
+      else if (info.broken) meta = '<span class="warn">⚠️ 存檔資料損壞,只能刪除</span>';
+      else {
+        const when = info.savedAt ? new Date(info.savedAt).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+        meta = `<b>${info.hostName}</b> 的世界 · ${info.diffLabel} · 💠 ${info.shards}/3${info.won ? ' · 🏆 已通關' : ''}<br>
+          <span class="dim">⏱️ ${fmtPlayTime(info.time)}${when ? ' · 存於 ' + when : ''}</span>`;
+      }
+      const canLoad = info && !info.broken;
+      const actBtn = forNew
+        ? `<button class="slotAct" data-slot="${n}">🌍 ${info ? '覆蓋' : '開新世界'}</button>`
+        : `<button class="slotAct" data-slot="${n}" ${canLoad ? '' : 'disabled'}>📂 讀取</button>`;
+      rows.push(`
+        <div class="slotrow">
+          <div class="slotmeta">欄位 ${n}<br>${meta}</div>
+          ${actBtn}
+          <button class="slotDel" data-slot="${n}" ${info ? '' : 'disabled'} title="刪除這格存檔">🗑️</button>
+        </div>`);
+    }
+    ov.innerHTML = `
+      <div class="menu">
+        <h1>${forNew ? '🌍 挑一格放新世界' : '📂 繼續存檔'}</h1>
+        <p class="sub">${forNew ? '三個欄位都滿了——選一格覆蓋,或先刪掉不要的' : '選一格接著玩(存檔都在這台電腦的瀏覽器裡)'}</p>
+        ${rows.join('')}
+        <div class="btnrow"><button id="btnSlotBack">← 返回</button></div>
+      </div>`;
+    for (const btn of ov.querySelectorAll('.slotAct')) {
+      btn.onclick = () => {
+        const n = +btn.dataset.slot;
+        if (forNew && slotInfo(n) && !confirm(`欄位 ${n} 的存檔會被新世界覆蓋,確定嗎?`)) return;
+        beginGame(!forNew, n);
+      };
+    }
+    for (const btn of ov.querySelectorAll('.slotDel')) {
+      btn.onclick = () => {
+        const n = +btn.dataset.slot;
+        if (!confirm(`確定要刪除欄位 ${n} 的存檔嗎?這個動作無法復原。`)) return;
+        try { localStorage.removeItem(saveKeyOf(n)); } catch (e) { }
+        setOverlay('slots'); // 重畫列表
+      };
+    }
+    $id('btnSlotBack').onclick = () => setOverlay('start');
   } else if (mode === 'win') {
     ov.innerHTML = `<div class="menu"><h1>🏆 通關!</h1>
       <p class="sub">星核醒了,深淵亮了——都是你們的功勞!<br>聽說最深處的「淵核區」剛剛解封了……✨</p>
@@ -1159,12 +1230,16 @@ function setOverlay(mode) {
     ov.innerHTML = `<div class="menu"><h1>💤 星核睡著了</h1>
       <p class="sub">牠沒有生氣,牠只是想睡……揉揉眼睛,再來一次吧!</p>
       <div class="btnrow">${host
-        ? `<button id="btnLoad2" ${hasSave() ? '' : 'disabled'}>📂 讀取存檔</button><button id="btnNew2">🌍 新世界</button>`
+        ? `<button id="btnLoad2" ${anySave() ? '' : 'disabled'}>📂 讀取存檔</button><button id="btnNew2">🌍 新世界</button>`
         : '<p class="sub">等待房主決定重來,或重新整理頁面回主選單</p>'}</div></div>`;
     if (host) {
       $id('btnLoad2').onclick = () => { location.reload(); }; // 重新整理後從選單讀檔最穩定
-      $id('btnNew2').onclick = () => { localStorage.removeItem(SAVE_KEY); location.reload(); };
+      $id('btnNew2').onclick = () => { try { localStorage.removeItem(saveKeyOf(SAVE_SLOT)); } catch (e) { } location.reload(); };
     }
+  } else if (mode === 'migrating') {
+    ov.innerHTML = `<div class="menu"><h1>⚡ 房主換人中</h1>
+      <p class="sub">原房主斷線了!繼任房主正在開房,馬上把你接回去……<br>
+      (背包跟著名字走,什麼都不會丟。最多等一分鐘,接不上才會回到斷線畫面)</p></div>`;
   } else if (mode === 'disconnected') {
     ov.innerHTML = `<div class="menu"><h1>🔌 與房主斷線</h1>
       <div class="btnrow"><button onclick="location.reload()">回主選單</button></div></div>`;
@@ -1172,20 +1247,29 @@ function setOverlay(mode) {
 }
 
 function getName() {
-  const v = ($id('nameInput')?.value || '').trim() || '礦工' + ((Math.random() * 99) | 0);
+  // 存檔欄位選擇畫面沒有名字輸入框,退回上次記住的名字(從主畫面進來時已經存過)
+  const v = ($id('nameInput')?.value || '').trim() || localStorage.getItem('gld_name') || '礦工' + ((Math.random() * 99) | 0);
   localStorage.setItem('gld_name', v);
   return v;
 }
 
-function beginGame(load) {
+function beginGame(load, slot) {
   const name = getName();
   const diff = UI.selectedDifficulty;
   SFX.unlock();
+  if (slot) SAVE_SLOT = slot; // 之後整局的自動存檔都寫這一格
   if (load) {
     if (!loadGame(name)) { showMsg('⚠️ 讀檔失敗,改開新世界'); startNewGame(name, diff); }
   } else startNewGame(name, diff);
   UI.mmDirty = true; UI.invDirty = true;
   setOverlay(null);
+}
+
+// 房主斷線轉移:接棒成功後把右上角的開房 UI 切成「已開房」狀態(net.js _takeover 呼叫)
+function onBecameHost(code) {
+  UI.els.roomcode.textContent = `🔗 房號:${code}(點擊複製)`;
+  UI.els.roomcode.classList.remove('hidden');
+  UI.els.hostBtn.classList.add('hidden');
 }
 
 // 開房(單機途中隨時可開)
@@ -1195,9 +1279,7 @@ function openRoom() {
   UI.els.hostBtn.disabled = true;
   UI.els.hostBtn.textContent = '開房中…';
   NET.startHost(code => {
-    UI.els.roomcode.textContent = `🔗 房號:${code}(點擊複製)`;
-    UI.els.roomcode.classList.remove('hidden');
-    UI.els.hostBtn.classList.add('hidden');
+    onBecameHost(code);
     showMsg('✅ 開房成功!把房號丟給朋友,一起來挖!');
   }, err => {
     showMsg('⚠️ ' + err);

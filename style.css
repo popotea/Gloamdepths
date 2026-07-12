@@ -279,6 +279,14 @@ button.mini { font-size: 11px; padding: 3px 9px; border-radius: 6px; }
 .menu .help { text-align: left; font-size: 13px; line-height: 1.9; color: #9fb0c8; background: var(--ink-700);
   border: 1px solid var(--line-soft); border-radius: var(--radius-md); padding: 14px 18px; }
 .menu .warn { color: #ffb27d; font-size: 13px; margin-bottom: 12px; }
+/* 存檔欄位選擇列(主選單「繼續存檔」/新世界覆蓋挑格) */
+.menu .slotrow { display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+  background: var(--ink-700); border: 1px solid var(--line-soft); border-radius: var(--radius-md);
+  padding: 10px 14px; text-align: left; }
+.menu .slotrow .slotmeta { flex: 1; font-size: 13px; line-height: 1.6; color: #b7c2d4; }
+.menu .slotrow .slotmeta b { color: var(--gold); }
+.menu .slotrow .dim { color: var(--text-dim); }
+.menu .slotrow button { white-space: nowrap; border-radius: 999px; }
 
 /* 無障礙:偏好減少動態效果時,把裝飾性動畫/過場全部縮到近乎瞬間 */
 @media (prefers-reduced-motion: reduce) {

@@ -46,6 +46,7 @@ function bindInput() {
     if (k === 'e') togglePanel();
     else if (k === 't') toggleTalentPanel();
     else if (k === 'm') toggleMapPanel();
+    else if (k === 'v') toggleSpectate();
     else if (k >= '1' && k <= '8') { me.sel = +k - 1; UI.invDirty = true; }
     else if (k === 'f') {
       if (NET.isHost()) doDeposit(me);
@@ -90,8 +91,40 @@ function bindInput() {
   });
 }
 
+// 觀戰自由鏡頭移動速度(格/秒)
+const SPEC_CAM_SPEED = 18;
+
+// 觀戰模式切換(V 鍵):存活時進出自由鏡頭;死亡中按 V = 鏡頭拉回自己倒下的位置
+function toggleSpectate() {
+  const me = myPlayer();
+  if (!me) return;
+  if (UI.spec && !me.dead) { UI.spec = null; showMsg('👁️ 鏡頭回到自己身上'); }
+  else {
+    UI.spec = { x: me.x, y: me.y, auto: me.dead };
+    if (!me.dead) showMsg('👁️ 觀戰模式:WASD 移動鏡頭看隊友,V 返回');
+  }
+}
+
 // 本地玩家控制(房主與客戶端共用;客戶端做本地預測)
 function localControl(me, dt) {
+  // 觀戰模式:死亡倒數自動啟用、復活自動收回;啟用時 WASD 移動的是鏡頭不是角色。
+  // 純本地(只改 UI.spec),不影響模擬、不需要任何網路協定
+  if (me.dead && !UI.spec) UI.spec = { x: me.x, y: me.y, auto: true };
+  if (!me.dead && UI.spec && UI.spec.auto) UI.spec = null;
+  if (UI.spec) {
+    if (UI.menuOpen || UI.powerOpen) return;
+    let dx = 0, dy = 0;
+    if (INPUT.keys.has('w') || INPUT.keys.has('arrowup')) dy -= 1;
+    if (INPUT.keys.has('s') || INPUT.keys.has('arrowdown')) dy += 1;
+    if (INPUT.keys.has('a') || INPUT.keys.has('arrowleft')) dx -= 1;
+    if (INPUT.keys.has('d') || INPUT.keys.has('arrowright')) dx += 1;
+    if (dx || dy) {
+      const len = Math.hypot(dx, dy);
+      UI.spec.x = clamp(UI.spec.x + dx / len * SPEC_CAM_SPEED * dt, 0, MAP_W);
+      UI.spec.y = clamp(UI.spec.y + dy / len * SPEC_CAM_SPEED * dt, 0, MAP_H);
+    }
+    return; // 觀戰時角色原地待機,不接受任何動作輸入
+  }
   if (me.dead || UI.menuOpen || UI.powerOpen) return;
   // 移動
   let dx = 0, dy = 0;
@@ -250,6 +283,11 @@ addEventListener('load', () => {
   initUI();
   bindInput();
   setOverlay('start');
-  addEventListener('beforeunload', () => { if (NET.isHost() && G.started) saveGame(); });
+  addEventListener('beforeunload', () => {
+    if (NET.isHost() && G.started) saveGame();
+    // 房主關頁面前盡力推最後一份備援給繼任者(best effort:unload 時 datachannel 不保證送達,
+    // 送不到也只是繼任者用最多 20 秒前的那份)
+    if (NET.mode === 'host') { try { NET._pushBackup(); } catch (e) { } }
+  });
   requestAnimationFrame(frame);
 });

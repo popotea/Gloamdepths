@@ -81,8 +81,10 @@ function render(dt) {
   const me = G.players.get(G.myId);
   if (!me) return;
 
-  camX = me.x - cv.width / 2 / TILE;
-  camY = me.y - cv.height / 2 / TILE;
+  // 觀戰模式:鏡頭跟著自由觀戰點走,不跟角色(UI.spec 純本地,見 main.js localControl)
+  const cam = UI.spec || me;
+  camX = cam.x - cv.width / 2 / TILE;
+  camY = cam.y - cv.height / 2 / TILE;
 
   const x0 = Math.max(0, Math.floor(camX)), y0 = Math.max(0, Math.floor(camY));
   const x1 = Math.min(MAP_W - 1, Math.ceil(camX + cv.width / TILE));

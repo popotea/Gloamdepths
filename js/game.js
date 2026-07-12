@@ -1,5 +1,57 @@
 // ===== 遊戲模擬主邏輯(房主/單機執行)、暗潮、星核、存檔 =====
-const SAVE_KEY = 'gloamdepths_save';
+// 多存檔槽位:key 依槽位編號區分(gloamdepths_save_1~3);
+// 舊版單一 key 由 migrateLegacySave() 自動搬進第一個空槽,老玩家的存檔不會不見
+const LEGACY_SAVE_KEY = 'gloamdepths_save';
+const SAVE_SLOTS = 3;
+let SAVE_SLOT = 1; // 目前遊戲寫入的槽位(主選單讀檔/開新世界時決定,整局不變)
+const saveKeyOf = n => `gloamdepths_save_${n}`;
+
+// 舊版單一存檔搬進第一個空槽(冪等:搬完就刪舊 key,之後呼叫直接 return)
+function migrateLegacySave() {
+  try {
+    const raw = localStorage.getItem(LEGACY_SAVE_KEY);
+    if (!raw) return;
+    for (let n = 1; n <= SAVE_SLOTS; n++) {
+      if (!localStorage.getItem(saveKeyOf(n))) {
+        localStorage.setItem(saveKeyOf(n), raw);
+        localStorage.removeItem(LEGACY_SAVE_KEY);
+        return;
+      }
+    }
+  } catch (e) { }
+}
+
+function slotRaw(n) {
+  try { return localStorage.getItem(saveKeyOf(n)); } catch (e) { return null; }
+}
+
+// 槽位摘要(主選單存檔列表用):不存在回 null;JSON 壞掉回 { broken: true } 讓玩家仍可刪除
+function slotInfo(n) {
+  const raw = slotRaw(n);
+  if (!raw) return null;
+  try {
+    const s = JSON.parse(raw);
+    return {
+      hostName: s.hostName || '?',
+      diffLabel: (DIFFICULTY_CFG[s.difficulty] || DIFFICULTY_CFG.normal).label,
+      time: s.time || 0,
+      shards: (s.core && s.core.shards) || 0,
+      won: !!s.won,
+      savedAt: s.savedAt || 0,
+      size: raw.length,
+    };
+  } catch (e) { return { broken: true, size: raw.length }; }
+}
+
+function firstEmptySlot() {
+  for (let n = 1; n <= SAVE_SLOTS; n++) if (!slotRaw(n)) return n;
+  return 0;
+}
+
+function anySave() {
+  for (let n = 1; n <= SAVE_SLOTS; n++) if (slotRaw(n)) return true;
+  return false;
+}
 
 function msgAll(text) {
   showMsg(text);
@@ -216,6 +268,8 @@ function buildSave() {
   }
   return {
     v: 1, seed: G.seed, time: G.time, killCount: G.killCount, difficulty: G.difficulty, unsealed: G.unsealed,
+    savedAt: Date.now(), // 主選單存檔列表顯示「上次遊玩時間」用,讀檔邏輯不吃這欄位
+
     tiles: rleEnc(G.tiles),
     explored: rleEnc(G.explored),
     objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null, o.stage ?? null, o.t ?? null, o.nestType ?? null, o.dir ?? null, o.fuel ?? null, o.items ?? null]),
@@ -234,19 +288,21 @@ function buildSave() {
 
 function saveGame() {
   if (!G.started || !NET.isHost()) return;
+  if (!SAVE_SLOT) return; // 接棒房主找不到空存檔欄位時整局不落地(接棒當下已提示過)
   try {
-    localStorage.setItem(SAVE_KEY, JSON.stringify(buildSave()));
-    showMsg('💾 進度存好了(乖乖躺在房主電腦裡)');
+    localStorage.setItem(saveKeyOf(SAVE_SLOT), JSON.stringify(buildSave()));
+    showMsg(`💾 進度存好了(欄位 ${SAVE_SLOT},乖乖躺在房主電腦裡)`);
   } catch (e) { showMsg('⚠️ 存檔失敗:' + e.message); }
 }
 
-function hasSave() {
-  try { return !!localStorage.getItem(SAVE_KEY); } catch (e) { return false; }
+// 預設查目前槽位(設定頁的匯出/清除按鈕用);主選單「繼續存檔」要看全部槽位,用 anySave()
+function hasSave(n = SAVE_SLOT) {
+  return !!slotRaw(n);
 }
 
 function loadGame(name) {
   let s;
-  try { s = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch (e) { return false; }
+  try { s = JSON.parse(slotRaw(SAVE_SLOT)); } catch (e) { return false; }
   if (!s) return false;
   return applySave(s, name);
 }
