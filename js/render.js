@@ -96,6 +96,67 @@ function blitTile(texCv, tx, ty, sx, sy) {
   else ctx.drawImage(texCv, sx, sy);
 }
 
+// ---- 乾淨地板(程序化)----
+// AI 材質縮到 40px 一格會變高頻雜訊、切割不明確;地板改純色分區 + 整齊格線,清楚不吃視線。
+// 依區域(zoneOf)分四種底色,每格畫上邊+左邊各一條暗線 → 整張地圖連成清楚的網格。
+const FLOOR_BASE = ['#302519', '#262b36', '#241d31', '#1b1626']; // zone 0泥土/1石/2黑曜/3淵核
+const FLOOR_EDGE = ['#271d12', '#1d222d', '#1b1526', '#140e1e']; // 對應的格線暗色
+const FLOOR_HI   = ['#382b1e', '#2c313d', '#2a2238', '#211a2e']; // 對應的上緣淡高光(一點點立體感)
+function drawCleanFloor(sx, sy, tx, ty, t) {
+  const z = zoneOf(tx + 0.5, ty + 0.5);
+  let base = FLOOR_BASE[z], edge = FLOOR_EDGE[z], hi = FLOOR_HI[z];
+  if (t === T.FARMLAND) { base = '#3a2b18'; edge = '#281c0e'; hi = '#46331c'; }
+  else if (t === T.GLOW) { base = '#264a4e'; edge = '#1b383c'; hi = '#2e5a5e'; }
+  ctx.fillStyle = base;
+  ctx.fillRect(sx, sy, TILE + 1, TILE + 1);
+  ctx.fillStyle = hi;                          // 上緣 1px 淡高光
+  ctx.fillRect(sx, sy, TILE + 1, 1);
+  ctx.fillStyle = edge;                        // 左邊+下邊暗線 = 清楚的格子切割
+  ctx.fillRect(sx, sy, 1, TILE + 1);
+  ctx.fillRect(sx, sy + TILE, TILE + 1, 1);
+}
+
+// ---- 鐵軌(程序化,依相鄰鐵軌自動轉向,類似 Minecraft)----
+// 鐵軌只是「加速地板」(移動無方向性),所以自動轉向是純視覺:讀四鄰的 T.RAIL 決定畫直線還是轉彎。
+// 鄰居靠 G.tiles 已同步,雙端各自畫得出一致造型,不需要任何額外資料/協定。
+const RAIL_TIE = '#6a5236', RAIL_STEEL = '#c8ccd8';
+function drawRail(sx, sy, tx, ty) {
+  const u = tileAt(tx, ty - 1) === T.RAIL, d = tileAt(tx, ty + 1) === T.RAIL;
+  const l = tileAt(tx - 1, ty) === T.RAIL, r = tileAt(tx + 1, ty) === T.RAIL;
+  const cx = sx + TILE / 2, cy = sy + TILE / 2, gap = TILE * 0.15;
+  const hc = (l ? 1 : 0) + (r ? 1 : 0), vc = (u ? 1 : 0) + (d ? 1 : 0);
+  ctx.lineCap = 'round';
+  // 剛好「一橫一縱」= 轉彎:用二次貝茲曲線連接兩條邊的中點,控制點放在共用角落
+  if (hc === 1 && vc === 1) {
+    const ex = r ? sx + TILE : sx, ey = d ? sy + TILE : sy; // 角落(圓心方向)
+    const p0 = [ex, cy], p2 = [cx, ey], cp = [ex, ey];
+    const bez = (tt, i) => (1 - tt) * (1 - tt) * p0[i] + 2 * (1 - tt) * tt * cp[i] + tt * tt * p2[i];
+    ctx.strokeStyle = RAIL_TIE; ctx.lineWidth = TILE * 0.13;
+    for (const tt of [0.22, 0.5, 0.78]) {                    // 沿弧鋪 3 根枕木(垂直於軌向)
+      const bx = bez(tt, 0), by = bez(tt, 1);
+      const gx = 2 * (1 - tt) * (cp[0] - p0[0]) + 2 * tt * (p2[0] - cp[0]);
+      const gy = 2 * (1 - tt) * (cp[1] - p0[1]) + 2 * tt * (p2[1] - cp[1]);
+      const gl = Math.hypot(gx, gy) || 1, nx = -gy / gl, ny = gx / gl;
+      ctx.beginPath(); ctx.moveTo(bx - nx * gap * 1.5, by - ny * gap * 1.5); ctx.lineTo(bx + nx * gap * 1.5, by + ny * gap * 1.5); ctx.stroke();
+    }
+    ctx.strokeStyle = RAIL_STEEL; ctx.lineWidth = 2.5;
+    const ox = cx - ex, oy = cy - ey, ol = Math.hypot(ox, oy) || 1; // 往格中心方向的單位向量,做內外偏移
+    for (const s of [-1, 1]) {
+      const dx = ox / ol * gap * s, dy = oy / ol * gap * s;
+      ctx.beginPath(); ctx.moveTo(p0[0] + dx, p0[1] + dy); ctx.quadraticCurveTo(cp[0] + dx, cp[1] + dy, p2[0] + dx, p2[1] + dy); ctx.stroke();
+    }
+    return;
+  }
+  // 其餘(直線 / 孤立 / 三叉四叉):只有縱向連接畫直立,否則畫水平(孤立預設水平)
+  const vert = vc > 0 && hc === 0;
+  ctx.save(); ctx.translate(cx, cy); if (vert) ctx.rotate(Math.PI / 2);
+  ctx.strokeStyle = RAIL_TIE; ctx.lineWidth = TILE * 0.13;
+  for (const ox of [-TILE * 0.3, 0, TILE * 0.3]) { ctx.beginPath(); ctx.moveTo(ox, -TILE * 0.24); ctx.lineTo(ox, TILE * 0.24); ctx.stroke(); }
+  ctx.strokeStyle = RAIL_STEEL; ctx.lineWidth = 2.5;
+  for (const oy of [-gap, gap]) { ctx.beginPath(); ctx.moveTo(-TILE * 0.5, oy); ctx.lineTo(TILE * 0.5, oy); ctx.stroke(); }
+  ctx.restore();
+}
+
 function worldToScreen(x, y) { return [(x - camX) * TILE, (y - camY) * TILE]; }
 function screenToWorld(sx, sy) { return [sx / TILE + camX, sy / TILE + camY]; }
 
@@ -139,65 +200,28 @@ function render(dt) {
         ctx.fillRect(sx + TILE * 0.12, sy + TILE * 0.22, TILE * 0.34, TILE * 0.1);
         ctx.fillRect(sx + TILE * 0.52, sy + TILE * 0.62, TILE * 0.3, TILE * 0.09);
       } else if (!info.solid) {
-        // 軌道疊在地板上(貼圖須透明背景),所以它的底層不能用自己的 tex 當地板——強制鋪 FLOOR 底
-        const isRail = t === T.RAIL;
-        // 地板貼圖跟色塊一樣分層:外圈用 floor.png,中層/深層有專屬貼圖就換,沒有就共用外圈的
-        let ftex = isRail ? tileTex(T.FLOOR) : tex;
-        if (t === T.FLOOR || t === T.GLOW || isRail) {
-          const z = zoneOf(tx + 0.5, ty + 0.5);
-          if (z === 1) ftex = tileTexFile('floor_mid.png') || ftex;
-          else if (z === 2) ftex = tileTexFile('floor_deep.png') || ftex;
-        }
-        if (ftex) blitTile(ftex, tx, ty, sx, sy);
-        else {
-          // 地板(依區域變色)
-          const z = zoneOf(tx + 0.5, ty + 0.5);
-          ctx.fillStyle = t === T.GLOW ? '#2e4a52' : t === T.FARMLAND ? '#3f2e18' : z === 0 ? '#2b2118' : z === 1 ? '#232329' : '#1b1826';
-          ctx.fillRect(sx, sy, TILE + 1, TILE + 1);
-        }
+        // 地板一律走乾淨程序化畫法(純色分區+清楚格線),不再用會變高頻雜訊的 AI 材質
+        drawCleanFloor(sx, sy, tx, ty, t);
         if (t === T.GLOW) {
-          // 光斑不管有沒有貼圖都疊,發光地板的辨識靠它
-          ctx.fillStyle = 'rgba(126,240,255,0.25)';
-          ctx.fillRect(sx + TILE * 0.4, sy + TILE * 0.4, TILE * 0.2, TILE * 0.2);
-        } else if (t === T.FARMLAND && !tex) {
-          // 翻土紋路:三條深色橫紋,一眼認得出是農地(貼圖版的紋路由圖自己畫)
+          // 發光地板:中央青色光斑
+          ctx.fillStyle = 'rgba(126,240,255,0.28)';
+          ctx.fillRect(sx + TILE * 0.38, sy + TILE * 0.38, TILE * 0.24, TILE * 0.24);
+        } else if (t === T.FARMLAND) {
+          // 翻土紋路:三條深色橫紋,一眼認得出是農地
           ctx.strokeStyle = '#2a1c0f'; ctx.lineWidth = 2;
-          for (let row = 0.25; row < 1; row += 0.25) {
+          for (let row = 0.3; row < 1; row += 0.28) {
             ctx.beginPath();
-            ctx.moveTo(sx + TILE * 0.08, sy + TILE * row);
-            ctx.lineTo(sx + TILE * 0.92, sy + TILE * row);
+            ctx.moveTo(sx + TILE * 0.1, sy + TILE * row);
+            ctx.lineTo(sx + TILE * 0.9, sy + TILE * row);
             ctx.stroke();
           }
-        } else if (isRail) {
-          // 軌道貼圖(透明背景)疊在地板上;沒貼圖就用向量畫:兩條淺色鋼軌 + 深色枕木
-          if (tex) ctx.drawImage(tex, sx, sy);
-          else {
-            ctx.strokeStyle = '#4a3c2c'; ctx.lineWidth = 3; // 枕木
-            for (let c = 0.18; c < 1; c += 0.28) {
-              ctx.beginPath();
-              ctx.moveTo(sx + TILE * 0.2, sy + TILE * c);
-              ctx.lineTo(sx + TILE * 0.8, sy + TILE * c);
-              ctx.stroke();
-            }
-            ctx.strokeStyle = '#b8bcc8'; ctx.lineWidth = 3; // 鋼軌
-            for (const rx of [0.34, 0.66]) {
-              ctx.beginPath();
-              ctx.moveTo(sx + TILE * rx, sy + TILE * 0.06);
-              ctx.lineTo(sx + TILE * rx, sy + TILE * 0.94);
-              ctx.stroke();
-            }
-          }
+        } else if (t === T.RAIL) {
+          drawRail(sx, sy, tx, ty); // 依相鄰鐵軌自動轉向(Minecraft 式)
         }
       } else {
         if (info.fence) {
-          // 圍籬:地板打底 + 木柵欄(視覺上矮一截),跟整格實心的木牆做出區隔;裂痕沿用下方共用邏輯
-          const floorTex = tileTex(T.FLOOR);
-          if (floorTex) blitTile(floorTex, tx, ty, sx, sy);
-          else {
-            const z = zoneOf(tx + 0.5, ty + 0.5);
-            ctx.fillStyle = z === 0 ? '#2b2118' : z === 1 ? '#232329' : '#1b1826';
-            ctx.fillRect(sx, sy, TILE + 1, TILE + 1);
-          }
+          // 圍籬:乾淨地板打底 + 木柵欄(視覺上矮一截),跟整格實心的木牆做出區隔;裂痕沿用下方共用邏輯
+          drawCleanFloor(sx, sy, tx, ty, T.FLOOR);
           if (tex) ctx.drawImage(tex, sx, sy); // 圍籬貼圖須帶透明背景,否則會整格蓋掉地板
           else {
             ctx.strokeStyle = info.c1; ctx.lineWidth = 4;
@@ -269,7 +293,8 @@ function render(dt) {
 
   // ---- 物件 ----
   const OBJ_ICON = { mushroom: '🍄', torch: '🕯️', workbench: '🛠️', furnace: '🔥', tower: '🗼', archer_tower: '🏹',
-    chest: '🎁', nest: '🕸️', auto_miner: '⚙️', storage: '📦', auto_smelter: '🏭' };
+    chest: '🎁', nest: '🕸️', auto_miner: '⚙️', storage: '📦', auto_smelter: '🏭',
+    lantern: '🏮', crystal_lamp: '💡', banner: '🚩' };
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   for (const [i, o] of G.objects) {
     const tx = i % MAP_W, ty = (i / MAP_W) | 0;

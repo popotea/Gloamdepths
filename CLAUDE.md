@@ -34,7 +34,9 @@
 - 地圖 200×200 用 `Uint8Array`;世界座標單位 = 格(浮點),`TILE=40` 只在渲染換算像素。
 - 效能原則:只畫視野內格子、全黑格跳過、塔/巢穴用獨立 idx Set 避免掃全部 objects。
 - **怪物貼圖**:放 `assets/monsters/<檔名>`,檔名須等於 `ENEMY_TYPES[type].icon`(如 `imp.png`);載入失敗自動退回向量畫法,任意解析度會自動縮放。**烘焙式快取**(v60 起,`bakedSprite`,render.js):怪物/商人/動物共用,載入後先高品質預縮到顯示尺寸的離屏 canvas,每幀 ~1:1 貼圖(不再每幀 512px→40px 大倍率縮放,畫質與效能雙贏)。動物貼圖 `assets/animals/<type>.png`(hen/cow)v60 起真正啟用(先前只畫 emoji),失敗退回 emoji。
-- **地形貼圖**(v39 起):放 `assets/tiles/<檔名>`,檔名須等於 `TILE_INFO[t].tex`(如 `dirt.png`);載入後預縮成離屏 canvas(`tileTex`,render.js)再逐格畫,失敗退回 c1/c2 色塊。**2×2 週期取樣**(v59 起):`TEX_SPREAD2` 名單的地板/牆面材質攤在 2×2 格上、每格畫四分之一(`blitTile`)——AI 材質細節密度偏高,整張塞進 40px 一格會變高頻雜訊+滿版網格重複感;**礦脈/木根刻意不進名單**(礦點須每格完整置中才認得出是礦)。牆面類另壓 `WALL_TEX_MUTE` 暗色統一色調,讓角色/掉落物跳出來。整格材質**不去背**;唯 `fence_tile.png` 是透明物件疊在地板上。礦脈貼圖自帶礦點(有貼圖就不疊程式圓點),GLOW 與 FLOOR 共用地板貼圖;地板依區域分層:外圈 `floor.png`、中層 `floor_mid.png`、深層 `floor_deep.png`(缺層自動退回外圈那張)。貼圖由 `AI/index.html` 的 AI Hub 生產與寫入(serve.js `/api/save-asset`)。
+- **地形貼圖**(v39 起):放 `assets/tiles/<檔名>`,檔名須等於 `TILE_INFO[t].tex`(如 `dirt.png`);載入後預縮成離屏 canvas(`tileTex`,render.js)再逐格畫,失敗退回 c1/c2 色塊。**2×2 週期取樣**(v59 起):`TEX_SPREAD2` 名單的地板/牆面材質攤在 2×2 格上、每格畫四分之一(`blitTile`)——AI 材質細節密度偏高,整張塞進 40px 一格會變高頻雜訊+滿版網格重複感;**礦脈/木根刻意不進名單**(礦點須每格完整置中才認得出是礦)。牆面類另壓 `WALL_TEX_MUTE` 暗色統一色調,讓角色/掉落物跳出來。整格材質**不去背**;唯 `fence_tile.png` 是透明物件疊在地板上。礦脈貼圖自帶礦點(有貼圖就不疊程式圓點)。貼圖由 `AI/index.html` 的 AI Hub 生產與寫入(serve.js `/api/save-asset`)。
+- **地板改程序化乾淨畫法**(v61 起,render.js `drawCleanFloor`):AI 地板材質縮到 40px 一格仍太花、切割不明確,**非固體地形(FLOOR/GLOW/FARMLAND/RAIL 底、圍籬底)一律不用貼圖**,改純色分區(`FLOOR_BASE/EDGE/HI` 依 `zoneOf` 四級)+ 每格上緣淡高光、左/下邊暗線 = 清楚的網格切割。`floor*.png/farmland.png` 貼圖已不再被地形迴圈使用(礦脈/牆面材質仍用)。改地板觀感只動這支,不碰貼圖系統。
+- **鐵軌自動轉向**(v61 起,render.js `drawRail`):鐵軌只是加速地板(移動無方向性),轉向是**純視覺**——讀四鄰 `T.RAIL` 決定畫直線/轉彎(一橫一縱=二次貝茲曲線轉彎,其餘直線),鄰居靠 `G.tiles` 已同步,雙端各自畫出一致造型,**零額外資料/協定**。`rail.png` 貼圖不再使用(改程序化才能轉彎且線條乾淨)。
 - 多人時房主與朋友的**程式版本必須一致**(邏輯在雙方各自跑,對不上會脫序)。
 - 每次改 `js/*.js` 或 `style.css` 後,記得把 `index.html` 裡所有 `?v=NN` 一起 +1,避免瀏覽器快取吃到舊檔。
 - **秘笈選單 `/power`**:聊天輸入框(Enter 開啟)打 `/power` 開啟選單面板(可滑鼠點,面板上每個按鈕也會顯示對應的完整指令文字,例如 `/power spawn hunter 3`),兩種操作方式最終都走同一個入口。
@@ -170,6 +172,11 @@
 - **餵料統一走 `smelterFeed(o,id,n)`**(回傳吃不下的量):傳輸帶(`updateBelts` 比照儲物箱的「正前方一格」分支,**帶 lv/dur 的強化裝備掉落不吸**,免得被熔掉)與玩家右鍵(`doFeedSmelter`,手持煤=補燃料/手持可熔礦=整批投料,協定 `{t:'smelter',x,y}`)共用。
 - **出料口是固定方位**:成品掉在第一個相鄰非固體格(右→下→左→上順序),在那格鋪傳輸帶就能自動接走——爐子本身是固體,掉自己腳下的話帶子推不到,道鏈會斷。
 - `updateSmelters` 在 simTick 排在 `updateBelts` 之前(剛出爐的錠同幀就能被帶子接走);敲爛時 `spillSmelter` 把緩衝礦石+剩煤全噴出來,不憑空消失。渲染:🏭 + 橘色燃料條(沒煤變暗)+ 上方細灰白條=緩衝量(render.js)。
+
+## 物品擴充(2026-07-13,第五批補內容)
+- **全部重用既有系統、零新 tick 邏輯**:料理 5 種(`mushroom_skewer/crystal_cake/spicy_meat/hearty_soup/power_shake`,走既有 food+buff,kind 限既有 speed/mine/regen/vigor)、照明 2 種(`lantern` 光 10 / `crystal_lamp` 光 14,`place` 物件+`OBJ_LIGHT`,不擋路)、裝飾 1 種(`banner` 純擺飾)。每種都補了 `RECIPES` 且成本只用既有可取得材料。
+- **照明/裝飾的 item id === place type**(如 `lantern`),放置走 `doPlace` 通用路徑建 `{type:it.place}`、敲回收走 `doMine` 通用分支 `spawnDrop(o.type,1)` 掉回同 id——所以新增這類「純放置物」只要:ITEMS 一筆(place=自己的 id)+ `OBJ_HP`(必)+ `OBJ_LIGHT`(要發光才加)+ render `OBJ_ICON` emoji 一筆 + RECIPES 一筆,不碰任何 tick/存檔/同步。**加更多放置物照這個模板最省事**。
+- 物品在**遊戲內用 emoji**(`ITEMS[id].icon`),`assets/items/*.png` 是 AI Hub 素材庫用(遊戲目前不讀),但仍照 Q 版可愛風補齊、預縮 ≤256px。
 
 ## 無盡模式(2026-07-12,原 3.1 選項A)
 - **`G.over` 只留給真正的結局(lose),通關改設 `G.won` 旗標**——這順手修掉一個舊 bug:過去 `G.over='win'` 永遠不清,`simTick` 被 `!G.over` 擋住,通關後全世界凍結(敵人不動、掉落物撿不起來),淵核區名存實亡。勝利入口是 `winGame()`(冪等,`gameOver(true)` 相容轉呼叫),失敗照走 `gameOver(false)`。

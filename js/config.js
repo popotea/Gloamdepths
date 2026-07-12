@@ -346,6 +346,21 @@ const ITEMS = {
   omelet:          { name: '菇蛋燒', icon: '🍳', food: 35 },
   cream_stew:      { name: '奶菇濃湯', icon: '🍵', food: 30, buff: { kind: 'vigor', mult: 1.8, dur: 90 },
                      desc: '回血 30;體力回復速度 +80%(衝刺更快回滿),持續 90 秒' },
+  // ── 第五批擴充(2026-07-13):更多料理 / 照明 / 裝飾,全部重用既有系統(food+buff / place 物件)──
+  mushroom_skewer: { name: '螢菇串燒', icon: '🍡', food: 55, desc: '烤得金黃的螢光蘑菇串,純飽足、大回血' },
+  crystal_cake:    { name: '晶糖糕', icon: '🍰', food: 30, buff: { kind: 'mine', mult: 1.4, dur: 100 },
+                     desc: '回血 30;挖掘力 +40%,持續 100 秒' },
+  spicy_meat:      { name: '香辣烤肉', icon: '🌶️', food: 45, buff: { kind: 'speed', mult: 1.25, dur: 100 },
+                     desc: '回血 45;移動速度 +25%,持續 100 秒' },
+  hearty_soup:     { name: '暖心濃湯', icon: '🥘', food: 40, buff: { kind: 'regen', value: 3, dur: 70 },
+                     desc: '回血 40;每秒再回 3 點血,持續 70 秒' },
+  power_shake:     { name: '光晶能量飲', icon: '🧋', food: 20, buff: { kind: 'vigor', mult: 2.0, dur: 100 },
+                     desc: '回血 20;體力回復速度翻倍,持續 100 秒(衝刺流最愛)' },
+  // 照明:place 物件,自帶光源、不擋路(比火把亮,基地照明用);item id === place type,敲掉回收同一 id
+  lantern:         { name: '提燈', icon: '🏮', place: 'lantern', desc: '暖光提燈,照明範圍比火把大;可敲掉回收' },
+  crystal_lamp:    { name: '晶燈柱', icon: '💡', place: 'crystal_lamp', desc: '光晶燈柱,照明範圍最大,把基地照得亮堂堂;可敲掉回收' },
+  // 裝飾:純擺飾,不擋路無功能,蓋基地插旗宣示地盤用
+  banner:          { name: '螢火旗幟', icon: '🚩', place: 'banner', desc: '螢火隊的旗幟,純裝飾;插一面宣示這是你們的地盤' },
 };
 
 // 合成配方:station=null 徒手 / 'workbench' / 'furnace'
@@ -403,6 +418,16 @@ const RECIPES = [
   { out: 'cooked_meat',  n: 1, cost: { meat: 1 },              station: 'furnace' },
   { out: 'omelet',       n: 1, cost: { egg: 1, mushroom: 1 },  station: 'furnace' },
   { out: 'cream_stew',   n: 1, cost: { milk: 1, glowcap: 1 },  station: 'furnace' },
+  // 第五批擴充:料理(熔爐)
+  { out: 'mushroom_skewer', n: 1, cost: { mushroom: 3 },                 station: 'furnace' },
+  { out: 'crystal_cake',    n: 1, cost: { glowcap: 1, lumite: 2 },       station: 'furnace' },
+  { out: 'spicy_meat',      n: 1, cost: { meat: 1, coal: 2 },            station: 'furnace' },
+  { out: 'hearty_soup',     n: 1, cost: { fish: 1, glowcap: 1, egg: 1 }, station: 'furnace' },
+  { out: 'power_shake',     n: 1, cost: { milk: 1, lumite: 1 },          station: 'workbench' },
+  // 第五批擴充:照明/裝飾(工作台)
+  { out: 'lantern',      n: 1, cost: { iron_bar: 1, lumite: 2 },         station: 'workbench' },
+  { out: 'crystal_lamp', n: 1, cost: { gold_bar: 1, lumite: 4, stone: 2 }, station: 'workbench' },
+  { out: 'banner',       n: 2, cost: { wood: 3, lumite: 1 },             station: 'workbench' },
 ];
 
 // 敵人表:speed=跳撲衝量, hopCD=跳撲間隔
@@ -466,9 +491,9 @@ function isEnhancable(id) {
 }
 
 // 已放置物件的耐久
-const OBJ_HP = { torch: 4, workbench: 20, furnace: 20, tower: 50, archer_tower: 40, chest: 12, nest: 60, auto_miner: 30, belt: 8, storage: 30, auto_smelter: 30 };
+const OBJ_HP = { torch: 4, workbench: 20, furnace: 20, tower: 50, archer_tower: 40, chest: 12, nest: 60, auto_miner: 30, belt: 8, storage: 30, auto_smelter: 30, lantern: 4, crystal_lamp: 8, banner: 4 };
 // 物件光照半徑(自動採礦機自帶微光,呼應「需供電」的能量意象也順便讓機器周圍看得清)
-const OBJ_LIGHT = { torch: 7, tower: 6, furnace: 3, workbench: 2.5, archer_tower: 3, auto_miner: 3, auto_smelter: 3 }; // 熔煉爐自帶爐火微光
+const OBJ_LIGHT = { torch: 7, tower: 6, furnace: 3, workbench: 2.5, archer_tower: 3, auto_miner: 3, auto_smelter: 3, lantern: 10, crystal_lamp: 14 }; // 熔煉爐自帶爐火微光;提燈/晶燈是專門的照明物件
 // 會擋路的物件(自動採礦機是機台,擋路;傳輸帶是地面軌道,不擋路可站上去)
 const OBJ_SOLID = { workbench: true, furnace: true, tower: true, archer_tower: true, chest: true, nest: true, auto_miner: true, storage: true, auto_smelter: true };
 
