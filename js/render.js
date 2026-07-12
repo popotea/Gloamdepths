@@ -10,34 +10,44 @@ function initRender() {
   fit();
 }
 
-// ---- 怪物貼圖快取 ----
-// 依 ENEMY_TYPES[type].icon 從 assets/monsters/ 載入;載入失敗(檔案不存在)就標記 failed,
-// 繪製時自動退回原本的向量畫法,不會噴錯也不擋遊戲運作
-const MONSTER_IMG = new Map();
+// ---- 角色貼圖快取(怪物/商人/動物共用,烘焙式) ----
+// AI 原圖 512px、遊戲內只畫 40~120px:每幀直接大倍率縮放既傷效能、取樣又會鋸齒閃爍。
+// 載入後先用高品質縮放烘成「顯示尺寸」的離屏 canvas,之後每幀都是 ~1:1 貼圖
+// (squash 擠壓動畫的 ±15% 縮放很便宜也不失真)。載入失敗回 null,呼叫端退回向量/emoji 畫法
+const SPRITE_CACHE = new Map();
+function bakedSprite(src, sizePx) {
+  const key = src + '@' + sizePx;
+  let e = SPRITE_CACHE.get(key);
+  if (!e) {
+    e = { cv: null, failed: false };
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = c.height = sizePx;
+      const g = c.getContext('2d');
+      g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+      g.drawImage(img, 0, 0, sizePx, sizePx);
+      e.cv = c;
+    };
+    img.onerror = () => { e.failed = true; };
+    img.src = src;
+    SPRITE_CACHE.set(key, e);
+  }
+  return e.cv;
+}
+// 怪物:烘焙尺寸=顯示尺寸上限(含 squash 拉伸餘裕);失敗自動退回向量畫法
 function monsterImg(type) {
   const et = ENEMY_TYPES[type];
   if (!et || !et.icon) return null;
-  let entry = MONSTER_IMG.get(type);
-  if (!entry) {
-    entry = { img: new Image(), ready: false, failed: false };
-    entry.img.onload = () => { entry.ready = true; };
-    entry.img.onerror = () => { entry.failed = true; };
-    entry.img.src = `assets/monsters/${et.icon}`;
-    MONSTER_IMG.set(type, entry);
-  }
-  return entry.ready ? entry.img : null;
+  return bakedSprite(`assets/monsters/${et.icon}`, Math.ceil(et.r * TILE * 2.3 * 1.15));
 }
-
-// ---- 商人貼圖快取(跟怪物同一套機制:失敗自動退回 emoji 畫法) ----
-const TRADER_IMG = { img: new Image(), ready: false, failed: false, loaded: false };
+// 商人(失敗退回 emoji+金色光暈)
 function traderImg() {
-  if (!TRADER_IMG.loaded) {
-    TRADER_IMG.loaded = true;
-    TRADER_IMG.img.onload = () => { TRADER_IMG.ready = true; };
-    TRADER_IMG.img.onerror = () => { TRADER_IMG.failed = true; };
-    TRADER_IMG.img.src = 'assets/npcs/trader.png';
-  }
-  return TRADER_IMG.ready ? TRADER_IMG.img : null;
+  return bakedSprite('assets/npcs/trader.png', Math.ceil(TILE * 1.1));
+}
+// 動物(失敗退回 emoji——過去一直只畫 emoji,cow.png/hen.png 素材其實早就在了)
+function animalImg(type) {
+  return bakedSprite(`assets/animals/${type}.png`, Math.ceil(TILE * ANIMAL_TYPES[type].r * 2.3));
 }
 
 // ---- 地形貼圖快取 ----
@@ -425,9 +435,15 @@ function render(dt) {
     const at = ANIMAL_TYPES[a.type];
     const [sx, sy] = worldToScreen(a.x, a.y);
     const bob = Math.sin(performance.now() / 260 + a.id) * 2;
-    ctx.font = `${TILE * at.r * 2.3}px "Segoe UI Emoji"`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(at.icon, sx, sy + bob);
+    const aimg = animalImg(a.type);
+    if (aimg) {
+      const size = TILE * at.r * 2.3;
+      ctx.drawImage(aimg, sx - size / 2, sy - size / 2 + bob, size, size);
+    } else {
+      ctx.font = `${TILE * at.r * 2.3}px "Segoe UI Emoji"`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(at.icon, sx, sy + bob);
+    }
     // 餵飽狀態:頭上小愛心(host 看 fedT,client 看快照的 fed 旗標)
     if (a.fedT > 0 || a.fed) {
       ctx.font = `${TILE * 0.28}px "Segoe UI Emoji"`;
