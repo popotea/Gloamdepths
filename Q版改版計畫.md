@@ -164,17 +164,18 @@ muted dull colors, excessive detail
 | 批次 | 內容 | 動到的檔案 | 狀態 |
 |---|---|---|---|
 | **A. 提示詞 v2** | master/negative 改版、14 條怪物描述改寫、補 5 怪+商人+3 地形+3 物品條目、npcs 分組 | 只有 `AI/index.html`(純資料) | ✅ 完成(2026-07-12,Playwright 斷言全過) |
-| **B. 素材重生** | 用 AI Hub 批次鈕整組重生 monsters→npcs→tiles→items | 只有 assets/*.png | ⏳ 待玩家手動操作(見下方指引) |
+| **B. 素材重生** | 用 AI Hub 批次鈕整組重生 monsters→npcs→tiles→items | 只有 assets/*.png | 🟡 tiles 23 張已重生(2026-07-13,Pollinations flux + v3 低細節模板,同批同模型);monsters/npcs/animals 現況 v2 風格已可用,要更統一可另跑 |
 | **C. UI Q 版化** | 圓角/膠囊/糖果色 token、按鈕果凍動效、HUD 膠囊化、選中呼吸、標題浮動(字體依決策維持系統堆疊) | `style.css` | ✅ 完成(2026-07-12) |
 | **D. 文案 pass** | 「再放飛」尺度全量改寫(約 40 條)+ 螢火隊/莫勾/三守望者定名 + 甦醒台詞 + 開場世界觀 | `js/*.js` 字串、`config.js` | ✅ 完成(2026-07-12) |
 | **E. 向量微調** | 玩家大眼+腮紅+低血「><」、怪物眼睛放大+高光(「刺圓化」作廢——fallback 本來就沒畫刺) | `render.js` | ✅ 完成(2026-07-12) |
 
-**批次 B 操作指引(唯一剩餘步驟,需要你動手)**:
+**批次 B 操作指引**(tiles 已由自動化流程完成;其餘資料夾要重生時照做,或請 AI 代跑):
 1. 雙擊「啟動遊戲.bat」讓伺服器跑著,開 `http://localhost:8000/AI/index.html`
 2. 「連線設定」填 API Key(或選 Pollinations 免費)、到「圖像生成」填圖像模型 ID
-3. **先把 `assets/monsters/`、`assets/tiles/` 裡的舊 .png 手動移走/刪掉**(換風格必須整組重生;批次鈕只補缺檔、不覆蓋既有)
-4. 在「遊戲貼圖檔名/資料夾」對每個資料夾按「⚡ 整組補齊」:monsters(14)→ npcs(1)→ tiles(23)→ animals(2)
-5. 同一資料夾同一天同一模型跑完,風格才不漂移;生完遊戲頁 Ctrl+F5 即可看到
+3. **先把目標資料夾裡的舊 .png 手動移走/刪掉**(換風格必須整組重生;批次鈕只補缺檔、不覆蓋既有)
+4. 在「遊戲貼圖檔名/資料夾」對每個資料夾按「⚡ 整組補齊」;同一資料夾同一天同一模型跑完,風格才不漂移
+5. ⚠️ **Pollinations 從瀏覽器直接抓會 403**(免費層擋 Origin/Referer):批次全失敗時,改用「Node 下載 → 圖轉 data URL → 頁面 saveToGame」的混合流程(scratchpad `regen2.js` 模式,2026-07-13 驗證可行)
+6. **AI 畫不出「無縫直鋪」類元件**(軌道必帶透視/端點):這類直接用 canvas 程式手繪(rail.png 現版即是),別浪費生成額度
 
 驗收方式:每批完成後照慣例 Playwright 截圖對比(主選單/遊戲中/面板三景),文案批次用 grep 全量盤點確保沒漏。版號規則(`?v=NN` +1)與多人版本一致原則照舊。
 
