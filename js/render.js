@@ -47,17 +47,27 @@ const TILE_TEX = new Map();
 // 地板類貼圖要壓暗降對比:AI 材質偏亮偏花,會吃掉放在上面的物件與掉落物;
 // 烘進快取(只在載入時做一次),逐幀零成本
 const FLOOR_TEX_MUTE = new Set(['floor.png', 'floor_mid.png', 'floor_deep.png', 'farmland.png']);
+// 牆面/實心地形壓一層較淡的暗色:統一整體色調,角色/怪物/掉落物才跳得出來
+const WALL_TEX_MUTE = new Set(['dirt.png', 'stone.png', 'obsidian.png', 'voidrock.png', 'gravel.png', 'bedrock.png']);
+// 2×2 格週期取樣名單:整張材質攤在 2×2 格上、每格只畫四分之一。
+// AI 材質細節密度天生偏高,整張塞進 40px 一格會變成高頻雜訊、整片平鋪又滿是網格重複感;
+// 攤開後細節密度減半、重複週期加倍——這是「AI 材質太花」的渲染端解法,不用重生素材。
+// 礦脈/木根刻意不進名單:礦點必須每格完整置中,玩家才一眼認得出「這格是礦」
+const TEX_SPREAD2 = new Set(['floor.png', 'floor_mid.png', 'floor_deep.png', 'dirt.png', 'stone.png',
+  'obsidian.png', 'voidrock.png', 'gravel.png', 'bedrock.png', 'water.png', 'farmland.png']);
 function tileTexFile(file) {
   let e = TILE_TEX.get(file); // 用檔名當 key:GLOW 與 FLOOR 共用 floor.png,只載一次
   if (!e) {
     e = { cv: null, failed: false };
     const img = new Image();
     img.onload = () => {
+      const n = (TEX_SPREAD2.has(file) ? TILE * 2 : TILE) + 1; // +1 跟色塊畫法一致,蓋住格線縫
       const c = document.createElement('canvas');
-      c.width = c.height = TILE + 1; // +1 跟色塊畫法一致,蓋住格線縫
+      c.width = c.height = n;
       const g = c.getContext('2d');
-      g.drawImage(img, 0, 0, TILE + 1, TILE + 1);
-      if (FLOOR_TEX_MUTE.has(file)) { g.fillStyle = 'rgba(12,10,8,0.42)'; g.fillRect(0, 0, TILE + 1, TILE + 1); }
+      g.drawImage(img, 0, 0, n, n);
+      if (FLOOR_TEX_MUTE.has(file)) { g.fillStyle = 'rgba(12,10,8,0.42)'; g.fillRect(0, 0, n, n); }
+      else if (WALL_TEX_MUTE.has(file)) { g.fillStyle = 'rgba(10,8,12,0.30)'; g.fillRect(0, 0, n, n); }
       e.cv = c;
     };
     img.onerror = () => { e.failed = true; };
@@ -69,6 +79,11 @@ function tileTexFile(file) {
 function tileTex(t) {
   const info = TILE_INFO[t];
   return info && info.tex ? tileTexFile(info.tex) : null;
+}
+// 畫一格地形貼圖:2×2 週期的大貼圖依格座標取對應的四分之一,一般貼圖整張畫
+function blitTile(texCv, tx, ty, sx, sy) {
+  if (texCv.width > TILE + 1) ctx.drawImage(texCv, (tx & 1) * TILE, (ty & 1) * TILE, TILE + 1, TILE + 1, sx, sy, TILE + 1, TILE + 1);
+  else ctx.drawImage(texCv, sx, sy);
 }
 
 function worldToScreen(x, y) { return [(x - camX) * TILE, (y - camY) * TILE]; }
@@ -107,7 +122,7 @@ function render(dt) {
       const tex = tileTex(t); // 有貼圖畫貼圖,沒有(未生產/載入失敗)退回原本色塊
       if (info.liquid) {
         // 幽光水池:深藍底 + 相位錯開的波光(用格子座標當相位,不用另存動畫狀態);波光疊在貼圖上照樣有動態感
-        if (tex) ctx.drawImage(tex, sx, sy);
+        if (tex) blitTile(tex, tx, ty, sx, sy);
         else { ctx.fillStyle = info.c1; ctx.fillRect(sx, sy, TILE + 1, TILE + 1); }
         const ph = performance.now() / 700 + tx * 1.7 + ty * 2.3;
         ctx.fillStyle = `rgba(126,220,255,${0.13 + 0.1 * Math.sin(ph)})`;
@@ -123,7 +138,7 @@ function render(dt) {
           if (z === 1) ftex = tileTexFile('floor_mid.png') || ftex;
           else if (z === 2) ftex = tileTexFile('floor_deep.png') || ftex;
         }
-        if (ftex) ctx.drawImage(ftex, sx, sy);
+        if (ftex) blitTile(ftex, tx, ty, sx, sy);
         else {
           // 地板(依區域變色)
           const z = zoneOf(tx + 0.5, ty + 0.5);
@@ -167,7 +182,7 @@ function render(dt) {
         if (info.fence) {
           // 圍籬:地板打底 + 木柵欄(視覺上矮一截),跟整格實心的木牆做出區隔;裂痕沿用下方共用邏輯
           const floorTex = tileTex(T.FLOOR);
-          if (floorTex) ctx.drawImage(floorTex, sx, sy);
+          if (floorTex) blitTile(floorTex, tx, ty, sx, sy);
           else {
             const z = zoneOf(tx + 0.5, ty + 0.5);
             ctx.fillStyle = z === 0 ? '#2b2118' : z === 1 ? '#232329' : '#1b1826';
@@ -191,7 +206,7 @@ function render(dt) {
             ctx.stroke();
           }
         } else if (tex) {
-          ctx.drawImage(tex, sx, sy); // 礦脈貼圖自帶礦點,不再疊圓點
+          blitTile(tex, tx, ty, sx, sy); // 礦脈貼圖自帶礦點(不進 2×2 名單,整張畫),牆面類取四分之一
         } else {
           ctx.fillStyle = info.c1;
           ctx.fillRect(sx, sy, TILE + 1, TILE + 1);

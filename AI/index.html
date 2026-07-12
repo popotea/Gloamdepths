@@ -1255,8 +1255,10 @@ async function saveToGame(src, target, ow) {
 }
 // 地形材質要「鋪滿整格、無縫」,跟一般素材的「置中物件、透明背景」相反,用獨立模板
 // v2 貼紙卡通風:與生物/物品同風格家族(圓潤平塗),「fills the entire square」是 applySpec 特徵字,務必保留
-const MASTER_TILE = 'Cute cartoon seamless terrain tile texture for a top-down game, viewed from directly above, cozy rounded shapes in the pattern, flat cel shading, soft saturated colors, fills the entire square, evenly distributed pattern, uniform lighting, no border, no single centered object, game-ready.';
-const NEG_TILE = 'isometric,3D,realistic,photo,horror,scary,gritty,single object,character,border,frame,vignette,text,watermark,logo,muted dull colors';
+// 「few large simple shapes / reads clearly at very small scale」是關鍵:遊戲一格只有 40px,
+// 細節太多縮下去會變成高頻雜訊(2026-07-12 教訓,渲染端另有 2×2 攤開補救,但源頭就該低細節)
+const MASTER_TILE = 'Cute cartoon seamless terrain tile texture for a top-down game, viewed from directly above, few large cozy rounded shapes in the pattern, minimal detail, reads clearly at very small scale, flat cel shading, soft saturated colors, fills the entire square, evenly distributed pattern, uniform lighting, no border, no single centered object, game-ready.';
+const NEG_TILE = 'isometric,3D,realistic,photo,horror,scary,gritty,single object,character,border,frame,vignette,text,watermark,logo,muted dull colors,busy pattern,high detail,noisy texture,small intricate details';
 // 生物(怪物/動物)用:90° 正俯視只會看到背,AI 又愛只畫一顆頭;
 // 改用「全身 + 站姿 + 3/4 俯視 RPG 視角」,負面詞把頭像/半身/裁切都擋掉
 // v2 貼紙卡通風:「full body from head to feet」是 applySpec 特徵字,務必保留
