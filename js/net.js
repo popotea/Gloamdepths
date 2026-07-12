@@ -160,6 +160,7 @@ const NET = {
       case 'fill_tower': doFillTower(p, d.x | 0, d.y | 0); break;
       case 'toggle_tower': doToggleTower(p, d.x | 0, d.y | 0); break;
       case 'fuelminer': doFuelMiner(p, d.x | 0, d.y | 0); break;
+      case 'smelter': doFeedSmelter(p, d.x | 0, d.y | 0); break;
       case 'rotatebelt': doRotateBelt(p, d.x | 0, d.y | 0); break;
       case 'storeput': doStorageDeposit(p, d.x | 0, d.y | 0, d.slot | 0); break;
       case 'storetake': doStorageWithdraw(p, d.x | 0, d.y | 0, d.si | 0); break;
@@ -351,7 +352,7 @@ const NET = {
         G.tiles = rleDec(d.tiles, MAP_W * MAP_H, Uint8Array);
         G.explored = rleDec(d.explored, MAP_W * MAP_H, Uint8Array);
         G.dmg = new Float32Array(MAP_W * MAP_H);
-        G.objects.clear(); G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.cropIdx.clear(); G.minerIdx.clear(); G.beltIdx.clear(); G.mushCount = 0;
+        G.objects.clear(); G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.cropIdx.clear(); G.minerIdx.clear(); G.beltIdx.clear(); G.smelterIdx.clear(); G.mushCount = 0;
         for (const [i, type, hp, ammo, off, owner, stage, t, nestType, dir, fuel, items] of d.objects) {
           const o = hp === null ? { type } : { type, hp };
           if (ammo !== null && ammo !== undefined) o.ammo = ammo;

@@ -650,6 +650,7 @@ function doMine(p, x, y) {
       if (o.type === 'chest') openChest(p, x, y);
       else if (o.type === 'nest') breakNest(x, y, o);
       else if (o.type === 'storage') { spillStorage(x, y, o); spawnDrop('storage', 1, x + 0.5, y + 0.5); } // 內容全掉出來再掉回箱子
+      else if (o.type === 'auto_smelter') { spillSmelter(x, y, o); spawnDrop('auto_smelter', 1, x + 0.5, y + 0.5); } // 緩衝礦石+剩煤掉出來再掉回爐子
       else spawnDrop(o.type, 1, x + 0.5, y + 0.5);
       setObj(x, y, null);
       emitFx({ k: 'sfx', s: 'break_' });
@@ -753,6 +754,15 @@ function doPlace(p, slot, x, y) {
       return;
     }
   }
+  // 自動熔煉爐:跟礦機同標準的每人上限(不需要已探索限制——它不產資源,只加工)
+  if (it.place === 'auto_smelter') {
+    let owned = 0;
+    for (const [, o] of G.objects) if (o.type === 'auto_smelter' && o.owner === p.id) owned++;
+    if (owned >= AUTO_SMELTER_CFG.maxPerPlayer) {
+      addFloater(x + 0.5, y + 0.5, `每人最多 ${AUTO_SMELTER_CFG.maxPerPlayer} 台熔煉爐`, '#ff9d5c');
+      return;
+    }
+  }
   // 會擋路的東西不能蓋在任何人/怪身上;非固體地形(如軌道)可站上去,不受這個限制
   // (否則玩家站原地就沒法在自己腳下鋪軌道),所以查地形的 solid 屬性而不是「只要用 placeTile 就當擋路」
   const solidPlace = (it.placeTile !== undefined && TILE_INFO[it.placeTile].solid) || OBJ_SOLID[it.place];
@@ -768,6 +778,7 @@ function doPlace(p, slot, x, y) {
     const o = { type: it.place, hp: OBJ_HP[it.place] };
     if (it.place === 'archer_tower') { o.owner = p.id; o.ammo = 0; }
     if (it.place === 'auto_miner') { o.owner = p.id; o.fuel = 0; } // 空燃料放置,靠玩家右鍵光晶供電
+    if (it.place === 'auto_smelter') { o.owner = p.id; o.fuel = 0; o.items = []; } // 空爐放置,煤/礦石靠右鍵或傳輸帶餵
     // 傳輸帶方向依玩家「放置時面向」決定(0=右 1=下 2=左 3=上),之後可右鍵空手旋轉
     if (it.place === 'belt') { o.owner = p.id; o.dir = dirFromAngle(p.aim); }
     setObj(x, y, o);
@@ -1182,6 +1193,79 @@ function updateMiners(dt) {
   }
 }
 
+// ===== 自動熔煉爐(房主):道鏈中繼站,把緩衝裡的礦石定時熔成錠掉在爐邊 =====
+// 原料緩衝借用 o.items(跟儲物箱同格式 [{id,count}]),存讀檔/init 的固定欄位陣列零改動
+let smelterTick = 0;
+function updateSmelters(dt) {
+  smelterTick -= dt;
+  if (smelterTick > 0) return;
+  smelterTick = 0.5; // 半秒掃一次,熔煉節奏由每台自己的 smeltT 計時
+  for (const i of G.smelterIdx) {
+    const o = G.objects.get(i);
+    o.smeltT = (o.smeltT ?? AUTO_SMELTER_CFG.cd) - 0.5;
+    if (o.smeltT > 0) continue;
+    o.smeltT = AUTO_SMELTER_CFG.cd;
+    if ((o.fuel || 0) < AUTO_SMELTER_CFG.fuelPerSmelt) continue; // 沒煤就熄火
+    const s = (o.items || []).find(s => SMELT_MAP[s.id] && s.count >= SMELT_MAP[s.id].need);
+    if (!s) continue; // 緩衝裡沒有湊得滿一鍋的礦
+    const m = SMELT_MAP[s.id];
+    s.count -= m.need;
+    if (s.count <= 0) o.items.splice(o.items.indexOf(s), 1);
+    o.fuel -= AUTO_SMELTER_CFG.fuelPerSmelt;
+    const mx = i % MAP_W, my = (i / MAP_W) | 0;
+    // 成品掉在第一個相鄰非固體格(右下左上順序=固定出料口):在那格鋪傳輸帶就能自動接走,
+    // 道鏈才串得下去(爐子本身是固體,掉在自己腳下的話帶子推不到)
+    let sx = mx + 0.5, sy = my + 0.5;
+    for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) {
+      if (!isSolid(mx + dx, my + dy)) { sx = mx + dx + 0.5; sy = my + dy + 0.5; break; }
+    }
+    spawnDrop(m.out, 1, sx, sy);
+    emitFx({ k: 'ft', x: mx + 0.5, y: my + 0.3, txt: '🔥', color: '#ff9d5c' });
+    emitFx({ k: 'sfx', s: 'craft' });
+    setObj(i % MAP_W, (i / MAP_W) | 0, o, false); // 廣播燃料/緩衝變化
+  }
+}
+
+// 熔煉爐吸收物料(傳輸帶與玩家右鍵共用):煤→燃料、SMELT_MAP 的礦石→原料緩衝;回傳放不下的數量
+function smelterFeed(o, id, n) {
+  if (id === 'coal') {
+    const take = Math.min(n, AUTO_SMELTER_CFG.maxFuel - (o.fuel || 0));
+    o.fuel = (o.fuel || 0) + take;
+    return n - take;
+  }
+  if (!SMELT_MAP[id]) return n; // 不是它吃的東西,原封不動
+  if (!o.items) o.items = [];
+  const total = o.items.reduce((a, s) => a + s.count, 0);
+  const take = Math.min(n, AUTO_SMELTER_CFG.maxBuffer - total);
+  if (take <= 0) return n;
+  const s = o.items.find(s => s.id === id);
+  if (s) s.count += take; else o.items.push({ id, count: take });
+  return n - take;
+}
+
+// 玩家右鍵熔煉爐:手持煤=補燃料、手持可熔礦石=塞原料(整組塞到滿),其他=提示
+function doFeedSmelter(p, x, y) {
+  const o = objAt(x, y);
+  if (!o || o.type !== 'auto_smelter') return;
+  if (dist(p.x, p.y, x + 0.5, y + 0.5) > 3.8) return;
+  const sel = p.inv[p.sel];
+  const id = sel && (sel.id === 'coal' || SMELT_MAP[sel.id]) ? sel.id : null;
+  if (!id) { addFloater(x + 0.5, y + 0.5, '手持煤⚫或礦石 右鍵投料', '#8899aa'); return; }
+  const have = countItem(p, id);
+  const left = smelterFeed(o, id, have);
+  if (left >= have) { addFloater(x + 0.5, y + 0.5, id === 'coal' ? '燃料已滿' : '原料緩衝已滿', '#8899aa'); return; }
+  payCost(p, { [id]: have - left });
+  addFloater(x + 0.5, y + 0.5, `+${have - left} ${ITEMS[id].icon}`, '#ff9d5c');
+  emitFx({ k: 'sfx', s: 'place' });
+  setObj(x, y, o, false);
+}
+
+// 熔煉爐被敲爛:緩衝的礦石與剩餘的煤全部掉出來(不憑空消失),再掉回爐子本身
+function spillSmelter(x, y, o) {
+  for (const s of o.items || []) spawnDrop(s.id, s.count, x + 0.5, y + 0.5);
+  if (o.fuel > 0) spawnDrop('coal', o.fuel, x + 0.5, y + 0.5);
+}
+
 // ===== 傳輸帶(房主):把地上的掉落物往 dir 方向推,連成道鏈集中礦機產出 =====
 const BELT_VX = [1, 0, -1, 0], BELT_VY = [0, 1, 0, -1]; // dir 0=右 1=下 2=左 3=上
 function updateBelts(dt) {
@@ -1201,6 +1285,14 @@ function updateBelts(dt) {
       if (left < d.n) { setObj(fx, fy, fo, false); emitFx({ k: 'sfx', s: 'pickup' }); } // 有入庫才廣播
       if (left <= 0) { G.drops.splice(di, 1); continue; }
       d.n = left; // 箱滿了:剩下的留在帶子上堆著,不再前推
+      continue;
+    }
+    // 道鏈中繼:帶子正前方是自動熔煉爐 → 礦石進原料緩衝、煤進燃料槽(強化裝備掉落不吸,免得被熔掉)
+    if (fo && fo.type === 'auto_smelter' && !d.lv && d.dur === undefined) {
+      const left = smelterFeed(fo, d.item, d.n);
+      if (left < d.n) { setObj(fx, fy, fo, false); emitFx({ k: 'sfx', s: 'pickup' }); }
+      if (left <= 0) { G.drops.splice(di, 1); continue; }
+      d.n = left; // 吃不下的留在帶子上(爐滿/不是它吃的東西)
       continue;
     }
     // 直接加位移(不動 vx/vy,避免跟磁吸/摩擦力互相打架);撞牆就不推

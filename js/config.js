@@ -167,6 +167,22 @@ const BELT_CFG = { push: 3.2, maxPerPlayer: 40 }; // push=推力(格/秒);上限
 // 儲物箱:放各種道具的固定容器,是自動化道鏈的終點——傳輸帶把礦推進儲物箱自動入庫。
 // 房主權威:內容存在物件的 items 陣列,經 setObj 廣播讓所有客戶端同步(容量小,每次存取全量廣播沒負擔)。
 const STORAGE_CFG = { slots: 24 };
+// 自動熔煉爐:自動化道鏈的中繼站(礦機→帶→熔爐→帶→箱)。跟礦機同一套「慢但省事」的張力:
+// 吃煤當燃料、節奏遠慢於玩家手動合成;只熔礦石,料理仍要玩家自己開熔爐做。
+// 原料緩衝借用物件的 items 欄位(跟儲物箱同格式)——存讀檔/init 的固定欄位陣列完全不用改
+const AUTO_SMELTER_CFG = {
+  cd: 5.0,          // 每 5 秒熔一鍋(玩家手動合成是瞬間,機器慢工換免顧)
+  maxFuel: 20,      // 煤炭燃料上限
+  fuelPerSmelt: 1,  // 每熔一鍋吃 1 煤
+  maxBuffer: 30,    // 原料緩衝上限(傳輸帶餵進來的礦石總數)
+  maxPerPlayer: 4,  // 每人數量上限(跟礦機同標準)
+};
+// 熔煉對照表(比率與熔爐配方一致:2 礦 = 1 錠,機器不給折扣)
+const SMELT_MAP = {
+  copper_ore: { out: 'copper_bar', need: 2 },
+  iron_ore:   { out: 'iron_bar',   need: 2 },
+  gold_ore:   { out: 'gold_bar',   need: 2 },
+};
 
 // ── 料理 buff:食物可帶 buff 欄位 { kind, mult 或 value, dur 秒 },doEat 時寫進 p.buffs[kind],
 // 同種 buff 重複吃 = 重置時間(不疊加倍率,避免數值爆掉);計時與失效在 updatePlayersHost。
@@ -309,6 +325,10 @@ const ITEMS = {
   // 儲物箱:放各種道具的大容器,右鍵開啟存取;傳輸帶把礦推進來會自動入庫(道鏈終點)
   storage:         { name: '儲物箱', icon: '📦', place: 'storage',
                      desc: `放各種道具的容器(${STORAGE_CFG.slots} 格),右鍵開啟存取。傳輸帶把掉落物推到它上面會自動入庫,是自動採礦道鏈的終點` },
+  // 自動熔煉爐:道鏈中繼站,傳輸帶送礦石/煤進來自動熔錠
+  auto_smelter:    { name: '自動熔煉爐', icon: '🏭', place: 'auto_smelter',
+                     desc: `自動把礦石熔成錠(每 ${AUTO_SMELTER_CFG.cd} 秒一鍋,吃煤當燃料,比率跟熔爐一樣 2 礦=1 錠)。
+傳輸帶把礦石/煤推進來會自動吸收,成品掉在爐邊可再用帶子接走;右鍵手持煤補燃料、手持礦石塞原料。每人最多 ${AUTO_SMELTER_CFG.maxPerPlayer} 台` },
   // 動物養殖:產物與肉,接進料理系統
   egg:             { name: '幽光蛋', icon: '🥚', food: 12, desc: '幽穴雞餵食後定時產下;可做菇蛋燒' },
   milk:            { name: '苔奶', icon: '🥛', food: 15, desc: '苔絨牛餵食後定時產出;可做奶菇濃湯' },
@@ -368,6 +388,8 @@ const RECIPES = [
   { out: 'auto_miner',   n: 1, cost: { gold_bar: 2, iron_bar: 3, lumite: 5 }, station: 'workbench' },
   { out: 'belt',         n: 4, cost: { iron_bar: 1, lumite: 1 },              station: 'workbench' },
   { out: 'storage',      n: 1, cost: { wood: 12, iron_bar: 2 },              station: 'workbench' },
+  { out: 'auto_smelter', n: 1, cost: { stone: 8, copper_bar: 2, iron_bar: 2 }, station: 'furnace' }, // 在熔爐旁打造會熔煉的機器,主題呼應
+
   // 動物養殖產物料理
   { out: 'cooked_meat',  n: 1, cost: { meat: 1 },              station: 'furnace' },
   { out: 'omelet',       n: 1, cost: { egg: 1, mushroom: 1 },  station: 'furnace' },
@@ -435,11 +457,11 @@ function isEnhancable(id) {
 }
 
 // 已放置物件的耐久
-const OBJ_HP = { torch: 4, workbench: 20, furnace: 20, tower: 50, archer_tower: 40, chest: 12, nest: 60, auto_miner: 30, belt: 8, storage: 30 };
+const OBJ_HP = { torch: 4, workbench: 20, furnace: 20, tower: 50, archer_tower: 40, chest: 12, nest: 60, auto_miner: 30, belt: 8, storage: 30, auto_smelter: 30 };
 // 物件光照半徑(自動採礦機自帶微光,呼應「需供電」的能量意象也順便讓機器周圍看得清)
-const OBJ_LIGHT = { torch: 7, tower: 6, furnace: 3, workbench: 2.5, archer_tower: 3, auto_miner: 3 };
+const OBJ_LIGHT = { torch: 7, tower: 6, furnace: 3, workbench: 2.5, archer_tower: 3, auto_miner: 3, auto_smelter: 3 }; // 熔煉爐自帶爐火微光
 // 會擋路的物件(自動採礦機是機台,擋路;傳輸帶是地面軌道,不擋路可站上去)
-const OBJ_SOLID = { workbench: true, furnace: true, tower: true, archer_tower: true, chest: true, nest: true, auto_miner: true, storage: true };
+const OBJ_SOLID = { workbench: true, furnace: true, tower: true, archer_tower: true, chest: true, nest: true, auto_miner: true, storage: true, auto_smelter: true };
 
 // ── 世界據點(隨機生成)──
 // chest=廢墟寶箱(敲開拿戰利品) / nest=蝕影巢穴(持續生怪,拆掉噴光晶+卷軸)

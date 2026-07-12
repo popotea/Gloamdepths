@@ -10,6 +10,7 @@ const G = {
   // 讓這幾個 tick 函式只掃自己關心的那一小撮,不受地圖上其他建築/採集物數量影響
   towerIdx: new Set(), archerTowerIdx: new Set(), nestIdx: new Set(), cropIdx: new Set(),
   minerIdx: new Set(), beltIdx: new Set(), // 自動採礦機/傳輸帶的獨立索引(updateMiners/updateBelts 用,不掃全部 objects)
+  smelterIdx: new Set(), // 自動熔煉爐索引(updateSmelters 用)
   lights: new Map(),    // idx -> 光半徑(地形光 + 物件光)
   players: new Map(),   // id -> player
   myId: 0,
@@ -67,7 +68,7 @@ function setTile(x, y, v, fromNet = false) {
 
 function objAt(x, y) { return G.objects.get(idx(x, y)) || null; }
 
-const TOWER_IDX_SETS = { tower: 'towerIdx', archer_tower: 'archerTowerIdx', nest: 'nestIdx', crop: 'cropIdx', auto_miner: 'minerIdx', belt: 'beltIdx' };
+const TOWER_IDX_SETS = { tower: 'towerIdx', archer_tower: 'archerTowerIdx', nest: 'nestIdx', crop: 'cropIdx', auto_miner: 'minerIdx', belt: 'beltIdx', auto_smelter: 'smelterIdx' };
 // 放置/移除物件(o=null 移除)
 function setObj(x, y, o, fromNet = false) {
   const i = idx(x, y);
@@ -147,7 +148,7 @@ function genWorld(seed) {
   G.explored = new Uint8Array(MAP_W * MAP_H);
   G.objects.clear(); G.lights.clear(); G.cracks.clear();
   G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.cropIdx.clear();
-  G.minerIdx.clear(); G.beltIdx.clear();
+  G.minerIdx.clear(); G.beltIdx.clear(); G.smelterIdx.clear();
   G.enemies = []; G.drops = []; G.floaters = []; G.projs = []; G.animals = [];
   G.shrines = []; G.traders = []; G.mushCount = 0; G.warned = {}; G.killCount = 0;
   G.core = { x: CX + 0.5, y: CY + 0.5, energy: CORE_CFG.maxE, shards: 0 };

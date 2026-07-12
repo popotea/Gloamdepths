@@ -244,7 +244,7 @@ function render(dt) {
 
   // ---- 物件 ----
   const OBJ_ICON = { mushroom: '🍄', torch: '🕯️', workbench: '🛠️', furnace: '🔥', tower: '🗼', archer_tower: '🏹',
-    chest: '🎁', nest: '🕸️', auto_miner: '⚙️', storage: '📦' };
+    chest: '🎁', nest: '🕸️', auto_miner: '⚙️', storage: '📦', auto_smelter: '🏭' };
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   for (const [i, o] of G.objects) {
     const tx = i % MAP_W, ty = (i / MAP_W) | 0;
@@ -312,6 +312,16 @@ function render(dt) {
       ctx.fillRect(sx - w / 2, sy + TILE * 0.42, w, 4);
       ctx.fillStyle = fuelR > 0 ? '#7ef0ff' : '#664';
       ctx.fillRect(sx - w / 2, sy + TILE * 0.42, w * fuelR, 4);
+    } else if (o.type === 'auto_smelter') {
+      // 燃料條(煤炭橘):沒煤=熄火變暗;上面再疊一條細的原料緩衝量(灰白)
+      const w = TILE * 0.8, fuelR = (o.fuel || 0) / AUTO_SMELTER_CFG.maxFuel;
+      const bufR = Math.min(1, (o.items || []).reduce((a, s) => a + s.count, 0) / AUTO_SMELTER_CFG.maxBuffer);
+      ctx.fillStyle = '#3336';
+      ctx.fillRect(sx - w / 2, sy + TILE * 0.42, w, 4);
+      ctx.fillStyle = fuelR > 0 ? '#ff9d5c' : '#664';
+      ctx.fillRect(sx - w / 2, sy + TILE * 0.42, w * fuelR, 4);
+      ctx.fillStyle = '#cfd8e3';
+      ctx.fillRect(sx - w / 2, sy + TILE * 0.36, w * bufR, 2);
     } else if (o.type === 'storage') {
       // 裝填量條(金色):一眼看出箱子有多滿
       const w = TILE * 0.8, fillR = Math.min(1, (o.items ? o.items.length : 0) / STORAGE_CFG.slots);

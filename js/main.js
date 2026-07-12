@@ -207,6 +207,10 @@ function localControl(me, dt) {
         if (NET.isHost()) doFuelMiner(me, tx0, ty0);
         else NET.act({ t: 'fuelminer', x: tx0, y: ty0 });
       } else addFloater(tx0 + 0.5, ty0 + 0.5, '手持光晶💠 右鍵供電', '#8899aa');
+    } else if (targetObj && targetObj.type === 'auto_smelter' && inRange) {
+      // 熔煉爐:手持煤補燃料、手持可熔礦石塞原料(判定在房主端 doFeedSmelter,這裡直接轉發)
+      if (NET.isHost()) doFeedSmelter(me, tx0, ty0);
+      else NET.act({ t: 'smelter', x: tx0, y: ty0 });
     } else if (targetObj && targetObj.type === 'belt' && inRange && !me.inv[me.sel]) {
       // 傳輸帶:空手右鍵旋轉方向(手上有東西時走下面的放置邏輯,才能在傳輸帶旁繼續鋪別的)
       if (NET.isHost()) doRotateBelt(me, tx0, ty0);
