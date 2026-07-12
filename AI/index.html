@@ -1197,6 +1197,23 @@ async function removeBgBlob(blob) {
   g.putImageData(im, 0, 0);
   return new Promise(r => c.toBlob(r, 'image/png'));
 }
+// 預縮:AI 生圖動輒 1024px/1MB+,遊戲內只顯示 40~120px,存檔前先縮到夠用的解析度
+// (tiles/items 256、生物類 512),100 張資產從 67MB 壓到 12MB 的教訓——載入慢是資產問題
+function shrinkMaxOf(target) { return (target.dir === 'tiles' || target.dir === 'items') ? 256 : 512; }
+async function shrinkBlob(blob, max) {
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+    if (img.width <= max && img.height <= max) return blob; // 只縮不放大
+    const s = Math.min(max / img.width, max / img.height);
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(img.width * s)); c.height = Math.max(1, Math.round(img.height * s));
+    const g = c.getContext('2d');
+    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+    g.drawImage(img, 0, 0, c.width, c.height);
+    return await new Promise(r => c.toBlob(r, 'image/png'));
+  } finally { URL.revokeObjectURL(url); }
+}
 // 存入遊戲:透過 serve.js 的 /api/save-asset 寫進 D:\game\assets\<分類>\<檔名>
 // 頁面若是 file:// 開的就打 localhost:8000(所以「啟動遊戲.bat」要先開著)
 function serverBase() { return /^http/.test(location.origin) ? location.origin : 'http://localhost:8000'; }
@@ -1207,6 +1224,7 @@ async function saveToGame(src, target, ow) {
     blob = await toPngBlob(src);
     // 整格地形材質不去背(挖了會破洞);怪物/物品/圍籬等透明物件照常去背
     if ($('#autoMatte').checked && !isTileTexture(target)) blob = await removeBgBlob(blob);
+    blob = await shrinkBlob(blob, shrinkMaxOf(target)); // 存檔前預縮,控制載入量
   } catch (e) { toast('圖片處理失敗:' + e.message); return 'failed'; }
   try {
     const b64 = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result.split(',')[1]); fr.readAsDataURL(blob); });
