@@ -17,7 +17,7 @@
 | `js/world.js` | 全域狀態 `G`、地圖生成 `genWorld()`、`setTile/setObj`(自動維護光源+廣播)、光照、RLE 壓縮 |
 | `js/inventory.js` | 背包(32 格,前 8 快捷欄)、合成、`bestPick/bestSword/bestArmor` 自動選具 |
 | `js/entities.js` | 玩家/敵人 AI/投射物/掉落物、戰鬥、挖掘 `doMine`、放置 `doPlace`、圓形碰撞 `moveCircle` |
-| `js/game.js` | 房主模擬主迴圈 `simTick`、暗潮、星核、存讀檔(`SAVE_KEY='gloamdepths_save'`) |
+| `js/game.js` | 房主模擬主迴圈 `simTick`、暗潮、星核、存讀檔(3 槽位 `gloamdepths_save_1~3`,見「多存檔」) |
 | `js/net.js` | PeerJS 連線層(見下) |
 | `js/render.js` | Canvas 渲染:視野裁切、逐格光照、怪物貼圖快取 |
 | `js/ui.js` | DOM HUD、背包/合成面板、小地圖、ESC 選單、主選單 |
@@ -141,3 +141,25 @@
 - **UI Q 版化**(style.css):血條膠囊化(`border-radius:999px`,`.bar` 本有 `overflow:hidden` 不露角)、主選單按鈕全膠囊、按鈕 active 擠壓(squash & stretch)、快捷欄選中呼吸發光(`slotBreath`)、標題浮動。canvas floater 的糖果色直接寫 hex(canvas 吃不到 CSS 變數):回復類=薄荷綠 `#7dffb2`、動物好感=糖果粉 `#ff9de2`。
 - **向量畫法 Q 版**(render.js):怪物 fallback 眼睛放大 20%+白色高光點;玩家大眼 3.5+淡粉腮紅,**血量 <30% 眼睛變「><」**(用 `p.hp/p.maxhp` 判斷——雙端都有這兩個欄位,客戶端不用等快照同步新欄位)。
 - 金鎬(tier 3)即頂級鎬,**沒有「鑽石鎬」這一階**——鑽石/淵岩都是金鎬挖。
+
+## 多存檔/世界選擇(2026-07-12,原 3.4)
+- **3 個槽位**:key = `gloamdepths_save_1~3`(`SAVE_SLOTS`/`saveKeyOf`,game.js);`SAVE_SLOT`(let,非 G 欄位)記目前遊戲寫入的槽位,**主選單決定、整局不變**,不進存檔內容(它是「存在哪」不是「存了什麼」)。存檔格式本身零改動,新舊互通。
+- **舊版單一 key 自動搬遷**:`migrateLegacySave()` 把 `gloamdepths_save`(`LEGACY_SAVE_KEY`)搬進第一個空槽後刪舊 key(冪等);三格全滿時**保留舊 key 不動**,寧可不搬也不丟資料。呼叫點在 `setOverlay('start')` 開頭——主選單是唯一入口,列表/`anySave()` 之前一定先搬完。
+- **槽位摘要 `slotInfo(n)`**:回 `hostName/diffLabel/time/shards/won/savedAt/size`;空槽回 `null`、JSON 壞掉回 `{broken:true}`(列表顯示「損壞」仍可刪)。`buildSave` 多存 `savedAt`(純顯示用,`applySave` 不吃)。`hasSave(n=SAVE_SLOT)` 查單槽(設定頁按鈕態),主選單「繼續存檔」要用 `anySave()`。
+- **UI 流程**(ui.js `setOverlay('slots')`,`UI.slotPick='load'|'new'`):「繼續存檔」開槽位列表(讀取/刪除);「新世界」自動用 `firstEmptySlot()`,**三格全滿才進「挑一格覆蓋」**(覆蓋/刪除都 confirm)。匯入存檔檔案也先挑空格,全滿 confirm 後覆蓋 `savedAt` 最舊的一格——**槽位要在 `loadGameFromObject` 之前決定**,取消才不會弄髒世界狀態。
+- **`getName()` 陷阱**:槽位畫面沒有 `#nameInput`,getName 已加 fallback 讀 `localStorage.gld_name`(從主畫面進槽位畫面時已存過);改主選單流程時別把「名字輸入 → 進槽位畫面」的順序反過來。
+
+## 連線基礎建設批次(2026-07-12,原規劃第四章 4.1/4.2/4.3 整章完成)
+- **⚠️ binarypack 大陣列序列化陷阱(全專案最重要的連線地雷)**:PeerJS 預設序列化器對**上萬元素的陣列**(如 `rleEnc(G.tiles)` 的 1.2 萬元素)會 `Maximum call stack size exceeded`,且**視當下呼叫深度偶爾成功**——這就是過去 join 偶發失敗的根因。對單一長字串則是線性處理、實測 10/10 穩定。因此大封包(`init`/`backup`)一律走 `NET.sendBig(conn, obj)`(包成 `{t:'big', json}` 送、收端在 `conn.on('data')` 開頭解包)。**之後任何新協定要帶大陣列,必走 sendBig**。
+- **房主斷線轉移(4.1)**:自動化既有的「匯出存檔→匯入接手」手動流程。房主把 `buildSave()` 每 `MIGRATE_CFG.interval`(20s)推給**繼任者**(pid 最小=最早加入的客戶端,`_refreshSuccessor`),並向全員廣播 `{t:'succ', sid, code}` 講好**接棒房號**(入房/繼任者變動/定時三個時機都推,新人才會立刻知道)。房主失聯 → 繼任者 `_takeover()`:用接棒房號開房 + `loadGameFromObject(backupSave)`(跟匯入存檔完全同一條路徑),其他人 `_chase()` 每 2.5s 敲門最多 6 次;背包以名字為鍵自動拿回。接棒房主的自動存檔落到 `firstEmptySlot()`,沒空格就整局不落地(絕不默默蓋別人的世界)。
+- **斷線偵測靠雙保險**:`conn.on('close')` + **心跳逾時**(`clientTick` 裡 `lastMsgT > 8s`,快照本來就 10Hz)——分頁被強制關閉時 close 事件**可能永遠不來**,不能只靠它。心跳守衛要有 `conn && conn.open`(接棒過渡期新連線未開,不能誤判)。
+- **join 的 onOk/onErr 必須單發**:peer error 與逾時可能各觸發一次 onErr,若都往外報,接棒重試鏈會**分裂成多條互相銷毀對方 peer**(曾把已成功的連線殺掉)。`fail()` 用 `opened/failed` 旗標收斂,且放棄時一定 `peer.destroy()`(否則已放棄的連線稍後連上=同名殭屍玩家)。
+- **觀戰模式(4.3)**:V 鍵切換自由鏡頭(`UI.spec = {x,y,auto}`,死亡自動啟用/復活自動收回),`localControl` 開頭攔截 WASD 改移動鏡頭並 `return`(角色不動作),`render.js` 鏡頭 `const cam = UI.spec || me`。**純本地零網路協定**。
+- **TURN 中繼(4.2)**:`PEER_OPTS`(net.js)給兩處 `new Peer` 帶 `ICE_SERVERS`(Google STUN + Open Relay 免費 TURN)。TURN 只在打洞失敗才走;免費服務掛了=退回純 STUN,不會更差。
+- 測試:`e2e_migrate.js`(scratchpad)三個獨立 browser context 走**真 PeerJS 雲端**全流程(開房→兩人加入→塞特徵物品→關房主→驗證接棒/跳房/背包完整/觀戰),17 斷言全過。
+
+## 網頁載入與效能規則(2026-07-12,設計判斷用的歸因指南)
+遊戲是純前端網頁,設計任何新東西前先分清楚「慢」是哪一種,規則才管得對地方:
+1. **載入慢 = 資產問題,不是程式碼問題**。全部 JS 合計才 ~270KB(毫秒級),資產才是大頭:AI 產圖的 PNG 單張常破 1MB,遊戲內卻只縮到 TILE=40px 使用。**規格:tiles/items ≤ 256×256、生物(monsters/npcs/animals)≤ 512×512**——2026-07-12 已把全部 100 張從 67MB 預縮到 12MB(畫質零差異,遊戲內顯示尺寸遠小於此),AI Hub 的 `saveToGame` 已加 `shrinkBlob` 預縮步驟,之後新生成的圖存檔時自動符合規格。原始高解析圖在 git 歷史與本機 `assets_raw/`(已 gitignore)可撈回。file:// 本機玩感覺不到差異,放上網(GitHub Pages 等)差距巨大。
+2. **遊戲中卡頓 = 每幀工作量問題,跟檔案大小無關**。新系統的每幀邏輯遵守既有效能原則:只處理視野內、獨立 idx Set 不掃全部 objects、離屏快取(tileTex/mmImage);低頻工作降頻跑(如 updateMiners 半秒一次)。
+3. **單一 JS 檔變大影響的是可維護性,不是效能**。要拆檔是為了職責清楚,拆了記得 index.html 的 `<script>` 順序不可亂、`?v=NN` 同步加。
