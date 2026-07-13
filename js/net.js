@@ -122,7 +122,7 @@ const NET = {
         objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null, o.stage ?? null, o.t ?? null, o.nestType ?? null, o.dir ?? null, o.fuel ?? null, o.items ?? null]),
         core: { energy: G.core.energy, shards: G.core.shards },
         shrines: G.shrines, traders: G.traders, wave: G.wave, time: G.time, difficulty: G.difficulty, unsealed: G.unsealed, won: G.won,
-        players: [...G.players.values()].map(pl => [pl.id, pl.name, pl.x, pl.y, pl.hp, pl.dead ? 1 : 0, pl.lv || 1, pl.xp || 0]),
+        players: [...G.players.values()].map(pl => [pl.id, pl.name, pl.x, pl.y, pl.hp, pl.dead ? 1 : 0, pl.lv || 1, pl.xp || 0, pl.downed ? 1 : 0, Math.ceil(pl.downedT || 0), Math.round((pl.reviveP || 0) * 100)]),
         inv: p.inv, over: G.over,
       });
       this.sendAllExcept(pid, { t: 'join', id: pid, name, x: p.x, y: p.y });
@@ -234,11 +234,12 @@ const NET = {
     const snap = {
       t: 'snap', time: r2(G.time),
       players: [...G.players.values()].map(p =>
-        [p.id, r2(p.x), r2(p.y), r2(p.aim), p.swing > 0 ? 1 : 0, Math.round(p.hp), p.dead ? 1 : 0, Math.ceil(p.respawnT || 0), p.lv || 1, Math.round(p.xp || 0)]),
+        [p.id, r2(p.x), r2(p.y), r2(p.aim), p.swing > 0 ? 1 : 0, Math.round(p.hp), p.dead ? 1 : 0, Math.ceil(p.respawnT || 0), p.lv || 1, Math.round(p.xp || 0),
+         p.downed ? 1 : 0, Math.ceil(p.downedT || 0), Math.round((p.reviveP || 0) * 100)]),
       enemies: G.enemies.map(e => [e.id, e.type, r2(e.x), r2(e.y), Math.round(e.hp), e.maxhp, e.elite ? 1 : 0, e.slowT > 0 ? 1 : 0]),
       animals: G.animals.map(a => [a.id, a.type, r2(a.x), r2(a.y), Math.round(a.hp), a.fedT > 0 ? 1 : 0]),
       drops: G.drops.map(d => [d.id, d.item, d.n, r2(d.x), r2(d.y), d.lv || 0]),
-      projs: G.projs.map(pj => [pj.id, r2(pj.x), r2(pj.y), pj.from === 'e' ? 1 : 0]),
+      projs: G.projs.map(pj => [pj.id, r2(pj.x), r2(pj.y), pj.from === 'e' ? 1 : 0, pj.elem || null]),
       core: { e: r2(G.core.energy), s: G.core.shards },
       wave: { n: G.wave.n, state: G.wave.state, timer: Math.round(G.wave.timer), alive: G.wave.alive || 0, final: G.wave.final, endless: G.wave.endless || false, en: G.wave.en || 0 },
       kills: G.killCount,
@@ -374,12 +375,13 @@ const NET = {
         G.difficulty = DIFFICULTY_CFG[d.difficulty] ? d.difficulty : 'normal';
         G.unsealed = !!d.unsealed;
         G.won = !!d.won;
-        G.enemies = []; G.drops = []; G.floaters = []; G.cracks.clear(); G.projs = []; G.animals = [];
+        G.enemies = []; G.drops = []; G.floaters = []; G.cracks.clear(); G.projs = []; G.animals = []; G.hitFx = [];
         G.players.clear();
-        for (const [id, name, x, y, hp, dead, lv, xp] of d.players) {
+        for (const [id, name, x, y, hp, dead, lv, xp, downed, downedT, revP] of d.players) {
           const p = makePlayer(id, name);
           p.lv = lv || 1; p.xp = xp || 0; p.maxhp = playerMaxHp(p);
           p.x = x; p.y = y; p.tx = x; p.ty = y; p.hp = hp; p.dead = !!dead;
+          p.downed = !!downed; p.downedT = downedT || 0; p.reviveP = (revP || 0) / 100;
           G.players.set(id, p);
         }
         const me = G.players.get(G.myId);
@@ -398,12 +400,13 @@ const NET = {
         break;
       case 'backup': this.backupSave = d.save; break;
       case 'snap': {
-        for (const [id, x, y, aim, swing, hp, dead, respawnT, lv, xp] of d.players) {
+        for (const [id, x, y, aim, swing, hp, dead, respawnT, lv, xp, downed, downedT, revP] of d.players) {
           let p = G.players.get(id);
           if (!p) { p = makePlayer(id, '?'); G.players.set(id, p); p.x = x; p.y = y; }
           if (lv && p.lv !== lv) UI.invDirty = true;
           p.lv = lv || 1; p.xp = xp || 0; p.maxhp = playerMaxHp(p);
           p.hp = hp; p.dead = !!dead; p.respawnT = respawnT;
+          p.downed = !!downed; p.downedT = downedT || 0; p.reviveP = (revP || 0) / 100;
           if (id === G.myId) continue; // 自己的位置用本地預測
           p.tx = x; p.ty = y; p.aim = aim;
           if (swing && p.swing <= 0) p.swing = 0.22;
@@ -434,7 +437,7 @@ const NET = {
           G.animals = alist;
         }
         G.drops = d.drops.map(([id, item, n, x, y, lv]) => ({ id, item, n, x, y, lv: lv || 0 }));
-        G.projs = (d.projs || []).map(([id, x, y, fromE]) => ({ id, x, y, from: fromE ? 'e' : 'p' }));
+        G.projs = (d.projs || []).map(([id, x, y, fromE, elem]) => ({ id, x, y, from: fromE ? 'e' : 'p', elem }));
         G.core.energy = d.core.e; G.core.shards = d.core.s;
         G.wave = d.wave; G.time = d.time; G.killCount = d.kills || 0;
         if (d.me) {

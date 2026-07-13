@@ -11,6 +11,7 @@ function makePlayer(id, name) {
     inv: makeStartInv(), sel: 0,
     swing: 0, atkCD: 0, mineCD: 0, iframe: 0, lastHurt: -99,
     dead: false, respawnT: 0, invDirty: true,
+    downed: false, downedT: 0, reviveP: 0, // 隊友救援(倒地非陣亡),見 REVIVE_CFG
     lv: 1, xp: 0,
     stamina: 100, dashCD: 0, dashT: 0,
     buffs: {},   // 料理 buff:kind -> { mult/value, t 剩餘秒數 }
@@ -120,6 +121,8 @@ function applyFx(f) {
   if (f.k === 'ft') G.floaters.push({ x: f.x, y: f.y, txt: f.txt, color: f.color, t: 0 });
   else if (f.k === 'crack') { if (f.r >= 1) G.cracks.delete(f.i); else G.cracks.set(f.i, f.r); }
   else if (f.k === 'sfx' && SFX[f.s]) SFX[f.s]();
+  // 打擊特效:命中衝擊波(elem 決定顏色,crit=屬性剋制大成功放大範圍),render.js 畫、這裡只記錄時間軸
+  else if (f.k === 'hit') G.hitFx.push({ x: f.x, y: f.y, elem: f.elem || null, crit: !!f.crit, t: 0, seed: Math.random() * TAU });
 }
 function emitFx(f) {
   applyFx(f);
@@ -155,6 +158,7 @@ function hurtEnemy(e, dmg, src, kbF, atkElem) {
   const col = mult > 1.3 ? '#ff9d3c' : mult < 1 ? '#8899aa' : '#ffdf6b';
   addFloater(e.x, e.y - 0.5, '-' + final + (mult > 1.3 ? '!' : mult < 1 ? '↓' : ''), col);
   emitFx({ k: 'sfx', s: 'hit' });
+  emitFx({ k: 'hit', x: e.x, y: e.y, elem: atkElem || null, crit: mult > 1.3 });
   if (src) {
     const d = Math.max(0.1, dist(src.x, src.y, e.x, e.y));
     let kb = et.boss ? 1.5 : 5;
@@ -459,6 +463,15 @@ function updateProjs(dt) {
   }
 }
 
+// 徹底陣亡(倒下讀秒歸零 / 已倒下時又挨一下「補刀」/ 沒有隊友可救)——
+// 統一入口,原本 damagePlayer 裡的死亡處理原封不動搬進來,updatePlayersHost 的倒下逾時分支也共用
+function enterDead(p) {
+  p.hp = 0; p.dead = true; p.respawnT = 5;
+  p.downed = false; p.downedT = 0; p.reviveP = 0;
+  p.buffs = {}; p.fish = null; p.recall = null; // 死亡清空料理 buff、釣魚與回城引導狀態
+  msgAll(`💧 ${p.name} 熄火了……5 秒後在星核重新點燃!`);
+}
+
 function damagePlayer(p, amount) {
   if (p.godmode) return; // /power godmode:秘笈開啟的無敵狀態
   // 岩鎧 buff 與護甲相乘(不是相加),兩者都拉滿也不會變成免疫
@@ -469,9 +482,17 @@ function damagePlayer(p, amount) {
   addFloater(p.x, p.y - 0.6, '-' + dmg, '#ff6b6b');
   emitFx({ k: 'sfx', s: 'hurt' });
   if (p.hp <= 0) {
-    p.hp = 0; p.dead = true; p.respawnT = 5;
-    p.buffs = {}; p.fish = null; p.recall = null; // 死亡清空料理 buff、釣魚與回城引導狀態
-    msgAll(`💧 ${p.name} 熄火了……5 秒後在星核重新點燃!`);
+    // 已經倒下的人再挨一下 = 補刀,直接徹底陣亡(不是無腦送頭的風險來源)
+    if (p.downed) { enterDead(p); return; }
+    // 有其他存活且非倒下的隊友在場,才進入「倒下待救」;單機/隊友全滅時沒人救得了,直接陣亡
+    const rescuable = [...G.players.values()].some(q => q.id !== p.id && !q.dead && !q.downed);
+    if (rescuable) {
+      p.hp = 1; p.downed = true; p.downedT = REVIVE_CFG.downedDur; p.reviveP = 0;
+      p.buffs = {}; p.fish = null; p.recall = null;
+      msgAll(`🆘 ${p.name} 倒下了!快靠近站著救他(要 ${REVIVE_CFG.reviveTime} 秒,再被打一下就沒救了)!`);
+    } else {
+      enterDead(p);
+    }
   }
 }
 
@@ -596,7 +617,7 @@ function wearItem(p, s, n = 1) {
 
 // 修理:靠近工作台,花該裝備合成成本的一半(repairCostOf),耐久回滿
 function doRepair(p, slot) {
-  if (p.dead) return { err: '你已倒下' };
+  if (p.dead || p.downed) return { err: '你已倒下' };
   if (!stationNear(p, 'workbench')) return { err: '需要靠近工作台' };
   const s = p.inv[slot];
   const it = s && ITEMS[s.id];
@@ -616,7 +637,7 @@ function doRepair(p, slot) {
 
 // ===== 玩家動作(房主端執行;客戶端透過網路請求) =====
 function doSwing(p, aim) {
-  if (p.dead || p.atkCD > 0) return;
+  if (p.dead || p.downed || p.atkCD > 0) return;
   const w = meleeWeaponOf(p);
   p.atkCD = w.cd ?? 0.35; p.swing = w.manual ? 0.22 : 0.22; p.aim = aim; p.action = 'atk';
   const dmg = w.dmg * playerDmgMult(p);
@@ -641,7 +662,7 @@ function doSwing(p, aim) {
 
 // 遠程武器發射(選中弓/弩/法杖時觸發);消耗對應彈藥,沒彈藥就不發射
 function doShoot(p, aim) {
-  if (p.dead || p.atkCD > 0) return;
+  if (p.dead || p.downed || p.atkCD > 0) return;
   const s = p.inv[p.sel];
   const w = s && ITEMS[s.id].ranged;
   if (!w) return;
@@ -674,7 +695,7 @@ function breakTile(x, y, withDrop = true) {
 }
 
 function doMine(p, x, y) {
-  if (p.dead || p.mineCD > 0 || !inMap(x, y)) return;
+  if (p.dead || p.downed || p.mineCD > 0 || !inMap(x, y)) return;
   if (dist(p.x, p.y, x + 0.5, y + 0.5) > 3.6) return;
   p.mineCD = 0.26;
   p.aim = Math.atan2(y + 0.5 - p.y, x + 0.5 - p.x);
@@ -726,7 +747,7 @@ function doMine(p, x, y) {
 // 衝裝(強化卷軸):消耗卷軸嘗試把裝備 +1 級,靠近工作台才能用;失敗只噴卷軸不降級
 // 回傳 { ok, lv, fail } 供呼叫端顯示結果;err 字串表示無法執行(不消耗卷軸)
 function doEnh(p, slot) {
-  if (p.dead) return { err: '你已倒下' };
+  if (p.dead || p.downed) return { err: '你已倒下' };
   if (!stationNear(p, 'workbench')) return { err: '需要靠近工作台' };
   const s = p.inv[slot];
   if (!s || !isEnhancable(s.id)) return { err: '這個物品無法強化' };
@@ -751,7 +772,7 @@ function doEnh(p, slot) {
 
 // NPC 商人交易:offerIdx 對應 traderOffers() 目前展開後的索引
 function doTrade(p, offerIdx) {
-  if (p.dead) return { err: '你已倒下' };
+  if (p.dead || p.downed) return { err: '你已倒下' };
   const trader = G.traders[0];
   if (!trader || dist(p.x, p.y, trader.x, trader.y) > 3.8) return { err: '離商人太遠了' };
   const offer = traderOffers()[offerIdx];
@@ -767,7 +788,7 @@ function doTrade(p, offerIdx) {
 }
 
 function doPlace(p, slot, x, y) {
-  if (p.dead || !inMap(x, y)) return;
+  if (p.dead || p.downed || !inMap(x, y)) return;
   const s = p.inv[slot];
   if (!s) return;
   const it = ITEMS[s.id];
@@ -856,7 +877,7 @@ function dirFromAngle(ang) {
 
 // 農耕:鏟子翻土(不消耗、不扣格數,單純是把地板變農地),右鍵觸發
 function doTill(p, x, y) {
-  if (p.dead || !inMap(x, y)) return;
+  if (p.dead || p.downed || !inMap(x, y)) return;
   if (dist(p.x, p.y, x + 0.5, y + 0.5) > 3.8) return;
   if (tileAt(x, y) !== T.FLOOR || G.objects.has(idx(x, y))) return;
   setTile(x, y, T.FARMLAND);
@@ -865,7 +886,7 @@ function doTill(p, x, y) {
 
 // 農耕:在翻好的農地上種下種子(消耗 1 顆),長熟後見 updateCrops + updatePlayersHost 的自動收成
 function doPlant(p, slot, x, y) {
-  if (p.dead || !inMap(x, y)) return;
+  if (p.dead || p.downed || !inMap(x, y)) return;
   const s = p.inv[slot];
   if (!s || !ITEMS[s.id].seed) return;
   if (dist(p.x, p.y, x + 0.5, y + 0.5) > 3.8) return;
@@ -878,7 +899,7 @@ function doPlant(p, slot, x, y) {
 // 釣魚:拿釣竿對水面右鍵拋竿,站著不動等 FISH_CFG 的隨機秒數,開獎邏輯在 updatePlayersHost;
 // 移動會收竿(魚跑了),不用瞄準浮標、不用 QTE,跟翻土/種植同一套「右鍵→判定→結果」節奏
 function doFish(p, x, y) {
-  if (p.dead || !inMap(x, y) || p.fish) return;
+  if (p.dead || p.downed || !inMap(x, y) || p.fish) return;
   if (!infoAt(x, y).liquid) return;
   if (dist(p.x, p.y, x + 0.5, y + 0.5) > 3.8) return;
   p.aim = Math.atan2(y + 0.5 - p.y, x + 0.5 - p.x);
@@ -889,7 +910,7 @@ function doFish(p, x, y) {
 // 歸巢螢石:手持右鍵開始引導(比照釣魚「站著別動」的節奏,計時/中斷在 updatePlayersHost);
 // 受傷中斷寫在 damagePlayer;完成才消耗石頭並傳送(重用既有 tp 協定)
 function doRecall(p, slot) {
-  if (p.dead || p.recall) return;
+  if (p.dead || p.downed || p.recall) return;
   const s = p.inv[slot];
   if (!s || !ITEMS[s.id].recall) return;
   if (dist(p.x, p.y, G.core.x, G.core.y) < 8) { addFloater(p.x, p.y - 0.6, '已經在星核旁了', '#8899aa'); return; }
@@ -911,7 +932,7 @@ function resolveFishing(p) {
 }
 
 function doEat(p, slot) {
-  if (p.dead) return;
+  if (p.dead || p.downed) return;
   const s = p.inv[slot];
   if (!s) return;
   const it = ITEMS[s.id];
@@ -935,7 +956,7 @@ function doEat(p, slot) {
 // 丟出快捷欄選中格子的物品(Q鍵);裝備類(count=1)整把丟出並保留強化等級,
 // 可堆疊物一次丟1個,方便多人合作時分批分享而不是整疊倒出去
 function doDropItem(p, slot) {
-  if (p.dead) return;
+  if (p.dead || p.downed) return;
   const s = p.inv[slot];
   if (!s) return;
   const ang = p.aim + (Math.random() - 0.5) * 0.6;
@@ -949,7 +970,7 @@ function doDropItem(p, slot) {
 // 拖太遠夾到玩家可及範圍邊緣(不是直接失敗,拖曳落點通常沒那麼精準);
 // 落點卡在牆裡就退回腳邊,避免道具卡進牆體拿不到
 function doDropAt(p, slot, x, y) {
-  if (p.dead) return;
+  if (p.dead || p.downed) return;
   const s = p.inv[slot];
   if (!s) return;
   const maxD = 3.8;
@@ -966,7 +987,7 @@ function doDropAt(p, slot, x, y) {
 }
 
 function doDeposit(p) {
-  if (p.dead || dist(p.x, p.y, G.core.x, G.core.y) > 3) return;
+  if (p.dead || p.downed || dist(p.x, p.y, G.core.x, G.core.y) > 3) return;
   const n = countItem(p, 'lumite');
   if (n <= 0) { addFloater(p.x, p.y - 0.6, '沒有光晶', '#8899aa'); return; }
   const canUse = Math.min(n, Math.ceil((CORE_CFG.maxE - G.core.energy) / CORE_CFG.feed));
@@ -1091,7 +1112,7 @@ function hurtAnimal(a, dmg, src) {
 
 // 右鍵拿飼料對動物:餵食(消耗 1 個),倒數 productCD 後掉產物;吃飽的動物不收
 function doFeed(p, aid, slot) {
-  if (p.dead) return;
+  if (p.dead || p.downed) return;
   const a = G.animals.find(x => x.id === aid);
   if (!a) return;
   if (dist(p.x, p.y, a.x, a.y) > 3.8) return;
@@ -1568,6 +1589,27 @@ function updatePlayersHost(dt) {
       }
       continue;
     }
+    // 隊友救援:倒下期間不能行動(localControl 擋輸入),靠隊友靠近讀秒救回;逾時沒救到 = 徹底陣亡
+    if (p.downed) {
+      p.downedT -= dt;
+      if (p.downedT <= 0) { enterDead(p); continue; }
+      let rescuer = false;
+      for (const q of G.players.values()) {
+        if (q.id === p.id || q.dead || q.downed) continue;
+        if (dist(p.x, p.y, q.x, q.y) < REVIVE_CFG.range) { rescuer = true; break; }
+      }
+      if (rescuer) {
+        p.reviveP = (p.reviveP || 0) + dt / REVIVE_CFG.reviveTime;
+        if (p.reviveP >= 1) {
+          p.downed = false; p.downedT = 0; p.reviveP = 0;
+          p.hp = Math.max(1, Math.round(p.maxhp * REVIVE_CFG.hpFrac));
+          p.iframe = 1.2; // 剛救起來給點喘息時間,別站起來就被秒
+          msgAll(`💪 ${p.name} 被救起來了!螢火隊不拋棄任何人~`);
+          emitFx({ k: 'sfx', s: 'deposit' });
+        }
+      }
+      continue;
+    }
     // 釣魚計時:離開拋竿位置太遠 = 收竿;時間到就開獎
     if (p.fish) {
       if (dist(p.x, p.y, p.fish.x, p.fish.y) > FISH_CFG.moveCancel) {
@@ -1645,5 +1687,13 @@ function updateFloaters(dt) {
     const f = G.floaters[i];
     f.t += dt;
     if (f.t > 1.1) G.floaters.splice(i, 1);
+  }
+}
+// 打擊特效倒數(所有端各自更新,純視覺不影響模擬)
+function updateHitFx(dt) {
+  for (let i = G.hitFx.length - 1; i >= 0; i--) {
+    const h = G.hitFx[i];
+    h.t += dt;
+    if (h.t > HITFX_DUR) G.hitFx.splice(i, 1);
   }
 }

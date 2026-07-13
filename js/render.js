@@ -10,6 +10,10 @@ function initRender() {
   fit();
 }
 
+// 投射物拖尾:記上一幀的螢幕座標,畫一條漸淡短線做出飛行動態感。純渲染本地狀態,不影響模擬,
+// 不需要任何同步(每個客戶端各自對著同一份 G.projs 位置算,結果自然一致)
+const PROJ_TRAIL = new Map();
+
 // ---- 角色貼圖快取(怪物/商人/動物共用,烘焙式) ----
 // AI 原圖 512px、遊戲內只畫 40~120px:每幀直接大倍率縮放既傷效能、取樣又會鋸齒閃爍。
 // 載入後先用高品質縮放烘成「顯示尺寸」的離屏 canvas,之後每幀都是 ~1:1 貼圖
@@ -48,6 +52,12 @@ function traderImg() {
 // 動物(失敗退回 emoji——過去一直只畫 emoji,cow.png/hen.png 素材其實早就在了)
 function animalImg(type) {
   return bakedSprite(`assets/animals/${type}.png`, Math.ceil(TILE * ANIMAL_TYPES[type].r * 2.3));
+}
+// 打擊特效素材(單張圖,靠 canvas 縮放/淡出做動畫);烘一個固定小尺寸,畫的時候用動態目的地矩形
+// 縮放即可做出「由小變大」的效果,不用每個當下的半徑各烤一份。找不到就交回 null,呼叫端退回向量畫法
+const HITFX_IMG = { fire: 'fire.png', frost: 'frost.png', light: 'light.png', dark: 'dark.png', smash: 'smash.png' };
+function hitFxSprite(elem) {
+  return bakedSprite(`assets/effects/${HITFX_IMG[elem] || 'neutral.png'}`, 96);
 }
 
 // ---- 地形貼圖快取 ----
@@ -155,6 +165,49 @@ function drawRail(sx, sy, tx, ty) {
   ctx.strokeStyle = RAIL_STEEL; ctx.lineWidth = 2.5;
   for (const oy of [-gap, gap]) { ctx.beginPath(); ctx.moveTo(-TILE * 0.5, oy); ctx.lineTo(TILE * 0.5, oy); ctx.stroke(); }
   ctx.restore();
+}
+
+// ---- 隊友救援(倒地非陣亡):倒地的身體(黑暗遮罩前畫,跟正常玩家一樣受光照影響) ----
+function drawDownedBody(p, sx, sy) {
+  const col = PLAYER_COLORS[p.id % PLAYER_COLORS.length];
+  const R = p.r * TILE;
+  ctx.save();
+  ctx.globalAlpha = 0.82;
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  ctx.ellipse(sx, sy + R * 0.5, R * 1.2, R * 0.5, 0, 0, TAU);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(15,15,20,0.4)'; // 灰階疊層:倒地虛弱感,跟站立時的鮮豔顏色拉開差異
+  ctx.fill();
+  ctx.strokeStyle = '#0008'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.restore();
+  // 昏迷的 ✕✕ 眼睛
+  ctx.strokeStyle = '#222'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+  for (const ex of [-7, 7]) {
+    ctx.beginPath();
+    ctx.moveTo(sx + ex - 3, sy + R * 0.3 - 3); ctx.lineTo(sx + ex + 3, sy + R * 0.3 + 3);
+    ctx.moveTo(sx + ex + 3, sy + R * 0.3 - 3); ctx.lineTo(sx + ex - 3, sy + R * 0.3 + 3);
+    ctx.stroke();
+  }
+}
+// 倒地標記(SOS + 救援進度環 + 倒數):黑暗遮罩之後畫,跟名字同一批「暗處也要看得到」的資訊
+function drawDownedMarker(p, sx, sy) {
+  const R = p.r * TILE;
+  const pulse = 0.75 + Math.sin(performance.now() / 260) * 0.25;
+  ctx.font = `${TILE * 0.46 * pulse}px "Segoe UI Emoji"`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('🆘', sx, sy - R * 1.3);
+  if (p.reviveP > 0) {
+    const rr = R * 1.35;
+    ctx.strokeStyle = 'rgba(40,40,50,0.55)'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(sx, sy, rr, 0, TAU); ctx.stroke();
+    ctx.strokeStyle = '#7dff8e'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(sx, sy, rr, -Math.PI / 2, -Math.PI / 2 + TAU * Math.min(1, p.reviveP));
+    ctx.stroke();
+  }
+  ctx.font = 'bold 12px sans-serif';
+  ctx.fillStyle = '#ff9d9d';
+  ctx.fillText(Math.ceil(p.downedT || 0) + 's', sx, sy + R * 1.5);
 }
 
 function worldToScreen(x, y) { return [(x - camX) * TILE, (y - camY) * TILE]; }
@@ -480,17 +533,31 @@ function render(dt) {
   }
 
   // ---- 投射物(箭矢/暗影彈;不受黑暗遮罩影響,飛行中要能被看見閃避) ----
+  const projSeen = new Set();
   for (const pj of G.projs) {
     if (pj.x < x0 - 1 || pj.x > x1 + 2 || pj.y < y0 - 1 || pj.y > y1 + 2) continue;
     const [sx, sy] = worldToScreen(pj.x, pj.y);
-    ctx.fillStyle = pj.from === 'e' ? '#e08cff' : '#ffe89a';
+    projSeen.add(pj.id);
+    const rgb = pj.elem && ELEM_FX_COLOR[pj.elem] ? ELEM_FX_COLOR[pj.elem] : (pj.from === 'e' ? '224,140,255' : '255,232,154');
+    // 拖尾:上一幀螢幕座標畫一條漸淡短線,飛行時的動態感(比純圓點好閃避判斷)
+    const prev = PROJ_TRAIL.get(pj.id);
+    if (prev) {
+      ctx.strokeStyle = `rgba(${rgb},0.4)`; ctx.lineWidth = TILE * 0.1; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(prev.sx, prev.sy); ctx.lineTo(sx, sy); ctx.stroke();
+    }
+    PROJ_TRAIL.set(pj.id, { sx, sy });
+    ctx.fillStyle = `rgb(${rgb})`;
     ctx.beginPath();
     ctx.arc(sx, sy, TILE * 0.1, 0, TAU);
     ctx.fill();
-    ctx.fillStyle = pj.from === 'e' ? 'rgba(224,140,255,0.35)' : 'rgba(255,232,154,0.35)';
+    ctx.fillStyle = `rgba(${rgb},0.35)`;
     ctx.beginPath();
     ctx.arc(sx, sy, TILE * 0.22, 0, TAU);
     ctx.fill();
+  }
+  // 清掉已消失投射物的拖尾記憶,避免 Map 隨對局時間無限增長
+  if (PROJ_TRAIL.size > projSeen.size + 20) {
+    for (const id of PROJ_TRAIL.keys()) if (!projSeen.has(id)) PROJ_TRAIL.delete(id);
   }
 
   // ---- 動物(被動生物) ----
@@ -659,6 +726,9 @@ function render(dt) {
     if (p.dead) continue;
     const [sx, sy] = worldToScreen(p.x, p.y);
     if (sx < -60 || sy < -60 || sx > cv.width + 60 || sy > cv.height + 60) continue;
+    // 倒下(隊友救援待救,見 REVIVE_CFG):畫倒地的身體就好,不接受任何動作輸入所以不用畫走路/揮擊;
+    // SOS 標記/救援進度環/倒數畫在黑暗遮罩之上(跟名字同一批),暗處也找得到人
+    if (p.downed) { drawDownedBody(p, sx, sy); continue; }
     const col = PLAYER_COLORS[p.id % PLAYER_COLORS.length];
     const R = p.r * TILE;
     // 移動時偵測位移做走路擺腿動畫(不額外存狀態,用位置差推斷)
@@ -723,19 +793,37 @@ function render(dt) {
       ctx.ellipse(e2x + Math.sin(p.aim) * 5, e2y - Math.cos(p.aim) * 5 + 2, 3.2, 2.2, 0, 0, TAU);
       ctx.fill();
     }
-    // 揮擊弧光
+    // 手持物品(先算出來,揮擊弧光要用它的屬性上色):待機時偏向側後方貼身顯示(避開頭部),
+    // 攻擊/挖礦時往瞄準方向揮出到身體外側
+    const held = p.swing > 0 && p.action === 'mine' ? bestPick(p) : weaponOf(p);
+    // weaponOf/bestPick 把 ITEMS[id].sword/ranged 子物件展平合併進回傳值,elem 直接掛在 held 上(不是 held.sword.elem)
+    const heldElem = held && held.elem;
+    const arcRgb = heldElem && ELEM_FX_COLOR[heldElem] ? ELEM_FX_COLOR[heldElem] : '255,255,255';
+    // 揮擊弧光:白色=無屬性,有屬性武器染成對應顏色(焰橘/霜藍/光金/暗紫/重擊灰)
     if (p.swing > 0) {
-      ctx.strokeStyle = `rgba(255,255,255,${p.swing / 0.22 * 0.8})`;
+      ctx.strokeStyle = `rgba(${arcRgb},${p.swing / 0.22 * 0.85})`;
       ctx.lineWidth = 4;
       ctx.beginPath();
       ctx.arc(sx, sy, TILE * 1.3, p.aim - 0.8, p.aim + 0.8);
       ctx.stroke();
     }
-    // 手持物品:待機時偏向側後方貼身顯示(避開頭部),攻擊/挖礦時往瞄準方向揮出到身體外側
-    const held = p.swing > 0 && p.action === 'mine' ? bestPick(p) : weaponOf(p);
     if (held && held.icon) {
       const swinging = p.swing > 0;
       const swingF = swinging ? (p.action === 'mine' ? p.swing / 0.2 : p.swing / 0.22) : 0;
+      // 拖影:近戰揮擊時額外畫兩個「稍早角度、較淡」的殘影,做出揮動的動態感(挖礦不畫,避免視覺雜訊)
+      if (swinging && p.action !== 'mine') {
+        for (const off of [0.32, 0.16]) {
+          const ghostF = Math.min(1, swingF + off);
+          const gAng = p.aim + (ghostF - 0.5) * 1.1;
+          const gr = R * 1.35;
+          ctx.save();
+          ctx.font = `${TILE * 0.44}px "Segoe UI Emoji"`;
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.globalAlpha = (1 - off) * 0.35;
+          ctx.fillText(held.icon, sx + Math.cos(gAng) * gr, sy + Math.sin(gAng) * gr);
+          ctx.restore();
+        }
+      }
       // 待機時擺在慣用手側(瞄準方向 +100°),不擋住臉;揮動時甩到瞄準方向前方
       const ang = swinging ? p.aim + (swingF - 0.5) * 1.1 : p.aim + 1.75;
       const hr = R * (swinging ? 1.35 : 0.95);
@@ -761,11 +849,13 @@ function render(dt) {
     }
   }
 
-  // ---- 名字(畫在黑暗之上,找得到隊友)----
+  // ---- 名字(畫在黑暗之上,找得到隊友)+ 倒下標記(SOS/救援環/倒數,自己倒下時也要看到) ----
   ctx.font = 'bold 13px sans-serif';
   for (const p of G.players.values()) {
-    if (p.dead || p.id === G.myId) continue;
+    if (p.dead) continue;
     const [sx, sy] = worldToScreen(p.x, p.y);
+    if (p.downed) drawDownedMarker(p, sx, sy);
+    if (p.id === G.myId) continue;
     const label = `${p.name} Lv.${p.lv || 1}`;
     ctx.fillStyle = '#000a';
     ctx.fillText(label, sx + 1, sy - p.r * TILE - 9);
@@ -833,5 +923,49 @@ function render(dt) {
     ctx.fillText(f.txt, sx + 1, sy - f.t * 28 + 1);
     ctx.fillStyle = f.color + Math.round(a * 255).toString(16).padStart(2, '0');
     ctx.fillText(f.txt, sx, sy - f.t * 28);
+  }
+
+  // ---- 打擊特效(命中衝擊波,跟浮動文字一樣畫在黑暗之上)----
+  // 素材有生產好的話畫「單張圖 + canvas 縮放/淡出做動畫」(比逐格動畫圖穩,AI 生不出連續一致的動畫幀);
+  // 沒有素材(未生產/載入失敗)自動退回純向量畫法(衝擊環+放射短線),兩者互不依賴、零風險疊加
+  for (const h of G.hitFx) {
+    const [sx, sy] = worldToScreen(h.x, h.y);
+    const t = clamp(h.t / HITFX_DUR, 0, 1);
+    const img = hitFxSprite(h.elem);
+    const a = (1 - t) * (h.crit ? 0.95 : 0.75);
+    if (img) {
+      const size = TILE * (0.85 + t * (h.crit ? 1.35 : 0.9));
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.drawImage(img, sx - size / 2, sy - size / 2, size, size);
+      ctx.restore();
+    } else {
+      const rgb = h.elem && ELEM_FX_COLOR[h.elem] ? ELEM_FX_COLOR[h.elem] : (h.crit ? '255,157,60' : '255,223,107');
+      const r = TILE * (0.14 + t * (h.crit ? 0.55 : 0.38));
+      ctx.strokeStyle = `rgba(${rgb},${a})`;
+      ctx.lineWidth = 3 * (1 - t) + 1;
+      ctx.beginPath(); ctx.arc(sx, sy, r, 0, TAU); ctx.stroke();
+      const n = h.crit ? 6 : 4;
+      ctx.lineWidth = 2;
+      for (let i = 0; i < n; i++) {
+        const ang = (i / n) * TAU + h.seed;
+        const r1 = r * 0.55, r2 = r * 1.1;
+        ctx.beginPath();
+        ctx.moveTo(sx + Math.cos(ang) * r1, sy + Math.sin(ang) * r1);
+        ctx.lineTo(sx + Math.cos(ang) * r2, sy + Math.sin(ang) * r2);
+        ctx.stroke();
+      }
+    }
+  }
+
+  // ---- 倒下畫面(全螢幕暗紅暈,純本地渲染不影響模擬;倒數/救援環已在世界空間畫在自己頭上)----
+  if (me.downed) {
+    ctx.save();
+    const g = ctx.createRadialGradient(cv.width / 2, cv.height / 2, cv.height * 0.22, cv.width / 2, cv.height / 2, cv.height * 0.72);
+    g.addColorStop(0, 'rgba(120,10,10,0)');
+    g.addColorStop(1, 'rgba(120,10,10,0.5)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.restore();
   }
 }

@@ -367,9 +367,10 @@ function uiTick(dt) {
     UI.els.wavebox.className = 'warn';
   }
 
-  // 死亡橫幅
-  UI.els.deathbanner.classList.toggle('hidden', !me.dead);
+  // 死亡橫幅(倒下待救援 / 徹底陣亡共用同一個橫幅,文字依狀態切換)
+  UI.els.deathbanner.classList.toggle('hidden', !me.dead && !me.downed);
   if (me.dead) UI.els.deathbanner.textContent = `💧 你熄火了…… ${Math.max(0, Math.ceil(me.respawnT ?? 0))} 秒後在星核重新點燃(WASD 可移動鏡頭觀戰)`;
+  else if (me.downed) UI.els.deathbanner.textContent = `🆘 倒下了!等隊友靠近站著救你(${Math.max(0, Math.ceil(me.downedT ?? 0))} 秒後徹底陣亡)`;
 
   if (UI.invDirty) { UI.invDirty = false; refreshSlots(); }
 

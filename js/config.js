@@ -207,6 +207,18 @@ const DECOY_CFG = { range: 10, maxPerPlayer: 2 };
 // 探索半徑不再被「暗潮警告 30 秒內趕不趕得回」綁死,但被怪纏上時還是得先殺出來才能回城
 const RECALL_CFG = { channel: 4, moveCancel: 0.3 };
 
+// 隊友救援(倒地非陣亡):致命傷不再直接進入 5 秒重生,而是先「倒下」——
+// 有其他存活(且非倒下)隊友時才會觸發此狀態,單機/隊友全滅時直接走原本的陣亡流程(零額外等待)。
+// 倒下期間不能行動、不能移動,靠隊友靠近站著讀秒救回(不是無腦送頭:再挨一下=直接陣亡,是真正的風險)。
+const REVIVE_CFG = {
+  downedDur: 25,   // 倒下後幾秒沒被救回 = 徹底陣亡(走原本的重生流程)
+  range: 1.6,      // 隊友要多近才算「在救援」
+  reviveTime: 3.5, // 需要持續站在旁邊幾秒才能救起來
+  hpFrac: 0.35,    // 救起來時的血量比例(不是滿血,避免無腦送頭變成零成本)
+};
+// 打擊特效(命中閃光/衝擊波)動畫時長,entities.js(產生)與 render.js(繪製進度)共用同一個數字
+const HITFX_DUR = 0.32;
+
 // ── 料理 buff:食物可帶 buff 欄位 { kind, mult 或 value, dur 秒 },doEat 時寫進 p.buffs[kind],
 // 同種 buff 重複吃 = 重置時間(不疊加倍率,避免數值爆掉);計時與失效在 updatePlayersHost。
 // kind 對應的生效點:speed=移動速度(main.js localControl)/ mine=挖掘力(doMine)/
@@ -507,6 +519,8 @@ const ELEM_VS = {
 function elemMult(atk, def) {
   return (atk && def && ELEM_VS[atk] && ELEM_VS[atk][def]) || 1;
 }
+// 屬性特效色(揮擊弧光/投射物拖尾/命中衝擊波共用,render.js 讀):RGB 字串方便直接拼進 rgba()
+const ELEM_FX_COLOR = { fire: '255,140,60', frost: '110,220,255', light: '255,240,180', dark: '190,120,255', smash: '210,210,220' };
 
 // ── 衝裝(強化卷軸)──
 // 每級 +15% 武器/鎬威力、護甲 +4%;+4/+5 有失敗率(失敗只噴卷軸不炸裝)

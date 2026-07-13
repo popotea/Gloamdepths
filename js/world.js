@@ -17,6 +17,7 @@ const G = {
   players: new Map(),   // id -> player
   myId: 0,
   enemies: [], drops: [], floaters: [], cracks: new Map(), projs: [],
+  hitFx: [],             // 打擊特效(命中閃光,純視覺、client/host 各自倒數,不進存檔)
   animals: [],          // 被動生物(牲畜),房主模擬、快照同步,跟 enemies 分開的一套
 
   core: { x: CX + 0.5, y: CY + 0.5, energy: CORE_CFG.maxE, shards: 0 },
@@ -153,7 +154,7 @@ function genWorld(seed) {
   G.objects.clear(); G.lights.clear(); G.cracks.clear();
   G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.cropIdx.clear();
   G.minerIdx.clear(); G.beltIdx.clear(); G.smelterIdx.clear(); G.frostIdx.clear(); G.decoyIdx.clear();
-  G.enemies = []; G.drops = []; G.floaters = []; G.projs = []; G.animals = [];
+  G.enemies = []; G.drops = []; G.floaters = []; G.projs = []; G.animals = []; G.hitFx = [];
   G.shrines = []; G.traders = []; G.mushCount = 0; G.warned = {}; G.killCount = 0;
   G.core = { x: CX + 0.5, y: CY + 0.5, energy: CORE_CFG.maxE, shards: 0 };
   G.wave = { n: 0, state: 'calm', timer: WAVE_CFG.first, final: false };

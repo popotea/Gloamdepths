@@ -192,3 +192,21 @@
 - **通關後暗潮進入無盡循環**:`G.wave.endless=true` + `en`(無盡波數),喘息 `ENDLESS_CFG.rest`(150s)後照 `WAVE_CFG.interval` 排波。強度遵守難度設計鐵律「**更痛更多、不更肉**」:數量走既有 `wave.n` 線性成長、傷害每波 +6% 封頂 3 倍(`endlessDmgMult()` 疊乘在難度/精英倍率之上)、淵核區高階怪(revenant/voidling)進場占比隨波數升到最高 50%。**星核照樣耗能、歸零照樣輸**——通關不是免死金牌。
 - **同步/存讀檔**:`won` 進 buildSave/init(客戶端靠 init 拿 `G.won`、靠 snap 的 wave 拿 `endless/en`);讀通關存檔一律進無盡模式(舊存檔沒有 `wave.en` 從 0 起算)。net 的 `over` 訊息:win 不再設 client 的 `G.over`,只秀慶祝畫面。
 - **讀檔急救能量**(連帶修復):戰敗當下存的檔能量是 0,原樣讀回第一個 tick 就再敗——applySave 給 `max(存檔值, 25)` 的地板值,讀檔至少有機會搶救。
+
+## 隊友救援(倒下非陣亡)(2026-07-13,第七批)
+參考同類遊戲的團隊合作機制(Deep Rock Galactic 的「流血倒地待救」、Don't Starve Together 的「復活需要隊友」)設計:陣亡不再是單人事件,給「一起把人拖回來」一個具體的互動,同時保留死亡的風險(不是無腦送頭)。
+- **狀態機是「倒下」插在「致命傷」與「陣亡」之間,不是取代陣亡**:`damagePlayer` 致命傷時,若場上有其他存活且未倒下的隊友(`rescuable`),進入 `p.downed=true`(hp 釘 1、`p.downedT=REVIVE_CFG.downedDur` 25 秒倒數);沒有隊友可救(單機、或隊友也都倒下/陣亡)則直接走原本的 `enterDead(p)` 陣亡流程——**單機模式行為完全不變**,零回歸風險。
+- **`enterDead(p)` 是抽出來的共用函式**,原本 `damagePlayer` 內建的死亡處理搬進去,三處呼叫:①沒隊友可救的致命傷 ②倒下期間又挨一下(補刀,直接陣亡,擋住無腦送頭)③倒下讀秒歸零仍沒被救到。
+- **救援零額外協定**:`updatePlayersHost`(host-only tick)每幀檢查倒下玩家 `REVIVE_CFG.range`(1.6 格)內有沒有「存活且未倒下」的隊友,有就 `p.reviveP += dt/REVIVE_CFG.reviveTime`(3.5 秒),滿了就救起(hp=`maxhp*REVIVE_CFG.hpFrac` 35%、`iframe=1.2` 給緩衝)。全靠 host 讀雙方已知的 `p.x/y`(專案既有的「位置採信任制」),不用新增 client→host 訊息——跟歸巢螢石/地刺一樣的「零新協定」設計語言。
+- **16 個動作函式加 `|| p.downed` 守衛**(doSwing/doShoot/doMine/doPlace/doTill/doPlant/doFish/doRecall/doEat/doDropItem/doDropAt/doFeed/doEnh/doTrade/doRepair/doDeposit):倒下等於徹底失能,不能戰鬥/挖礦/放置/吃東西/交易。`localControl`(main.js)加 `me.downed` 到既有的 `me.dead` 輸入攔截,**故意不進觀戰鏡頭**(跟 `me.dead` 不同)——鏡頭留在倒下位置,玩家能親眼看著隊友是否趕來,也能在聊天喊「這邊這邊」。
+- **`nearestAlivePlayer` 等既有的 `!p.dead` 過濾器完全不用改**:倒下期間 `p.dead` 仍是 false,敵人照樣把倒地的人當有效目標追殺——這正是「情勢緊張,快救人」的張力來源;`explodeAt`(爆炸 AOE)本來就不看 iframe,倒地的人被炸到照樣直接補刀陣亡。
+- **同步**:`downed/downedT/reviveP` 三欄位加進玩家 tuple 的**尾端**(snap 與 init 兩處編碼、兩處解碼,共 4 處一起改,固定欄位順序陣列,不是 spread),客戶端才畫得出倒地畫面與救援進度環。
+- **渲染分兩層**(render.js):倒地的「身體」畫在黑暗遮罩**之前**(受光照影響,跟正常玩家一樣暗處看不見合理);SOS 標記+救援進度環+倒數畫在黑暗遮罩**之後**(跟名字同一批「暗處也要找得到隊友」的設計),包含自己倒下時也看得到自己的倒數(不用另外查 UI)。全螢幕暗紅暈疊在最後(`me.downed` 才畫,純氛圍,不重複顯示倒數文字避免資訊重複)。
+
+## 武器動畫效果 + 打擊特效(2026-07-13,第七批)
+給揮擊/命中補上「動起來」的回饋,原則是**程序化 canvas 動畫優先於逐格 AI 圖**——AI 生圖一次只能出一張穩定構圖,做不出前後幀連貫的揮擊/爆炸動畫(每張姿勢都會漂移),硬做只會抖動穿幫;canvas 用同一個形狀做位移/縮放/淡出,天生保證幀與幀連貫,而且雙端(host/client)各自算、零額外頻寬。單張 AI 圖只用在「命中衝擊波」這種不需要連續姿態、純粹放大淡出的地方,且做成有 fallback 的疊加層(找不到圖就退回純向量,兩者互不依賴)。
+- **揮擊弧光上色**:`ELEM_FX_COLOR`(config.js)依武器 `elem` 給弧光/拖影染色(焰橘/霜藍/光金/暗紫/重擊灰,無屬性=白);**踩雷记录**:`weaponOf`/`bestPick`/`meleeWeaponOf`(inventory.js)回傳值是把 `ITEMS[id].sword`/`.ranged` 子物件**展平 spread** 進結果,`elem` 直接掛在 `held.elem`,不是 `held.sword.elem`——寫成巢狀存取會靜默失效(不噴錯,弧光就是一直白色),已用 `simtest4.js` 鎖住這個形狀假設。
+- **揮擊拖影**:近戰揮擊(非挖礦)時額外畫 2 個「稍早角度、較淡」的武器圖示殘影(`swingF+off` 往回推算角度),做出動態模糊感;`swingF` 是遞減的(1→0),稍早位置 = 稍高的 swingF,拖影方向不能算反。
+- **打擊特效(`G.hitFx`)**:`hurtEnemy` 統一發 `emitFx({k:'hit',x,y,elem,crit})`(涵蓋近戰/遠程/塔/陷阱等**所有**傷害來源,單一插入點),`applyFx` 收到後 push 進 `G.hitFx`(host/client 各自的陣列,`HITFX_DUR`=0.32 秒共用常數在 config.js,entities.js 倒數用、render.js 算動畫進度用同一個數字)。`crit`(屬性剋制 mult>1.3)放大範圍與亮度,呼應既有的傷害數字「!」標記。
+- **打擊特效素材**(`assets/effects/*.png`,6 張:fire/frost/light/dark/smash/neutral):`hitFxSprite(elem)` 用既有的 `bakedSprite` 快取(固定烤 96px,動畫縮放靠 `ctx.drawImage` 動態目的地矩形,不用每個當下半徑各烤一份)。**圖片是加分項不是必要項**:找不到就退回純向量畫法(衝擊環+放射短線),遊戲永遠能玩,只是視覺豐富度差異。
+- **投射物拖尾**:`pj.elem` 加進投射物 snap tuple(第 5 格),client 端才畫得出跟 host 一致的顏色(不加的話 host 看到彩色拖尾、client 看到預設色,視覺會兜不起來)。`PROJ_TRAIL`(render.js 模組層級 Map)記上一幀螢幕座標畫漸淡短線,純渲染本地狀態、每幀清掉已消失投射物的記憶避免無限增長。

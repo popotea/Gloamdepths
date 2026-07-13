@@ -125,7 +125,9 @@ function localControl(me, dt) {
     }
     return; // 觀戰時角色原地待機,不接受任何動作輸入
   }
-  if (me.dead || UI.menuOpen || UI.powerOpen) return;
+  // 倒下(隊友救援待救狀態,尚未徹底陣亡):不接受任何輸入,鏡頭停在倒下位置(不進觀戰,好讓
+  // 玩家看著隊友是否趕來、也讓隊友從遠處認得出你倒下的位置);渲染另有專屬畫法(見 render.js)
+  if (me.dead || me.downed || UI.menuOpen || UI.powerOpen) return;
   // 移動
   let dx = 0, dy = 0;
   if (INPUT.keys.has('w') || INPUT.keys.has('arrowup')) dy -= 1;
@@ -278,7 +280,7 @@ function frame(ts) {
         NET.clientTick(dt);
         clientTimers(me, dt);
       }
-      if (!G.paused) updateFloaters(dt);
+      if (!G.paused) { updateFloaters(dt); updateHitFx(dt); }
     }
   }
   render(dt);
