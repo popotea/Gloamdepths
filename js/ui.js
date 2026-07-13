@@ -34,7 +34,7 @@ function initUI() {
     traderPanel: $id('traderPanel'),
     storagePanel: $id('storagePanel'),
     emotePanel: $id('emotePanel'),
-    overlay: $id('overlay'), minimap: $id('minimap'),
+    overlay: $id('overlay'), minimap: $id('minimap'), teamList: $id('teamList'),
     mapPanel: $id('mapPanel'), mapCanvas: $id('mapCanvas'), mapTip: $id('mapTip'),
     hostBtn: $id('hostBtn'), roomcode: $id('roomcode'),
     deathbanner: $id('deathbanner'),
@@ -43,6 +43,9 @@ function initUI() {
     talentPanel: $id('talentPanel'), talentbadge: $id('talentbadge'),
   };
   UI.els.talentbadge.onclick = () => toggleTalentPanel(true);
+  // 小地圖本身+下方提示都能點開大地圖(M 鍵是唯一入口太隱晦,新玩家常常不知道有這功能)
+  UI.els.minimap.onclick = () => toggleMapPanel(true);
+  $id('mapOpenHint').onclick = () => toggleMapPanel(true);
   // 快捷欄 8 格
   for (let i = 0; i < 8; i++) {
     const d = document.createElement('div');
@@ -391,9 +394,9 @@ function uiTick(dt) {
     if (UI.talentT <= 0) { UI.talentT = 0.3; renderTalentPanel(); }
   }
 
-  // 小地圖
+  // 小地圖 + 隊友名單(同一個節流頻率)
   UI.mmT -= dt;
-  if (UI.mmT <= 0) { UI.mmT = 0.4; drawMinimap(); }
+  if (UI.mmT <= 0) { UI.mmT = 0.4; drawMinimap(); renderTeamList(); }
   if (UI.mapOpen) drawFullMap(); // 大地圖開著時每幀刷新玩家位置
 
   // 箭塔面板(開著才更新,節流;走遠或塔被拆掉就自動關閉)
@@ -979,6 +982,43 @@ function renderMenu() {
   }
 }
 
+// 隊友名單:小地圖標記再怎麼放大都還是很擠、顏色容易被地形吃掉,文字化的名字+距離+方向
+// 才是「一眼看懂隊友在哪」的可靠答案。跟 drawMinimap 同一個節流頻率(uiTick 每 0.4s)。
+// 安全性:玩家名字是別人打的(net.js 的 hi 訊息),一律用 textContent/DOM API 組,不用 innerHTML 拼字串
+function renderTeamList() {
+  const me = myPlayer();
+  const el = UI.els.teamList;
+  if (!me || !el) return;
+  const others = [...G.players.values()].filter(p => p.id !== G.myId);
+  el.innerHTML = '';
+  for (const p of others) {
+    const col = PLAYER_COLORS[p.id % PLAYER_COLORS.length];
+    const row = document.createElement('div');
+    row.className = 'team-row' + (p.dead ? ' dead' : p.downed ? ' downed' : '');
+    const dot = document.createElement('span');
+    dot.className = 'team-dot'; dot.style.background = col; dot.style.color = col;
+    row.appendChild(dot);
+    // 陣亡中(respawn 倒數)沒有座標意義(即將自動回星核重生);倒下待救才要看方向+距離——
+    // 那正是「該不該衝過去救」的關鍵資訊,跟一般隊友定位同等重要,甚至更急
+    if (!p.dead) {
+      const arrow = document.createElement('span');
+      arrow.className = 'team-arrow';
+      arrow.textContent = '➤';
+      arrow.style.transform = `rotate(${Math.atan2(p.y - me.y, p.x - me.x)}rad)`;
+      arrow.style.color = col;
+      row.appendChild(arrow);
+    }
+    row.appendChild(document.createTextNode(p.name));
+    const info = document.createElement('span');
+    info.className = 'team-dist';
+    if (p.dead) info.textContent = '重生中';
+    else if (p.downed) info.textContent = `🆘 ${Math.round(dist(me.x, me.y, p.x, p.y))}格`;
+    else info.textContent = Math.round(dist(me.x, me.y, p.x, p.y)) + '格';
+    row.appendChild(info);
+    el.appendChild(row);
+  }
+}
+
 // ===== 小地圖 =====
 const MM_COLORS = {};
 function drawMinimap() {
@@ -1022,8 +1062,19 @@ function drawMinimap() {
   }
   for (const p of G.players.values()) {
     if (p.dead) continue;
-    mc.fillStyle = PLAYER_COLORS[p.id % PLAYER_COLORS.length];
-    mc.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
+    const isMe = p.id === G.myId;
+    const col = PLAYER_COLORS[p.id % PLAYER_COLORS.length];
+    const s = isMe ? 5 : 4;
+    // 白色外框:170x170 的小地圖本身很擠,標記顏色常常跟地形色撞在一起看不清楚,先鋪一層白底墊出對比
+    mc.fillStyle = '#fff';
+    mc.fillRect(p.x - s / 2 - 1, p.y - s / 2 - 1, s + 2, s + 2);
+    mc.fillStyle = col;
+    mc.fillRect(p.x - s / 2, p.y - s / 2, s, s);
+    if (isMe) {
+      // 自己額外套一圈脈動光環:一眼從一堆隊友裡認出「我在哪」,不用去記自己是哪個顏色
+      mc.strokeStyle = col; mc.lineWidth = 1;
+      mc.beginPath(); mc.arc(p.x, p.y, 5 + Math.sin(performance.now() / 300) * 1.3, 0, TAU); mc.stroke();
+    }
   }
 }
 
@@ -1088,13 +1139,31 @@ function drawFullMap() {
     mc.fillText(m.icon, sx, sy);
     m._sx = sx; m._sy = sy;
   }
-  // 玩家
+  // 玩家:自己用脈動光環凸顯(老遠就找得到自己在哪),名字常駐顯示在標記下方
+  // (不用滑鼠 hover 才看得到——找隊友是這個面板最主要的用途,不該藏在互動後面)
   for (const p of G.players.values()) {
     if (p.dead) continue;
     const [sx, sy] = toScreen(p.x, p.y);
-    mc.fillStyle = PLAYER_COLORS[p.id % PLAYER_COLORS.length];
-    mc.beginPath(); mc.arc(sx, sy, Math.max(3, z * 0.6), 0, Math.PI * 2); mc.fill();
-    mc.strokeStyle = '#fff'; mc.lineWidth = 1; mc.stroke();
+    const isMe = p.id === G.myId;
+    const col = PLAYER_COLORS[p.id % PLAYER_COLORS.length];
+    const r = Math.max(isMe ? 5 : 4, z * (isMe ? 0.75 : 0.6));
+    if (isMe) {
+      const pulse = r + 5 + Math.sin(performance.now() / 260) * 3;
+      mc.globalAlpha = 0.55;
+      mc.strokeStyle = col; mc.lineWidth = 2;
+      mc.beginPath(); mc.arc(sx, sy, pulse, 0, Math.PI * 2); mc.stroke();
+      mc.globalAlpha = 1;
+    }
+    mc.fillStyle = col;
+    mc.beginPath(); mc.arc(sx, sy, r, 0, Math.PI * 2); mc.fill();
+    mc.strokeStyle = '#fff'; mc.lineWidth = isMe ? 2.5 : 1.5; mc.stroke();
+    const label = isMe ? `${p.name}(你)` : p.name;
+    mc.font = 'bold 13px sans-serif';
+    mc.textAlign = 'center'; mc.textBaseline = 'top';
+    mc.fillStyle = '#000c';
+    mc.fillText(label, sx + 1, sy + r + 5);
+    mc.fillStyle = col;
+    mc.fillText(label, sx, sy + r + 4);
   }
 
   // tooltip:滑鼠附近的標記

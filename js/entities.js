@@ -73,6 +73,22 @@ function circleHitsSolid(cx, cy, r, forEnemy = false) {
   }
   return false;
 }
+// 找離圓心最近的實心格「格內最近點」到圓心的方向(單位向量);沒撞到任何格子回 null。
+// 跟 circleHitsSolid 同一套「clamp 到格子範圍」技巧,牆角滑動修正用來算切線方向
+function cornerPushVec(cx, cy, r, forEnemy) {
+  const x0 = Math.floor(cx - r), x1 = Math.floor(cx + r);
+  const y0 = Math.floor(cy - r), y1 = Math.floor(cy + r);
+  let best = null, bestDsq = Infinity;
+  for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
+    if (!isSolid(tx, ty, forEnemy)) continue;
+    const nx = clamp(cx, tx, tx + 1), ny = clamp(cy, ty, ty + 1);
+    const dsq = (cx - nx) ** 2 + (cy - ny) ** 2;
+    if (dsq < bestDsq) { bestDsq = dsq; best = { x: cx - nx, y: cy - ny }; }
+  }
+  if (!best) return null;
+  const len = Math.hypot(best.x, best.y) || 0.0001;
+  return { x: best.x / len, y: best.y / len };
+}
 // X/Y 軸分開移動,撞牆貼齊;回傳是否被擋
 // 大位移(如鎚子重擊退)會拆成多個子步逐步檢查,避免一步跳過整格牆體(隧穿)
 // r:碰撞半徑,顯式傳入 — 敵人物件本身沒有 .r(半徑存在 ENEMY_TYPES 裡),
@@ -85,13 +101,27 @@ function moveCircle(e, dx, dy, r, forEnemy = false) {
   const sx = dx / n, sy = dy / n;
   let blocked = false;
   for (let k = 0; k < n; k++) {
-    if (sx !== 0) {
-      if (!circleHitsSolid(e.x + sx, e.y, rad, forEnemy)) e.x += sx;
-      else { blocked = true; break; }
-    }
-    if (sy !== 0) {
-      if (!circleHitsSolid(e.x, e.y + sy, rad, forEnemy)) e.y += sy;
-      else { blocked = true; break; }
+    const xOpen = sx === 0 || !circleHitsSolid(e.x + sx, e.y, rad, forEnemy);
+    const yOpen = sy === 0 || !circleHitsSolid(e.x, e.y + sy, rad, forEnemy);
+    if (sx !== 0 && xOpen) e.x += sx;
+    if (sy !== 0 && yOpen) e.y += sy;
+    const xBlocked = sx !== 0 && !xOpen, yBlocked = sy !== 0 && !yOpen;
+    if (xBlocked || yBlocked) blocked = true;
+    // 牆角卡死修正:斜向移動時兩軸「各自」都被同一顆牆角擋住(單獨測試 X 或 Y 都會撞到同一個
+    // 牆角最近點),但沿牆角切線方向其實滑得過去——洞穴地形滿是這種孤立牆角,不修就是"卡在中間走不過去"。
+    // 只在「兩軸都被擋」這個特定情況介入,單軸擋牆(絕大多數情況,包含直線走廊/正面撞牆)完全不受影響。
+    if (sx !== 0 && sy !== 0 && xBlocked && yBlocked) {
+      const push = cornerPushVec(e.x + sx, e.y + sy, rad, forEnemy);
+      if (push) {
+        let tx = -push.y, ty = push.x; // 切線 = 推出向量轉 90 度
+        if (tx * sx + ty * sy < 0) { tx = -tx; ty = -ty; } // 取跟原本移動方向同側的切線
+        const tlen = Math.hypot(tx, ty) || 1;
+        const mag = Math.hypot(sx, sy);
+        const slideX = tx / tlen * mag, slideY = ty / tlen * mag;
+        if (!circleHitsSolid(e.x + slideX, e.y + slideY, rad, forEnemy)) {
+          e.x += slideX; e.y += slideY;
+        }
+      }
     }
   }
   return blocked;

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>微光深淵 Gloamdepths</title>
-<link rel="stylesheet" href="style.css?v=64">
+<link rel="stylesheet" href="style.css?v=65">
 <!-- PeerJS:與朋友連線用(免費信令服務);沒網路時仍可離線單人遊玩 -->
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
@@ -24,7 +24,9 @@
   <div id="netbox">
     <button id="hostBtn" class="hidden">🔗 開房邀請朋友</button>
     <div id="roomcode" class="hidden"></div>
-    <canvas id="minimap" width="200" height="200"></canvas>
+    <canvas id="minimap" width="200" height="200" title="點一下打開大地圖(或按 M)"></canvas>
+    <div id="mapOpenHint">🗺️ 按 M 看大地圖</div>
+    <div id="teamList"></div>
   </div>
   <div id="msglog"></div>
   <div id="chatlog"></div>
@@ -60,15 +62,15 @@
     <div id="mapHint">🖱️滾輪縮放・拖曳平移・M/Esc 關閉</div>
   </div>
 </div>
-<script src="js/config.js?v=64"></script>
-<script src="js/sfx.js?v=64"></script>
-<script src="js/world.js?v=64"></script>
-<script src="js/inventory.js?v=64"></script>
-<script src="js/entities.js?v=64"></script>
-<script src="js/game.js?v=64"></script>
-<script src="js/net.js?v=64"></script>
-<script src="js/render.js?v=64"></script>
-<script src="js/ui.js?v=64"></script>
-<script src="js/main.js?v=64"></script>
+<script src="js/config.js?v=65"></script>
+<script src="js/sfx.js?v=65"></script>
+<script src="js/world.js?v=65"></script>
+<script src="js/inventory.js?v=65"></script>
+<script src="js/entities.js?v=65"></script>
+<script src="js/game.js?v=65"></script>
+<script src="js/net.js?v=65"></script>
+<script src="js/render.js?v=65"></script>
+<script src="js/ui.js?v=65"></script>
+<script src="js/main.js?v=65"></script>
 </body>
 </html>

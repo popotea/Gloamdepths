@@ -84,8 +84,23 @@ button:disabled { opacity: .4; cursor: default; }
   padding: 6px 12px; margin-bottom: 6px; cursor: pointer; font-weight: bold; letter-spacing: 1px;
   box-shadow: 0 0 10px var(--glow-dim); }
 #minimap { display: block; margin-left: auto; width: 170px; height: 170px; border: 1px solid var(--panel-border-color);
-  border-radius: var(--radius-md); background: #000; image-rendering: pixelated;
+  border-radius: var(--radius-md); background: #000; image-rendering: pixelated; cursor: pointer;
   box-shadow: 0 8px 24px #000a, 0 0 0 1px #7ef0ff1a; }
+#minimap:hover { border-color: var(--glow); box-shadow: 0 8px 24px #000a, 0 0 0 1px var(--glow-dim), 0 0 12px var(--glow-dim); }
+/* 小地圖下方常駐提示:M 鍵開大地圖是目前唯一入口,沒有這行提示新玩家根本不會發現這功能存在 */
+#mapOpenHint { margin-top: 5px; font-size: 11px; color: var(--text-dim); text-align: right; cursor: pointer;
+  opacity: .75; transition: opacity .15s; }
+#mapOpenHint:hover { opacity: 1; color: var(--glow); }
+/* 隊友名單:小地圖只有 170px,標記再怎麼放大也擠、顏色也會被地形吃掉——
+   文字化的名字+距離+方向箭頭才是「看得清楚隊友在哪」的可靠答案,不用瞇眼看小圖標 */
+#teamList { margin-top: 6px; display: flex; flex-direction: column; gap: 3px; align-items: flex-end; }
+.team-row { display: flex; align-items: center; gap: 5px; font-size: 12px; background: #0a0d14cc;
+  border: 1px solid var(--line-soft); border-radius: 999px; padding: 3px 9px 3px 6px; }
+.team-row.dead { opacity: .55; }
+.team-row.downed { border-color: var(--danger); background: #3a0d0dcc; animation: blink 1.4s infinite; }
+.team-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; box-shadow: 0 0 4px currentColor; }
+.team-arrow { display: inline-block; font-size: 10px; line-height: 1; }
+.team-dist { color: var(--text-dim); }
 
 /* 訊息列 */
 #msglog { position: absolute; left: 12px; top: 110px; width: 380px; font-size: 14px; }
