@@ -91,6 +91,7 @@ function simTick(dt) {
   updateProjs(dt);
   updateTowers(dt);
   updateArcherTowers(dt);
+  updateFrostTowers(dt); // 凜鈴塔緩速脈衝(生效點在 updateEnemies 的起跳取樣,下一幀吃到)
   updateMiners(dt);
   updateSmelters(dt); // 熔煉在推帶之前:剛出爐的錠這幀就能被帶子接走
   updateNests(dt);
@@ -350,7 +351,7 @@ function applySave(s, name) {
   G.tiles = rleDec(s.tiles, MAP_W * MAP_H, Uint8Array);
   G.explored = rleDec(s.explored, MAP_W * MAP_H, Uint8Array);
   G.dmg = new Float32Array(MAP_W * MAP_H);
-  G.objects.clear(); G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.cropIdx.clear(); G.minerIdx.clear(); G.beltIdx.clear(); G.smelterIdx.clear(); G.mushCount = 0;
+  G.objects.clear(); G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.cropIdx.clear(); G.minerIdx.clear(); G.beltIdx.clear(); G.smelterIdx.clear(); G.frostIdx.clear(); G.decoyIdx.clear(); G.mushCount = 0;
   for (const [i, type, hp, ammo, off, owner, stage, t, nestType, dir, fuel, items] of s.objects) {
     const o = hp === null ? { type } : { type, hp };
     if (ammo !== null && ammo !== undefined) o.ammo = ammo;

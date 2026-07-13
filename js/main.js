@@ -243,6 +243,10 @@ function localControl(me, dt) {
         } else if (it.fish && infoAt(tx0, ty0).liquid) {
           if (NET.isHost()) doFish(me, tx0, ty0);
           else NET.act({ t: 'fish', x: tx0, y: ty0 });
+        } else if (it.recall) {
+          // 歸巢螢石:引導計時/中斷/傳送全在房主端(比照釣魚),客戶端只送意圖
+          if (NET.isHost()) doRecall(me, me.sel);
+          else NET.act({ t: 'recall', slot: me.sel });
         }
       }
     }

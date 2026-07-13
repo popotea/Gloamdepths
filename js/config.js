@@ -193,6 +193,20 @@ const SMELT_MAP = {
   gold_ore:   { out: 'gold_bar',   need: 2 },
 };
 
+// ── 防守主城強化批(2026-07-13,第六批):城門/回城/控場塔/地刺/誘餌 ──
+// 凜鈴塔:零傷害的純控場塔——把怪「黏」在箭塔/光塔火力圈與地刺毯上,不替玩家殺怪(鐵律:自動化不取代玩家)。
+// 緩速對穿牆幽影一樣有效(ghost 的移動用同一份 e.vx/vy),是目前唯一反制穿牆突襲的防禦建築;冰系蝕影抗性=緩速時間減半
+const FROST_TOWER_CFG = { range: 3.5, cd: 2.5, dur: 2.6, mult: 0.55, maxPerPlayer: 2 };
+// 地刺陷阱:貼地消耗性陷阱,蝕影踩到被扎(穿牆幽影飄在空中扎不到)。o.hp 直接當「剩餘刺數」用,
+// 扎完自動碎裂;不給經驗值(hurtEnemy 的 src 不帶 name)=補位而非取代玩家輸出
+const SPIKE_TRAP_CFG = { dmg: 7, cd: 0.8, charges: 20 };
+// 誘光罐:裝滿光的假星核——「蝕影怕光又想搶光」的敘事直接變機制:暗潮怪在範圍內且身邊沒玩家可追時,
+// 優先撲向罐子(4 格內有玩家仍追人=不能拿它當隱形掛機盾;穿牆系看得穿贗品不上當)
+const DECOY_CFG = { range: 10, maxPerPlayer: 2 };
+// 歸巢螢石:手持右鍵引導數秒傳送回星核;移動/受傷立即中斷(不消耗),完成才消耗——
+// 探索半徑不再被「暗潮警告 30 秒內趕不趕得回」綁死,但被怪纏上時還是得先殺出來才能回城
+const RECALL_CFG = { channel: 4, moveCancel: 0.3 };
+
 // ── 料理 buff:食物可帶 buff 欄位 { kind, mult 或 value, dur 秒 },doEat 時寫進 p.buffs[kind],
 // 同種 buff 重複吃 = 重置時間(不疊加倍率,避免數值爆掉);計時與失效在 updatePlayersHost。
 // kind 對應的生效點:speed=移動速度(main.js localControl)/ mine=挖掘力(doMine)/
@@ -361,6 +375,20 @@ const ITEMS = {
   crystal_lamp:    { name: '晶燈柱', icon: '💡', place: 'crystal_lamp', desc: '光晶燈柱,照明範圍最大,把基地照得亮堂堂;可敲掉回收' },
   // 裝飾:純擺飾,不擋路無功能,蓋基地插旗宣示地盤用
   banner:          { name: '螢火旗幟', icon: '🚩', place: 'banner', desc: '螢火隊的旗幟,純裝飾;插一面宣示這是你們的地盤' },
+  // ── 防守主城強化批(2026-07-13,第六批):詳見 CLAUDE.md「防守主城強化批」──
+  // 光簾閘門:玩家(與投射物)自由穿過、蝕影視為牆——解「築牆防守把自己出門的路也堵死」的痛點。
+  // 刻意不進 OBJ_SOLID(isSolid 的 forEnemy 參數才把它當牆),投射物也飛得過=箭塔隔門開火
+  gate:            { name: '光簾閘門', icon: '🚪', place: 'gate',
+                     desc: '掛滿光晶簾的小門:螢火隊與箭矢自由穿過,蝕影會被擋住(牠們怕這道光,只敢隔著簾子啃)' },
+  recall_stone:    { name: '歸巢螢石', icon: '🌀', recall: true, max: 5,
+                     desc: `握緊它呼喚星核:站穩 ${RECALL_CFG.channel} 秒後傳送回家。移動或受傷會中斷(沒成功不消耗);暗潮警報響了也來得及回防` },
+  frost_tower:     { name: '凜鈴塔', icon: '🔔', place: 'frost_tower',
+                     desc: `掛著冰晶的小鈴鐺:每 ${FROST_TOWER_CFG.cd} 秒叮一聲,${FROST_TOWER_CFG.range} 格內的蝕影通通腳麻(大幅緩速;連穿牆幽影都黏得住,冰系抗性減半)。
+不造成傷害,搭配箭塔/地刺效果拔群。每人最多 ${FROST_TOWER_CFG.maxPerPlayer} 座` },
+  spike_trap:      { name: '地刺陷阱', icon: '🪤', place: 'spike_trap',
+                     desc: `鋪在地上的光刺:蝕影踩到被扎 ${SPIKE_TRAP_CFG.dmg} 傷還會被彈開(穿牆幽影飄著扎不到;螢火隊有穿鞋不怕)。共 ${SPIKE_TRAP_CFG.charges} 刺,扎完自動碎裂` },
+  decoy:           { name: '誘光罐', icon: '🏺', place: 'decoy',
+                     desc: `裝滿光的罐罐:暗潮蝕影會忍不住先去搶它,幫你分散火力、爭取回防時間(身邊有玩家時牠們還是先打人;穿牆幽影看得穿贗品)。每人最多 ${DECOY_CFG.maxPerPlayer} 個` },
 };
 
 // 合成配方:station=null 徒手 / 'workbench' / 'furnace'
@@ -428,6 +456,12 @@ const RECIPES = [
   { out: 'lantern',      n: 1, cost: { iron_bar: 1, lumite: 2 },         station: 'workbench' },
   { out: 'crystal_lamp', n: 1, cost: { gold_bar: 1, lumite: 4, stone: 2 }, station: 'workbench' },
   { out: 'banner',       n: 2, cost: { wood: 3, lumite: 1 },             station: 'workbench' },
+  // 防守主城強化批:門/地刺開局就做得起,回城石/誘光罐吃光晶(跟餵星核搶同一資源=機會成本),凜鈴塔鐵器期解鎖
+  { out: 'gate',         n: 1, cost: { wood: 8, lumite: 2 },             station: 'workbench' },
+  { out: 'spike_trap',   n: 2, cost: { wood: 3, stone: 3 },              station: 'workbench' },
+  { out: 'recall_stone', n: 1, cost: { lumite: 3, stone: 5 },            station: 'workbench' },
+  { out: 'frost_tower',  n: 1, cost: { stone: 6, iron_bar: 2, lumite: 8 }, station: 'workbench' },
+  { out: 'decoy',        n: 1, cost: { stone: 6, lumite: 4 },            station: 'workbench' },
 ];
 
 // 敵人表:speed=跳撲衝量, hopCD=跳撲間隔
@@ -490,12 +524,16 @@ function isEnhancable(id) {
   return !!(it && (it.sword || it.pick || it.armor || it.ranged));
 }
 
-// 已放置物件的耐久
-const OBJ_HP = { torch: 4, workbench: 20, furnace: 20, tower: 50, archer_tower: 40, chest: 12, nest: 60, auto_miner: 30, belt: 8, storage: 30, auto_smelter: 30, lantern: 4, crystal_lamp: 8, banner: 4 };
+// 已放置物件的耐久(地刺的 hp 直接當「剩餘刺數」用,跟 SPIKE_TRAP_CFG.charges 綁定)
+const OBJ_HP = { torch: 4, workbench: 20, furnace: 20, tower: 50, archer_tower: 40, chest: 12, nest: 60, auto_miner: 30, belt: 8, storage: 30, auto_smelter: 30, lantern: 4, crystal_lamp: 8, banner: 4,
+  gate: 60, frost_tower: 40, spike_trap: SPIKE_TRAP_CFG.charges, decoy: 150 };
 // 物件光照半徑(自動採礦機自帶微光,呼應「需供電」的能量意象也順便讓機器周圍看得清)
-const OBJ_LIGHT = { torch: 7, tower: 6, furnace: 3, workbench: 2.5, archer_tower: 3, auto_miner: 3, auto_smelter: 3, lantern: 10, crystal_lamp: 14 }; // 熔煉爐自帶爐火微光;提燈/晶燈是專門的照明物件
-// 會擋路的物件(自動採礦機是機台,擋路;傳輸帶是地面軌道,不擋路可站上去)
-const OBJ_SOLID = { workbench: true, furnace: true, tower: true, archer_tower: true, chest: true, nest: true, auto_miner: true, storage: true, auto_smelter: true };
+const OBJ_LIGHT = { torch: 7, tower: 6, furnace: 3, workbench: 2.5, archer_tower: 3, auto_miner: 3, auto_smelter: 3, lantern: 10, crystal_lamp: 14,
+  gate: 2, frost_tower: 3, decoy: 5 }; // 光簾門/誘光罐會發光是主題(蝕影搶光),凜鈴塔冰晶微光
+// 會擋路的物件(自動採礦機是機台,擋路;傳輸帶是地面軌道,不擋路可站上去)。
+// 光簾閘門刻意不在這裡:對玩家/投射物不算牆,只有 isSolid 的 forEnemy 參數會把它當牆(見 world.js);
+// 地刺是貼地陷阱,誰都能踩上去
+const OBJ_SOLID = { workbench: true, furnace: true, tower: true, archer_tower: true, chest: true, nest: true, auto_miner: true, storage: true, auto_smelter: true, frost_tower: true, decoy: true };
 
 // ── 世界據點(隨機生成)──
 // chest=廢墟寶箱(敲開拿戰利品) / nest=蝕影巢穴(持續生怪,拆掉噴光晶+卷軸)

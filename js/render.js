@@ -294,7 +294,8 @@ function render(dt) {
   // ---- 物件 ----
   const OBJ_ICON = { mushroom: '🍄', torch: '🕯️', workbench: '🛠️', furnace: '🔥', tower: '🗼', archer_tower: '🏹',
     chest: '🎁', nest: '🕸️', auto_miner: '⚙️', storage: '📦', auto_smelter: '🏭',
-    lantern: '🏮', crystal_lamp: '💡', banner: '🚩' };
+    lantern: '🏮', crystal_lamp: '💡', banner: '🚩',
+    gate: '🚪', frost_tower: '🔔', decoy: '🏺' }; // 地刺(spike_trap)走下面的貼地特例畫法,不在這表
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   for (const [i, o] of G.objects) {
     const tx = i % MAP_W, ty = (i / MAP_W) | 0;
@@ -318,6 +319,26 @@ function render(dt) {
         ctx.lineTo(ox + TILE * 0.08, 0);
         ctx.lineTo(ox - TILE * 0.1, TILE * 0.16);
         ctx.stroke();
+      }
+      ctx.restore();
+      continue;
+    }
+    // 地刺陷阱:貼地的三根小光刺(不是站著的機台),剩餘刺數越少越透明(快報廢的視覺提示)
+    if (o.type === 'spike_trap') {
+      const chargeR = clamp((o.hp ?? OBJ_HP.spike_trap) / OBJ_HP.spike_trap, 0, 1);
+      ctx.save();
+      ctx.globalAlpha = 0.45 + chargeR * 0.55;
+      ctx.fillStyle = '#cfd8e3';
+      ctx.strokeStyle = '#7ea8c0';
+      ctx.lineWidth = 1;
+      for (const [ox, oy] of [[-0.22, 0.1], [0, -0.12], [0.22, 0.1]]) {
+        const bx = sx + TILE * ox, by = sy + TILE * oy;
+        ctx.beginPath();
+        ctx.moveTo(bx - TILE * 0.09, by + TILE * 0.13);
+        ctx.lineTo(bx, by - TILE * 0.15);
+        ctx.lineTo(bx + TILE * 0.09, by + TILE * 0.13);
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
       }
       ctx.restore();
       continue;
@@ -379,6 +400,25 @@ function render(dt) {
       ctx.fillRect(sx - w / 2, sy + TILE * 0.42, w, 4);
       ctx.fillStyle = '#ffd23f';
       ctx.fillRect(sx - w / 2, sy + TILE * 0.42, w * fillR, 4);
+    } else if (o.type === 'frost_tower') {
+      // 冰藍脈動環:一眼認出「這座塔在控場」(純裝飾,雙端各自用時間畫,不用同步脈衝時機)
+      ctx.strokeStyle = `rgba(168,232,255,${0.35 + Math.sin(performance.now() / 400) * 0.15})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(sx, sy, TILE * 0.6, 0, TAU);
+      ctx.stroke();
+    } else if (o.type === 'decoy') {
+      // 金色脈動環:仿星核的「假光」既視感,遠遠看就知道是誘餌在嘲諷
+      ctx.strokeStyle = `rgba(255,210,63,${0.4 + Math.sin(performance.now() / 300) * 0.2})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(sx, sy, TILE * 0.58, 0, TAU);
+      ctx.stroke();
+    } else if (o.type === 'gate') {
+      // 光簾:門框下掛一道半透明青色光簾,示意「玩家能穿、蝕影不敢鑽」
+      const shimmer = 0.22 + Math.sin(performance.now() / 500 + sx) * 0.08;
+      ctx.fillStyle = `rgba(126,240,255,${shimmer})`;
+      ctx.fillRect(sx - TILE * 0.32, sy - TILE * 0.1, TILE * 0.64, TILE * 0.5);
     }
   }
 
@@ -555,6 +595,17 @@ function render(dt) {
       ctx.font = `${TILE * 0.4}px "Segoe UI Emoji"`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText('⚠️', sx, sy - er * TILE - 16);
+    }
+    // 凜鈴塔緩速:冰藍圈+小雪花(host 看 e.slowT,client 看快照的 sl 旗標)
+    if (e.slowT > 0 || e.sl) {
+      ctx.strokeStyle = 'rgba(168,232,255,0.7)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(sx, sy, er * TILE * 1.1, 0, TAU);
+      ctx.stroke();
+      ctx.font = `${TILE * 0.3}px "Segoe UI Emoji"`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('❄️', sx + er * TILE * 0.85, sy - er * TILE * 0.85);
     }
     const img = monsterImg(e.type);
     if (img) {

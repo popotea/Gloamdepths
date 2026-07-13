@@ -150,6 +150,7 @@ const NET = {
       case 'till': doTill(p, d.x | 0, d.y | 0); break;
       case 'plant': doPlant(p, d.slot | 0, d.x | 0, d.y | 0); break;
       case 'fish': doFish(p, d.x | 0, d.y | 0); break;
+      case 'recall': doRecall(p, d.slot | 0); break;
       case 'feed': doFeed(p, d.id | 0, d.slot | 0); break;
       case 'talent': applyTalent(p, String(d.id || '')); break;
       case 'repair': {
@@ -234,7 +235,7 @@ const NET = {
       t: 'snap', time: r2(G.time),
       players: [...G.players.values()].map(p =>
         [p.id, r2(p.x), r2(p.y), r2(p.aim), p.swing > 0 ? 1 : 0, Math.round(p.hp), p.dead ? 1 : 0, Math.ceil(p.respawnT || 0), p.lv || 1, Math.round(p.xp || 0)]),
-      enemies: G.enemies.map(e => [e.id, e.type, r2(e.x), r2(e.y), Math.round(e.hp), e.maxhp, e.elite ? 1 : 0]),
+      enemies: G.enemies.map(e => [e.id, e.type, r2(e.x), r2(e.y), Math.round(e.hp), e.maxhp, e.elite ? 1 : 0, e.slowT > 0 ? 1 : 0]),
       animals: G.animals.map(a => [a.id, a.type, r2(a.x), r2(a.y), Math.round(a.hp), a.fedT > 0 ? 1 : 0]),
       drops: G.drops.map(d => [d.id, d.item, d.n, r2(d.x), r2(d.y), d.lv || 0]),
       projs: G.projs.map(pj => [pj.id, r2(pj.x), r2(pj.y), pj.from === 'e' ? 1 : 0]),
@@ -352,7 +353,7 @@ const NET = {
         G.tiles = rleDec(d.tiles, MAP_W * MAP_H, Uint8Array);
         G.explored = rleDec(d.explored, MAP_W * MAP_H, Uint8Array);
         G.dmg = new Float32Array(MAP_W * MAP_H);
-        G.objects.clear(); G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.cropIdx.clear(); G.minerIdx.clear(); G.beltIdx.clear(); G.smelterIdx.clear(); G.mushCount = 0;
+        G.objects.clear(); G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.cropIdx.clear(); G.minerIdx.clear(); G.beltIdx.clear(); G.smelterIdx.clear(); G.frostIdx.clear(); G.decoyIdx.clear(); G.mushCount = 0;
         for (const [i, type, hp, ammo, off, owner, stage, t, nestType, dir, fuel, items] of d.objects) {
           const o = hp === null ? { type } : { type, hp };
           if (ammo !== null && ammo !== undefined) o.ammo = ammo;
@@ -411,11 +412,12 @@ const NET = {
         const seen = new Set();
         const byId = new Map(G.enemies.map(e => [e.id, e]));
         const list = [];
-        for (const [id, type, x, y, hp, maxhp, elite] of d.enemies) {
+        for (const [id, type, x, y, hp, maxhp, elite, sl] of d.enemies) {
           seen.add(id);
           let e = byId.get(id);
           if (!e) e = { id, type, x, y, hp, hopT: 0 };
           e.tx = x; e.ty = y; e.hp = hp; e.maxhp = maxhp; e.elite = !!elite;
+          e.sl = !!sl; // 凜鈴塔緩速旗標(render 畫 ❄ 用;host 端直接看 e.slowT)
           list.push(e);
         }
         G.enemies = list;

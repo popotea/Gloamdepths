@@ -11,6 +11,8 @@ const G = {
   towerIdx: new Set(), archerTowerIdx: new Set(), nestIdx: new Set(), cropIdx: new Set(),
   minerIdx: new Set(), beltIdx: new Set(), // 自動採礦機/傳輸帶的獨立索引(updateMiners/updateBelts 用,不掃全部 objects)
   smelterIdx: new Set(), // 自動熔煉爐索引(updateSmelters 用)
+  frostIdx: new Set(),   // 凜鈴塔索引(updateFrostTowers 用)
+  decoyIdx: new Set(),   // 誘光罐索引(updateEnemies 的目標選擇每敵每幀要查最近誘餌,掃全 objects 太貴)
   lights: new Map(),    // idx -> 光半徑(地形光 + 物件光)
   players: new Map(),   // id -> player
   myId: 0,
@@ -34,11 +36,13 @@ function idx(x, y) { return y * MAP_W + x; }
 function inMap(x, y) { return x >= 0 && y >= 0 && x < MAP_W && y < MAP_H; }
 function tileAt(x, y) { return inMap(x, y) ? G.tiles[idx(x, y)] : T.BEDROCK; }
 function infoAt(x, y) { return TILE_INFO[tileAt(x, y)]; }
-function isSolid(x, y) {
+// forEnemy:敵人/動物視角的固體判定——光簾閘門(gate)只對牠們算牆,玩家與投射物自由穿過。
+// 玩家端(含客戶端本地預測)一律不傳=照舊,雙端行為天然一致
+function isSolid(x, y, forEnemy = false) {
   if (!inMap(x, y)) return true;
   if (TILE_INFO[G.tiles[idx(x, y)]].solid) return true;
   const o = G.objects.get(idx(x, y));
-  return !!(o && OBJ_SOLID[o.type]);
+  return !!(o && (OBJ_SOLID[o.type] || (forEnemy && o.type === 'gate')));
 }
 
 // 投射物專用的阻擋判定:low 地形(水面/矮圍籬)擋得住人卻擋不住飛行物,其餘同 isSolid
@@ -68,7 +72,7 @@ function setTile(x, y, v, fromNet = false) {
 
 function objAt(x, y) { return G.objects.get(idx(x, y)) || null; }
 
-const TOWER_IDX_SETS = { tower: 'towerIdx', archer_tower: 'archerTowerIdx', nest: 'nestIdx', crop: 'cropIdx', auto_miner: 'minerIdx', belt: 'beltIdx', auto_smelter: 'smelterIdx' };
+const TOWER_IDX_SETS = { tower: 'towerIdx', archer_tower: 'archerTowerIdx', nest: 'nestIdx', crop: 'cropIdx', auto_miner: 'minerIdx', belt: 'beltIdx', auto_smelter: 'smelterIdx', frost_tower: 'frostIdx', decoy: 'decoyIdx' };
 // 放置/移除物件(o=null 移除)
 function setObj(x, y, o, fromNet = false) {
   const i = idx(x, y);
@@ -148,7 +152,7 @@ function genWorld(seed) {
   G.explored = new Uint8Array(MAP_W * MAP_H);
   G.objects.clear(); G.lights.clear(); G.cracks.clear();
   G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.cropIdx.clear();
-  G.minerIdx.clear(); G.beltIdx.clear(); G.smelterIdx.clear();
+  G.minerIdx.clear(); G.beltIdx.clear(); G.smelterIdx.clear(); G.frostIdx.clear(); G.decoyIdx.clear();
   G.enemies = []; G.drops = []; G.floaters = []; G.projs = []; G.animals = [];
   G.shrines = []; G.traders = []; G.mushCount = 0; G.warned = {}; G.killCount = 0;
   G.core = { x: CX + 0.5, y: CY + 0.5, energy: CORE_CFG.maxE, shards: 0 };

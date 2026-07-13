@@ -58,11 +58,12 @@ function applyTalent(p, id) {
 }
 
 // ===== 圓形 vs 格子碰撞 =====
-function circleHitsSolid(cx, cy, r) {
+// forEnemy:敵人/動物視角(光簾閘門對牠們算牆);玩家/掉落物不傳=照舊穿門
+function circleHitsSolid(cx, cy, r, forEnemy = false) {
   const x0 = Math.floor(cx - r), x1 = Math.floor(cx + r);
   const y0 = Math.floor(cy - r), y1 = Math.floor(cy + r);
   for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
-    if (isSolid(tx, ty)) {
+    if (isSolid(tx, ty, forEnemy)) {
       const nx = clamp(cx, tx, tx + 1), ny = clamp(cy, ty, ty + 1);
       if ((cx - nx) ** 2 + (cy - ny) ** 2 < r * r) return true;
     }
@@ -74,7 +75,7 @@ function circleHitsSolid(cx, cy, r) {
 // r:碰撞半徑,顯式傳入 — 敵人物件本身沒有 .r(半徑存在 ENEMY_TYPES 裡),
 // 省略時退回 e.r(玩家物件有 .r);漏傳給敵人會讓 r 變 undefined,
 // circleHitsSolid 內比較式對上 NaN 恆為 false,牆壁碰撞直接失效(這正是敵人偶發穿牆的成因)
-function moveCircle(e, dx, dy, r) {
+function moveCircle(e, dx, dy, r, forEnemy = false) {
   const rad = r ?? e.r;
   const step = 0.4; // 遠小於一格牆體厚度
   const n = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / step));
@@ -82,11 +83,11 @@ function moveCircle(e, dx, dy, r) {
   let blocked = false;
   for (let k = 0; k < n; k++) {
     if (sx !== 0) {
-      if (!circleHitsSolid(e.x + sx, e.y, rad)) e.x += sx;
+      if (!circleHitsSolid(e.x + sx, e.y, rad, forEnemy)) e.x += sx;
       else { blocked = true; break; }
     }
     if (sy !== 0) {
-      if (!circleHitsSolid(e.x, e.y + sy, rad)) e.y += sy;
+      if (!circleHitsSolid(e.x, e.y + sy, rad, forEnemy)) e.y += sy;
       else { blocked = true; break; }
     }
   }
@@ -99,6 +100,17 @@ function nearestAlivePlayer(x, y, maxD) {
     if (p.dead) continue;
     const d = dist(x, y, p.x, p.y);
     if (d < bd) { bd = d; best = p; }
+  }
+  return best;
+}
+
+// 最近的誘光罐(格中心座標);走 decoyIdx 小集合,不掃全 objects
+function nearestDecoy(x, y, maxD) {
+  let best = null, bd = maxD;
+  for (const i of G.decoyIdx) {
+    const dx = (i % MAP_W) + 0.5, dy = ((i / MAP_W) | 0) + 0.5;
+    const d = dist(x, y, dx, dy);
+    if (d < bd) { bd = d; best = { x: dx, y: dy }; }
   }
   return best;
 }
@@ -226,7 +238,7 @@ function explodeAt(x, y, cfg) {
   for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
     if (dist(x, y, tx + 0.5, ty + 0.5) > cfg.r) continue;
     const o = objAt(tx, ty);
-    if (o && OBJ_SOLID[o.type]) {
+    if (o && (OBJ_SOLID[o.type] || o.type === 'gate')) { // 光簾閘門對怪是牆,爆炸也要炸得到(行為一致)
       o.hp -= cfg.wallDmg;
       if (o.hp <= 0) { setObj(tx, ty, null); emitFx({ k: 'sfx', s: 'break_' }); }
       continue;
@@ -248,6 +260,7 @@ function updateEnemies(dt) {
     const e = G.enemies[i];
     const et = ENEMY_TYPES[e.type];
     e.hitT -= dt; e.hopT -= dt;
+    if (e.slowT > 0) e.slowT -= dt; // 凜鈴塔緩速倒數(暫態欄位,不進存檔;客戶端靠 snap 旗標畫 ❄)
 
     // 決定目標
     let tx = null, ty = null, chasing = false, targetP = null;
@@ -260,7 +273,14 @@ function updateEnemies(dt) {
       else if (e.hp < e.maxhp) e.hp = Math.min(e.maxhp, e.hp + 10 * dt);
     } else if (e.wave) {
       const p = nearestAlivePlayer(e.x, e.y, 4);
-      if (p) { tx = p.x; ty = p.y; targetP = p; } else { tx = core.x; ty = core.y; }
+      if (p) { tx = p.x; ty = p.y; targetP = p; }
+      else {
+        // 誘光罐:身邊沒玩家可追時優先搶罐子(蝕影怕光又想搶光)。
+        // ghost 必須排除——牠們移動不做碰撞、永遠不會 blocked、啃不到罐子,
+        // 不排除會飄到罐子上無限徘徊=永久免費嘲諷的規則漏洞
+        const dc = et.ghost ? null : nearestDecoy(e.x, e.y, DECOY_CFG.range);
+        if (dc) { tx = dc.x; ty = dc.y; } else { tx = core.x; ty = core.y; }
+      }
       chasing = true;
     } else {
       const p = nearestAlivePlayer(e.x, e.y, 7);
@@ -303,16 +323,19 @@ function updateEnemies(dt) {
     }
 
     // 跳撲移動(遠程怪保持距離:太近改往反方向跳)
+    // 凜鈴塔緩速在「起跳瞬間」取樣(跳程中不即時變慢;hopCD 短,誤差可接受)——
+    // ghost 用同一份 vx/vy,所以緩速對穿牆幽影一樣有效(唯一反制穿牆突襲的建築)
     if (e.hopT <= 0) {
+      const slowF = e.slowT > 0 ? FROST_TOWER_CFG.mult : 1;
       if (chasing) {
         e.hopT = et.hopCD * 0.75;
         let ang = Math.atan2(ty - e.y, tx - e.x) + (Math.random() - 0.5) * 0.4;
         if (et.ranged && targetP && dist(e.x, e.y, tx, ty) < 2.8) ang += Math.PI;
-        e.vx = Math.cos(ang) * et.speed; e.vy = Math.sin(ang) * et.speed;
+        e.vx = Math.cos(ang) * et.speed * slowF; e.vy = Math.sin(ang) * et.speed * slowF;
       } else {
         e.hopT = et.hopCD * (1.5 + Math.random());
         const ang = Math.random() * TAU;
-        e.vx = Math.cos(ang) * et.speed * 0.5; e.vy = Math.sin(ang) * et.speed * 0.5;
+        e.vx = Math.cos(ang) * et.speed * 0.5 * slowF; e.vy = Math.sin(ang) * et.speed * 0.5 * slowF;
       }
     }
     const f = Math.exp(-4 * dt);
@@ -323,7 +346,25 @@ function updateEnemies(dt) {
       e.x = clamp(e.x + e.vx * dt, 1, MAP_W - 1);
       e.y = clamp(e.y + e.vy * dt, 1, MAP_H - 1);
     } else {
-      blocked = moveCircle(e, e.vx * dt, e.vy * dt, et.r);
+      blocked = moveCircle(e, e.vx * dt, e.vy * dt, et.r, true); // forEnemy:光簾閘門對怪是牆
+    }
+
+    // 地刺陷阱:非 ghost 的怪查自己腳下格(反向判定=零 tick 迴圈、零 idx Set);
+    // 每隻怪自己帶 0.8 秒免疫節奏(e.trapT 暫態),刺數直接扣 o.hp,扎完碎裂
+    if (!et.ghost) {
+      if ((e.trapT ?? 0) > 0) e.trapT -= dt;
+      else {
+        const gx = Math.floor(e.x), gy = Math.floor(e.y);
+        const so = objAt(gx, gy);
+        if (so && so.type === 'spike_trap') {
+          e.trapT = SPIKE_TRAP_CFG.cd;
+          hurtEnemy(e, SPIKE_TRAP_CFG.dmg, { x: gx + 0.5, y: gy + 0.5 }); // src 無 name=不給經驗;有擊退=被彈開
+          so.hp = (so.hp ?? OBJ_HP.spike_trap) - 1;
+          if (so.hp <= 0) { setObj(gx, gy, null); emitFx({ k: 'sfx', s: 'break_' }); }
+          else setObj(gx, gy, so, false); // 廣播剩餘刺數(客戶端畫透明度)
+          if (e.hp <= 0) continue; // 被扎死的已從 G.enemies 移除,跳過本幀剩餘邏輯
+        }
+      }
     }
 
     // 被牆擋住的追擊怪會啃牆/啃建築(裂地者有拆牆倍率)
@@ -334,7 +375,7 @@ function updateEnemies(dt) {
       const fy = Math.floor(e.y + Math.sin(ang) * (et.r + 0.6));
       const info = TILE_INFO[tileAt(fx, fy)];
       const o = objAt(fx, fy);
-      if (o && OBJ_SOLID[o.type]) {
+      if (o && (OBJ_SOLID[o.type] || o.type === 'gate')) { // 光簾閘門對怪是牆,被擋住就照啃牆邏輯啃它
         o.hp -= enemyDmg(e, et.dmg) * 0.5 * wm;
         emitFx({ k: 'ft', x: fx + 0.5, y: fy + 0.5, txt: '💥', color: '#ff8888' });
         if (o.hp <= 0) { setObj(fx, fy, null); emitFx({ k: 'sfx', s: 'break_' }); }
@@ -423,11 +464,13 @@ function damagePlayer(p, amount) {
   // 岩鎧 buff 與護甲相乘(不是相加),兩者都拉滿也不會變成免疫
   const dmg = Math.max(1, Math.round(amount * (1 - bestArmor(p)) * (1 - buffVal(p, 'guard'))));
   p.hp -= dmg; p.iframe = 0.8; p.lastHurt = G.time;
+  // 歸巢螢石:受到任何傷害立即中斷引導(不消耗)——堵死「戰鬥中免死脫逃」,張力來源
+  if (p.recall) { p.recall = null; addFloater(p.x, p.y - 0.9, '🌀 引導被打斷!', '#ff9d5c'); }
   addFloater(p.x, p.y - 0.6, '-' + dmg, '#ff6b6b');
   emitFx({ k: 'sfx', s: 'hurt' });
   if (p.hp <= 0) {
     p.hp = 0; p.dead = true; p.respawnT = 5;
-    p.buffs = {}; p.fish = null; // 死亡清空料理 buff 與釣魚狀態
+    p.buffs = {}; p.fish = null; p.recall = null; // 死亡清空料理 buff、釣魚與回城引導狀態
     msgAll(`💧 ${p.name} 熄火了……5 秒後在星核重新點燃!`);
   }
 }
@@ -763,9 +806,28 @@ function doPlace(p, slot, x, y) {
       return;
     }
   }
+  // 凜鈴塔:控場太強會讓防線變鐵桶,比照箭塔限制每人數量
+  if (it.place === 'frost_tower') {
+    let owned = 0;
+    for (const [, o] of G.objects) if (o.type === 'frost_tower' && o.owner === p.id) owned++;
+    if (owned >= FROST_TOWER_CFG.maxPerPlayer) {
+      addFloater(x + 0.5, y + 0.5, `每人最多 ${FROST_TOWER_CFG.maxPerPlayer} 座凜鈴塔`, '#ff9d5c');
+      return;
+    }
+  }
+  // 誘光罐:上限避免「誘餌陣」把暗潮永遠擋在外圍掛機
+  if (it.place === 'decoy') {
+    let owned = 0;
+    for (const [, o] of G.objects) if (o.type === 'decoy' && o.owner === p.id) owned++;
+    if (owned >= DECOY_CFG.maxPerPlayer) {
+      addFloater(x + 0.5, y + 0.5, `每人最多 ${DECOY_CFG.maxPerPlayer} 個誘光罐`, '#ff9d5c');
+      return;
+    }
+  }
   // 會擋路的東西不能蓋在任何人/怪身上;非固體地形(如軌道)可站上去,不受這個限制
-  // (否則玩家站原地就沒法在自己腳下鋪軌道),所以查地形的 solid 屬性而不是「只要用 placeTile 就當擋路」
-  const solidPlace = (it.placeTile !== undefined && TILE_INFO[it.placeTile].solid) || OBJ_SOLID[it.place];
+  // (否則玩家站原地就沒法在自己腳下鋪軌道),所以查地形的 solid 屬性而不是「只要用 placeTile 就當擋路」。
+  // 光簾閘門雖不在 OBJ_SOLID(玩家可穿),但對怪是牆,不能蓋在怪身上瞬間關禁閉
+  const solidPlace = (it.placeTile !== undefined && TILE_INFO[it.placeTile].solid) || OBJ_SOLID[it.place] || it.place === 'gate';
   if (solidPlace) {
     for (const pl of G.players.values())
       if (!pl.dead && Math.abs(pl.x - x - 0.5) < 0.5 + pl.r && Math.abs(pl.y - y - 0.5) < 0.5 + pl.r) return;
@@ -781,6 +843,7 @@ function doPlace(p, slot, x, y) {
     if (it.place === 'auto_smelter') { o.owner = p.id; o.fuel = 0; o.items = []; } // 空爐放置,煤/礦石靠右鍵或傳輸帶餵
     // 傳輸帶方向依玩家「放置時面向」決定(0=右 1=下 2=左 3=上),之後可右鍵空手旋轉
     if (it.place === 'belt') { o.owner = p.id; o.dir = dirFromAngle(p.aim); }
+    if (it.place === 'frost_tower' || it.place === 'decoy') o.owner = p.id; // maxPerPlayer 計數用
     setObj(x, y, o);
   }
   emitFx({ k: 'sfx', s: 'place' });
@@ -821,6 +884,17 @@ function doFish(p, x, y) {
   p.aim = Math.atan2(y + 0.5 - p.y, x + 0.5 - p.x);
   p.fish = { x: p.x, y: p.y, t: FISH_CFG.timeMin + Math.random() * (FISH_CFG.timeMax - FISH_CFG.timeMin) };
   addFloater(p.x, p.y - 0.6, '🎣 拋竿……', '#7ec8ff');
+}
+
+// 歸巢螢石:手持右鍵開始引導(比照釣魚「站著別動」的節奏,計時/中斷在 updatePlayersHost);
+// 受傷中斷寫在 damagePlayer;完成才消耗石頭並傳送(重用既有 tp 協定)
+function doRecall(p, slot) {
+  if (p.dead || p.recall) return;
+  const s = p.inv[slot];
+  if (!s || !ITEMS[s.id].recall) return;
+  if (dist(p.x, p.y, G.core.x, G.core.y) < 8) { addFloater(p.x, p.y - 0.6, '已經在星核旁了', '#8899aa'); return; }
+  p.recall = { x: p.x, y: p.y, t: RECALL_CFG.channel };
+  addFloater(p.x, p.y - 0.6, `🌀 呼喚星核……站穩 ${RECALL_CFG.channel} 秒`, '#7ec8ff');
 }
 
 // 開獎:依 FISH_CFG.loot 權重抽一項;掉在腳邊讓磁吸撿取處理(背包滿了會留在地上,不會憑空消失)
@@ -1061,8 +1135,9 @@ function updateAnimals(dt) {
     const f = Math.exp(-4 * dt);
     a.vx *= f; a.vy *= f;
     // 撞牆/圍籬就停(圍籬圈養靠這個);卡住就馬上重新起跳換方向,
-    // 不然體型大的牛在一格寬走廊裡會整段跳程貼牆磨,跟隨玩家時卡到不動
-    if (moveCircle(a, a.vx * dt, a.vy * dt, at.r)) a.hopT = Math.min(a.hopT, 0.15);
+    // 不然體型大的牛在一格寬走廊裡會整段跳程貼牆磨,跟隨玩家時卡到不動。
+    // forEnemy:光簾閘門對動物也是牆(牧場開口裝門,牲畜不會溜出去)
+    if (moveCircle(a, a.vx * dt, a.vy * dt, at.r, true)) a.hopT = Math.min(a.hopT, 0.15);
   }
 }
 
@@ -1153,6 +1228,29 @@ function updateArcherTowers(dt) {
       });
       emitFx({ k: 'sfx', s: 'shoot' });
     }
+  }
+}
+
+// ===== 凜鈴塔(房主):零傷害的範圍緩速脈衝,把怪黏在火力圈上 =====
+// 全域節流比照光塔(所有塔同拍脈衝);緩速實際生效在 updateEnemies 的起跳取樣。
+// 冰系蝕影(phantom/frost_boss)抗性=緩速時間減半,不做全免——凜鈴塔的賣點就是黏得住穿牆幽影
+let frostTick = 0;
+function updateFrostTowers(dt) {
+  frostTick -= dt;
+  if (frostTick > 0) return;
+  frostTick = FROST_TOWER_CFG.cd;
+  for (const i of G.frostIdx) {
+    const tx = (i % MAP_W) + 0.5, ty = ((i / MAP_W) | 0) + 0.5;
+    let hit = 0;
+    for (const e of G.enemies) {
+      if (dist(tx, ty, e.x, e.y) >= FROST_TOWER_CFG.range) continue;
+      const durF = ENEMY_TYPES[e.type].elem === 'frost' ? 0.5 : 1;
+      // 剛被凍上的那一下,現有跳程速度也立刻打折(只打一次,已在緩速中就不重複疊)
+      if (!(e.slowT > 0)) { e.vx *= FROST_TOWER_CFG.mult; e.vy *= FROST_TOWER_CFG.mult; }
+      e.slowT = Math.max(e.slowT || 0, FROST_TOWER_CFG.dur * durF);
+      hit++;
+    }
+    if (hit) emitFx({ k: 'ft', x: tx, y: ty - 0.6, txt: '❄️', color: '#a8e8ff' });
   }
 }
 
@@ -1478,6 +1576,30 @@ function updatePlayersHost(dt) {
       } else if ((p.fish.t -= dt) <= 0) {
         p.fish = null;
         resolveFishing(p);
+      }
+    }
+    // 歸巢螢石引導:移動就中斷(受傷中斷在 damagePlayer);完成才消耗石頭並傳送回星核
+    if (p.recall) {
+      if (dist(p.x, p.y, p.recall.x, p.recall.y) > RECALL_CFG.moveCancel) {
+        p.recall = null;
+        addFloater(p.x, p.y - 0.6, '🌀 引導中斷(要站穩啦)', '#8899aa');
+      } else {
+        const before = Math.ceil(p.recall.t);
+        p.recall.t -= dt;
+        const left = Math.ceil(p.recall.t);
+        if (left < before && left > 0) addFloater(p.x, p.y - 0.8, `🌀 ${left}…`, '#7ec8ff');
+        if (p.recall.t <= 0) {
+          p.recall = null;
+          // 引導中把石頭丟掉/存進箱子的邊角案例:找不到石頭就取消,不白嫖傳送
+          if (removeOne(p, 'recall_stone')) {
+            p.x = G.core.x + (Math.random() - 0.5) * 2;
+            p.y = G.core.y + 1.5;
+            p.iframe = 1; // 落地短暫無敵,避免暗潮圍核時直接傳進怪堆秒吃傷害
+            if (p.id !== G.myId && NET.isHost()) NET.sendToPid(p.id, { t: 'tp', x: p.x, y: p.y });
+            addFloater(G.core.x, G.core.y - 1.2, `🌀 ${p.name} 回家了!`, '#7ec8ff');
+            emitFx({ k: 'sfx', s: 'deposit' });
+          }
+        }
       }
     }
     // 脫戰回血
