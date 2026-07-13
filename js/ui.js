@@ -12,6 +12,7 @@ const UI = {
   mapOpen: false, mapZoom: 3, mapPanX: 0, mapPanY: 0, mapDrag: null,
   traderOpen: false, traderT: 0,
   storagePos: null, storageT: 0,
+  emoteOpen: false,
   selectedDifficulty: 'normal',
   spec: null, // 觀戰自由鏡頭 {x, y, auto};null = 鏡頭跟著自己(auto = 死亡自動啟用,復活自動收回)
 };
@@ -32,6 +33,7 @@ function initUI() {
     towerPanel: $id('towerPanel'), towerBody: $id('towerBody'),
     traderPanel: $id('traderPanel'),
     storagePanel: $id('storagePanel'),
+    emotePanel: $id('emotePanel'),
     overlay: $id('overlay'), minimap: $id('minimap'),
     mapPanel: $id('mapPanel'), mapCanvas: $id('mapCanvas'), mapTip: $id('mapTip'),
     hostBtn: $id('hostBtn'), roomcode: $id('roomcode'),
@@ -228,7 +230,7 @@ function togglePowerPanel(open) {
   if (UI.powerOpen) {
     UI.panelOpen = false;
     UI.els.invpanel.classList.add('hidden');
-    closeTowerPanel();
+    closeTowerPanel(); toggleEmotePanel(false);
     renderPowerPanel();
   }
 }
@@ -257,7 +259,7 @@ function toggleTalentPanel(open) {
   UI.talentOpen = open === undefined ? !UI.talentOpen : open;
   UI.els.talentPanel.classList.toggle('hidden', !UI.talentOpen);
   if (UI.talentOpen) {
-    togglePowerPanel(false);
+    togglePowerPanel(false); toggleEmotePanel(false);
     UI.talentT = 0;
     renderTalentPanel();
   }
@@ -478,7 +480,7 @@ function openTowerPanel(x, y) {
   UI.pendingSwap = -1;
   UI.enhSlot = -1;
   UI.els.enhPanel.classList.add('hidden');
-  togglePowerPanel(false);
+  togglePowerPanel(false); toggleEmotePanel(false);
   refreshSlots();
   UI.craftT = 0;
   renderTowerPanel();
@@ -531,7 +533,7 @@ function openTraderPanel() {
   UI.traderOpen = true;
   UI.traderT = 0;
   UI.els.traderPanel.classList.remove('hidden');
-  togglePanel(false); togglePowerPanel(false); toggleTalentPanel(false); closeTowerPanel();
+  togglePanel(false); togglePowerPanel(false); toggleTalentPanel(false); closeTowerPanel(); toggleEmotePanel(false);
   renderTraderPanel();
 }
 function closeTraderPanel() {
@@ -573,6 +575,35 @@ function renderTraderPanel() {
   $id('traderClose').onclick = closeTraderPanel;
 }
 
+// ===== 快速手勢輪盤:C 鍵開啟,點一下送出圖示氣泡給全隊看(仿秘笈選單的按鈕格) =====
+function toggleEmotePanel(open) {
+  UI.emoteOpen = open === undefined ? !UI.emoteOpen : open;
+  UI.els.emotePanel.classList.toggle('hidden', !UI.emoteOpen);
+  if (UI.emoteOpen) {
+    togglePanel(false); togglePowerPanel(false); toggleTalentPanel(false); closeTowerPanel(); closeTraderPanel(); closeStoragePanel();
+    renderEmotePanel();
+  }
+}
+function execEmote(idx) {
+  const me = myPlayer();
+  if (!me) return;
+  if (NET.isHost()) doEmote(me, idx);
+  else NET.act({ t: 'emote', idx });
+  toggleEmotePanel(false);
+}
+function renderEmotePanel() {
+  let html = `<h2>💬 快速手勢</h2><p class="hint">選一個,頭上會冒出圖示讓全隊看到。</p><div class="power-grid">`;
+  EMOTE_LIST.forEach((e, i) => {
+    html += `<button class="power-btn emote-btn" data-idx="${i}"><span style="font-size:22px">${e.icon}</span><code>${e.text}</code></button>`;
+  });
+  html += `</div><div class="btnrow"><button id="emoteClose">關閉(C / Esc)</button></div>`;
+  UI.els.emotePanel.innerHTML = html;
+  UI.els.emotePanel.querySelectorAll('.emote-btn').forEach(btn => {
+    btn.onclick = () => execEmote(+btn.dataset.idx);
+  });
+  $id('emoteClose').onclick = () => toggleEmotePanel(false);
+}
+
 // ===== 儲物箱面板:右鍵儲物箱開啟。上半是箱內容(點取回),下半是背包(點存入)=====
 function openStoragePanel(x, y) {
   const o = objAt(x, y);
@@ -580,7 +611,7 @@ function openStoragePanel(x, y) {
   UI.storagePos = { x, y };
   UI.storageT = 0;
   UI.els.storagePanel.classList.remove('hidden');
-  togglePanel(false); togglePowerPanel(false); toggleTalentPanel(false); closeTowerPanel(); closeTraderPanel();
+  togglePanel(false); togglePowerPanel(false); toggleTalentPanel(false); closeTowerPanel(); closeTraderPanel(); toggleEmotePanel(false);
   renderStoragePanel();
 }
 function closeStoragePanel() {
@@ -775,7 +806,7 @@ function togglePanel(open) {
   UI.enhSlot = -1;
   UI.els.enhPanel.classList.add('hidden');
   closeTowerPanel();
-  if (UI.panelOpen) { togglePowerPanel(false); closeStoragePanel(); refreshSlots(); UI.craftT = 0; }
+  if (UI.panelOpen) { togglePowerPanel(false); closeStoragePanel(); toggleEmotePanel(false); refreshSlots(); UI.craftT = 0; }
 }
 
 // ===== ESC 選單(設定 / 存檔資訊)=====
@@ -811,11 +842,13 @@ function renderMenu() {
         <button id="mResume">▶️ 返回遊戲</button>
         ${canPause ? `<button id="mPause">${G.paused ? '▶️ 繼續遊戲' : '⏸️ 暫停遊戲'}</button>` : ''}
         <button id="mStats">📊 統計</button>
+        <button id="mAchv">🏆 圖鑑</button>
         <button id="mSettings">⚙️ 設定</button>
       </div>`;
     $id('mResume').onclick = () => toggleMenu(false);
     if (canPause) $id('mPause').onclick = () => { G.paused = !G.paused; renderMenu(); };
     $id('mStats').onclick = () => { UI.menuView = 'stats'; renderMenu(); };
+    $id('mAchv').onclick = () => { UI.menuView = 'achv'; renderMenu(); };
     $id('mSettings').onclick = () => { UI.menuView = 'settings'; renderMenu(); };
     return;
   }
@@ -833,6 +866,36 @@ function renderMenu() {
       </div>
       <div class="btnrow"><button id="mStatsBack">← 返回</button></div>`;
     $id('mStatsBack').onclick = () => { UI.menuView = 'main'; renderMenu(); };
+    return;
+  }
+  // ---- 圖鑑(成就 + 怪物圖鑑,全隊共享)----
+  if (UI.menuView === 'achv') {
+    const achvIds = Object.keys(ACHIEVEMENTS);
+    const gotN = achvIds.filter(id => G.achv[id]).length;
+    const achvHtml = achvIds.map(id => {
+      const a = ACHIEVEMENTS[id], done = !!G.achv[id];
+      return `<div class="achv-row${done ? ' done' : ''}">
+        <span class="achv-icon">${done ? a.icon : '🔒'}</span>
+        <span class="achv-info"><b>${done ? a.name : '???'}</b><br><span class="hint">${done ? a.desc : '尚未解鎖'}</span></span>
+      </div>`;
+    }).join('');
+    // 怪物圖鑑:BOSS 也算(神殿三隻+暗潮最終波石像),排除純裝飾/非戰鬥種類的話目前 ENEMY_TYPES 全是可擊敗的怪
+    const monIds = Object.keys(ENEMY_TYPES);
+    const seenN = monIds.filter(id => G.bestiary[id]).length;
+    const bestiaryHtml = monIds.map(id => {
+      const et = ENEMY_TYPES[id], seen = !!G.bestiary[id];
+      return `<div class="bestiary-cell${seen ? '' : ' unseen'}" title="${seen ? et.name : '尚未擊敗過'}">
+        ${et.icon ? `<img src="assets/monsters/${et.icon}" onerror="this.style.display='none'">` : ''}
+        <span>${seen ? et.name : '？？？'}</span>
+      </div>`;
+    }).join('');
+    panel.innerHTML = `
+      <h2>🏆 成就 <span class="enh-lv">${gotN}/${achvIds.length}</span></h2>
+      <div class="achv-list">${achvHtml}</div>
+      <h2 style="margin-top:16px">📖 怪物圖鑑 <span class="enh-lv">${seenN}/${monIds.length}</span></h2>
+      <div class="bestiary-grid">${bestiaryHtml}</div>
+      <div class="btnrow"><button id="mAchvBack">← 返回</button></div>`;
+    $id('mAchvBack').onclick = () => { UI.menuView = 'main'; renderMenu(); };
     return;
   }
   // ---- 設定 ----

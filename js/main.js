@@ -36,6 +36,7 @@ function bindInput() {
       else if (UI.towerPos) closeTowerPanel();
       else if (UI.traderOpen) closeTraderPanel();
       else if (UI.storagePos) closeStoragePanel();
+      else if (UI.emoteOpen) toggleEmotePanel(false);
       else if (UI.powerOpen) togglePowerPanel(false);
       else if (UI.talentOpen) toggleTalentPanel(false);
       else toggleMenu();
@@ -47,6 +48,7 @@ function bindInput() {
     else if (k === 't') toggleTalentPanel();
     else if (k === 'm') toggleMapPanel();
     else if (k === 'v') toggleSpectate();
+    else if (k === 'c') toggleEmotePanel();
     else if (k >= '1' && k <= '8') { me.sel = +k - 1; UI.invDirty = true; }
     else if (k === 'f') {
       if (NET.isHost()) doDeposit(me);
@@ -280,7 +282,7 @@ function frame(ts) {
         NET.clientTick(dt);
         clientTimers(me, dt);
       }
-      if (!G.paused) { updateFloaters(dt); updateHitFx(dt); }
+      if (!G.paused) { updateFloaters(dt); updateHitFx(dt); updateEmoteFx(dt); }
     }
   }
   render(dt);

@@ -12,6 +12,7 @@ function makePlayer(id, name) {
     swing: 0, atkCD: 0, mineCD: 0, iframe: 0, lastHurt: -99,
     dead: false, respawnT: 0, invDirty: true,
     downed: false, downedT: 0, reviveP: 0, // 隊友救援(倒地非陣亡),見 REVIVE_CFG
+    emoteCD: 0, // 快速手勢冷卻(防手滑連點洗頻),見 EMOTE_CFG
     lv: 1, xp: 0,
     stamina: 100, dashCD: 0, dashT: 0,
     buffs: {},   // 料理 buff:kind -> { mult/value, t 剩餘秒數 }
@@ -36,6 +37,7 @@ function grantXp(p, amount) {
     addFloater(p.x, p.y - 1.15, '🌟 +1 天賦點(按 T 分配)', '#ffe9a0');
     emitFx({ k: 'sfx', s: 'craft' });
     msgAll(`✨ ${p.name} 升到 Lv.${p.lv}!變強了變強了!`);
+    if (p.lv >= LEVEL_CFG.maxLv) unlockAchv('max_level');
   }
 }
 
@@ -123,6 +125,8 @@ function applyFx(f) {
   else if (f.k === 'sfx' && SFX[f.s]) SFX[f.s]();
   // 打擊特效:命中衝擊波(elem 決定顏色,crit=屬性剋制大成功放大範圍),render.js 畫、這裡只記錄時間軸
   else if (f.k === 'hit') G.hitFx.push({ x: f.x, y: f.y, elem: f.elem || null, crit: !!f.crit, t: 0, seed: Math.random() * TAU });
+  // 快速手勢:頭上的圖示氣泡,錨定在觸發當下的位置(跟其他浮動特效同一套慣例,不追蹤移動)
+  else if (f.k === 'emote') G.emoteFx.push({ x: f.x, y: f.y, icon: f.icon, name: f.name, t: 0 });
 }
 function emitFx(f) {
   applyFx(f);
@@ -171,6 +175,8 @@ function hurtEnemy(e, dmg, src, kbF, atkElem) {
 function killEnemy(e, killer) {
   const i = G.enemies.indexOf(e);
   if (i >= 0) G.enemies.splice(i, 1);
+  markSeen(e.type);
+  unlockAchv('first_blood');
   G.killCount++;
   emitFx({ k: 'sfx', s: 'break_' });
   if (killer) grantXp(killer, (ENEMY_XP[e.type] || 0) * (e.elite ? ELITE_CFG.xpMult : 1));
@@ -216,6 +222,8 @@ function killEnemy(e, killer) {
       // Q版主題:打敗守望者=把被黑暗纏繞的它「喚醒」,不是殺戮
       msgAll(`⚔️ ${owner.name} 喚醒了${et.name}!它揉揉眼睛,交出了星核碎片——快帶回去!`);
       if (SHRINE_BOSS_QUOTES[e.type]) msgAll(SHRINE_BOSS_QUOTES[e.type]);
+      unlockAchv('first_boss');
+      if (G.shrines.every(sh => sh.dead)) unlockAchv('all_boss');
     }
     const loot = SHRINE_BOSS_LOOT[e.type] || SHRINE_BOSS_LOOT.sentinel;
     for (const id in loot) spawnDrop(id, loot[id], e.x, e.y);
@@ -689,7 +697,10 @@ function doShoot(p, aim) {
 function breakTile(x, y, withDrop = true) {
   const info = infoAt(x, y);
   if (!info.solid || info.hp === Infinity) return;
-  if (withDrop && info.drop) spawnDrop(info.drop.id, info.drop.n, x + 0.5, y + 0.5);
+  if (withDrop && info.drop) {
+    spawnDrop(info.drop.id, info.drop.n, x + 0.5, y + 0.5);
+    if (info.drop.id === 'diamond') unlockAchv('first_diamond');
+  }
   setTile(x, y, T.FLOOR);
   emitFx({ k: 'sfx', s: 'break_' });
 }
@@ -787,6 +798,32 @@ function doTrade(p, offerIdx) {
   return null;
 }
 
+// ===== 成就 / 圖鑑(全隊共享,房主權威)=====
+// 達成時房主寫入 G.achv 並廣播 {t:'achv'} 讓客戶端同步狀態(msgAll 已經負責廣播文字了,
+// 這裡只補「這個 id 已解鎖」這個旗標,面板才畫得出勾選狀態)。冪等:重複呼叫直接 return。
+function unlockAchv(id) {
+  if (G.achv[id]) return;
+  G.achv[id] = true;
+  const a = ACHIEVEMENTS[id];
+  if (a) { msgAll(`🏆 成就達成:${a.icon} ${a.name}——${a.desc}`); emitFx({ k: 'sfx', s: 'craft' }); }
+  if (NET.isHost()) NET.sendAll({ t: 'achv', id });
+}
+// 圖鑑:擊殺過的怪物種類,靜默記錄(不跳訊息,面板裡慢慢收集就好,不用每隻小蝕影都跳一次)
+function markSeen(type) {
+  if (G.bestiary[type]) return;
+  G.bestiary[type] = true;
+  if (NET.isHost()) NET.sendAll({ t: 'seen', type });
+}
+
+// 快速手勢:倒下也能用(呼叫隊友救援正是它的用途之一),陣亡才擋——房主權威 + 冷卻防洗頻
+function doEmote(p, idx) {
+  if (p.dead || p.emoteCD > 0) return;
+  const e = EMOTE_LIST[idx];
+  if (!e) return;
+  p.emoteCD = EMOTE_CFG.cd;
+  emitFx({ k: 'emote', x: p.x, y: p.y, icon: e.icon, name: p.name });
+}
+
 function doPlace(p, slot, x, y) {
   if (p.dead || p.downed || !inMap(x, y)) return;
   const s = p.inv[slot];
@@ -860,7 +897,7 @@ function doPlace(p, slot, x, y) {
   else {
     const o = { type: it.place, hp: OBJ_HP[it.place] };
     if (it.place === 'archer_tower') { o.owner = p.id; o.ammo = 0; }
-    if (it.place === 'auto_miner') { o.owner = p.id; o.fuel = 0; } // 空燃料放置,靠玩家右鍵光晶供電
+    if (it.place === 'auto_miner') { o.owner = p.id; o.fuel = 0; unlockAchv('auto_pioneer'); } // 空燃料放置,靠玩家右鍵光晶供電
     if (it.place === 'auto_smelter') { o.owner = p.id; o.fuel = 0; o.items = []; } // 空爐放置,煤/礦石靠右鍵或傳輸帶餵
     // 傳輸帶方向依玩家「放置時面向」決定(0=右 1=下 2=左 3=上),之後可右鍵空手旋轉
     if (it.place === 'belt') { o.owner = p.id; o.dir = dirFromAngle(p.aim); }
@@ -1123,6 +1160,7 @@ function doFeed(p, aid, slot) {
   consumeSlot(p, slot);
   a.fedT = at.productCD;
   a.hp = Math.min(a.maxhp, a.hp + 10);
+  unlockAchv('first_tame');
   addFloater(a.x, a.y - 0.6, `💕 好吃!${Math.round(at.productCD)}秒後產出${ITEMS[at.product].name}`, '#ff9de2'); // candy-pink:動物好感
   emitFx({ k: 'sfx', s: 'eat' });
 }
@@ -1564,7 +1602,7 @@ function doToggleTower(p, x, y) {
 // ===== 玩家共通狀態(房主) =====
 function updatePlayersHost(dt) {
   for (const p of G.players.values()) {
-    p.iframe -= dt; p.atkCD -= dt; p.mineCD -= dt;
+    p.iframe -= dt; p.atkCD -= dt; p.mineCD -= dt; p.emoteCD -= dt;
     if (p.swing > 0) p.swing -= dt;
     // 料理 buff 倒數(死亡時 damagePlayer 已直接清空)
     if (p.buffs) for (const k in p.buffs) {
@@ -1606,6 +1644,7 @@ function updatePlayersHost(dt) {
           p.iframe = 1.2; // 剛救起來給點喘息時間,別站起來就被秒
           msgAll(`💪 ${p.name} 被救起來了!螢火隊不拋棄任何人~`);
           emitFx({ k: 'sfx', s: 'deposit' });
+          unlockAchv('revive_hero');
         }
       }
       continue;
@@ -1676,8 +1715,11 @@ function updatePlayersHost(dt) {
       G.core.shards++;
       msgAll(`🔷 碎片歸位 ${G.core.shards}/${CORE_CFG.needShards}!星核開心到嗡嗡叫~`);
       emitFx({ k: 'sfx', s: 'deposit' });
+      unlockAchv('first_shard');
       if (G.core.shards >= CORE_CFG.needShards) triggerFinalWave();
     }
+    // 淵核區(zone 3)踏入判定:跟碎片歸位同一個每人每幀的位置檢查,不用額外掃描
+    if (zoneOf(p.x, p.y) === 3) unlockAchv('void_breach');
   }
 }
 
@@ -1695,5 +1737,13 @@ function updateHitFx(dt) {
     const h = G.hitFx[i];
     h.t += dt;
     if (h.t > HITFX_DUR) G.hitFx.splice(i, 1);
+  }
+}
+// 快速手勢特效倒數(所有端各自更新,純視覺不影響模擬)
+function updateEmoteFx(dt) {
+  for (let i = G.emoteFx.length - 1; i >= 0; i--) {
+    const em = G.emoteFx[i];
+    em.t += dt;
+    if (em.t > EMOTE_CFG.dur) G.emoteFx.splice(i, 1);
   }
 }

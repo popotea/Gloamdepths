@@ -146,6 +146,7 @@ function updateWave(dt) {
       msgAll(w.endless
         ? `☀️ 無盡暗潮第 ${w.en || 0} 波退散!(蝕影:怎麼還打不下來啊)`
         : '☀️ 守住了!!蝕影哭著回家了~把握時間補給蓋牆!');
+      unlockAchv('wave_survivor');
     }
   }
 }
@@ -283,6 +284,7 @@ function winGame() {
   G.won = true;
   msgAll('🏆 星核醒來了!!整個深淵都亮起來了——你們就是傳說!✨🎉');
   emitFx({ k: 'sfx', s: 'win' });
+  unlockAchv('endless_enter');
   // 通關獎勵:解除淵核區(第五區域)的封印,開放更深、更危險的探索
   if (NET.isHost()) unsealVoidZone();
   msgAll('🔓 咔啦——遠古封印碎了!最深處的「淵核區」開門營業:怪更兇、礦更肥,敢不敢?');
@@ -315,6 +317,7 @@ function buildSave() {
     playersByName: G.playersByName,
     hostName: G.players.get(G.myId)?.name || '',
     won: G.won,
+    bestiary: G.bestiary, achv: G.achv,
   };
 }
 
@@ -390,6 +393,7 @@ function applySave(s, name) {
   G.killCount = s.killCount || 0;
   G.difficulty = DIFFICULTY_CFG[s.difficulty] ? s.difficulty : 'normal'; // 舊存檔沒有這欄位就退回一般難度
   G.unsealed = !!s.unsealed; // 淵核區解封狀態(SEAL→FLOOR 已寫進 tiles 存下來,這旗標只防重複解封)
+  G.bestiary = s.bestiary || {}; G.achv = s.achv || {}; // 舊存檔沒有這兩欄位就從空的開始,不會噴錯
   // 通關過的存檔:讀回來直接是無盡模式(G.over 只留給 lose,勝利不凍結模擬)。
   // 舊版存檔沒有 wave.en 就從 0 起算,給 90 秒喘息再開下一波
   G.won = !!s.won;

@@ -18,6 +18,7 @@ const G = {
   myId: 0,
   enemies: [], drops: [], floaters: [], cracks: new Map(), projs: [],
   hitFx: [],             // 打擊特效(命中閃光,純視覺、client/host 各自倒數,不進存檔)
+  emoteFx: [],           // 快速手勢特效(頭上的圖示氣泡,純視覺、client/host 各自倒數,不進存檔)
   animals: [],          // 被動生物(牲畜),房主模擬、快照同步,跟 enemies 分開的一套
 
   core: { x: CX + 0.5, y: CY + 0.5, energy: CORE_CFG.maxE, shards: 0 },
@@ -31,6 +32,8 @@ const G = {
   killCount: 0,   // 統計面板用:全隊累計擊殺數(killEnemy 累加,存讀檔保留)
   difficulty: 'normal', // DIFFICULTY_CFG 的 key,開新世界時選定;只影響房主模擬,不用同步給客戶端
   unsealed: false,      // 第五區域「淵核區」是否已解封(通關後 true);存讀檔保留,重連靠 init 同步
+  bestiary: {},          // 圖鑑:擊殺過的敵人種類(type -> true),全隊共享、存讀檔保留
+  achv: {},               // 成就:達成過的里程碑(id -> true,見 ACHIEVEMENTS),全隊共享、存讀檔保留
 };
 
 function idx(x, y) { return y * MAP_W + x; }
@@ -156,6 +159,7 @@ function genWorld(seed) {
   G.minerIdx.clear(); G.beltIdx.clear(); G.smelterIdx.clear(); G.frostIdx.clear(); G.decoyIdx.clear();
   G.enemies = []; G.drops = []; G.floaters = []; G.projs = []; G.animals = []; G.hitFx = [];
   G.shrines = []; G.traders = []; G.mushCount = 0; G.warned = {}; G.killCount = 0;
+  G.bestiary = {}; G.achv = {}; G.emoteFx = [];
   G.core = { x: CX + 0.5, y: CY + 0.5, energy: CORE_CFG.maxE, shards: 0 };
   G.wave = { n: 0, state: 'calm', timer: WAVE_CFG.first, final: false };
   G.time = 0; G.over = null; G.won = false;

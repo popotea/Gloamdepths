@@ -160,6 +160,23 @@ button:disabled { opacity: .4; cursor: default; }
 .slot.broken { border-color: #ff5d5d; }
 .slot.broken .icon { opacity: .4; filter: grayscale(1); }
 
+/* ESC 選單面板:main/stats/settings 內容都不高,唯獨圖鑑(achv)內容可能較長,
+   統一給捲動空間比針對單一 view 開分支簡單,對短內容完全不影響 */
+#menuPanel { max-height: 86vh; overflow-y: auto; }
+
+/* 圖鑑:成就清單(仿天賦列樣式)+ 怪物圖鑑格狀(仿背包格) */
+.achv-list { max-height: 260px; overflow-y: auto; margin-bottom: 4px; }
+.achv-row { display: flex; align-items: center; gap: 12px; padding: 7px 6px;
+  border-bottom: 1px solid #1e2430; opacity: .55; }
+.achv-row.done { opacity: 1; }
+.achv-icon { font-size: 22px; width: 30px; text-align: center; }
+.achv-info { flex: 1; font-size: 13px; line-height: 1.4; }
+.bestiary-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 8px; max-height: 220px; overflow-y: auto; }
+.bestiary-cell { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 4px;
+  border: 1px solid var(--line-soft); border-radius: var(--radius-sm); font-size: 11px; text-align: center; }
+.bestiary-cell img { width: 34px; height: 34px; object-fit: contain; }
+.bestiary-cell.unseen { opacity: .4; filter: grayscale(1); }
+
 /* 天賦:HUD 提示徽章(有未花點數才出現)與分配面板 */
 #talentbadge { pointer-events: auto; cursor: pointer; margin-top: 6px; display: inline-block;
   background: #2a2410cc; border: 1px solid var(--gold); border-radius: var(--radius-md);

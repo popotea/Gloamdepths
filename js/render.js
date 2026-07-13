@@ -925,6 +925,32 @@ function render(dt) {
     ctx.fillText(f.txt, sx, sy - f.t * 28);
   }
 
+  // ---- 快速手勢氣泡(co-op 溝通,跟浮動文字一樣畫在黑暗之上,暗處也要看得到)----
+  // 動畫:前 0.15s 從 0 彈到 1(pop-in),中段持平,最後 0.4s 淡出;不像浮動文字一直往上飄,
+  // 圖示夠大且停留久才看得清楚是誰喊了什麼
+  for (const em of G.emoteFx) {
+    const [sx, sy] = worldToScreen(em.x, em.y);
+    const dur = EMOTE_CFG.dur;
+    const pop = Math.min(1, em.t / 0.15);
+    const scale = pop < 1 ? pop * (1.15 - 0.15 * pop) : 1; // 輕微過衝再回穩,Q 版彈跳感
+    const fadeStart = dur - 0.4;
+    const alpha = em.t > fadeStart ? clamp(1 - (em.t - fadeStart) / 0.4, 0, 1) : 1;
+    const by = sy - TILE * 1.5;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = 'rgba(20,20,28,0.55)';
+    ctx.beginPath();
+    ctx.ellipse(sx, by, TILE * 0.48 * scale, TILE * 0.4 * scale, 0, 0, TAU);
+    ctx.fill();
+    ctx.font = `${TILE * 0.5 * scale}px "Segoe UI Emoji"`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(em.icon, sx, by);
+    ctx.font = 'bold 11px sans-serif';
+    ctx.fillStyle = '#fff'; // emote fx 沒存玩家 id,對不到 PLAYER_COLORS,固定白字看得清楚就好
+    ctx.fillText(em.name, sx, by + TILE * 0.55 * scale);
+    ctx.restore();
+  }
+
   // ---- 打擊特效(命中衝擊波,跟浮動文字一樣畫在黑暗之上)----
   // 素材有生產好的話畫「單張圖 + canvas 縮放/淡出做動畫」(比逐格動畫圖穩,AI 生不出連續一致的動畫幀);
   // 沒有素材(未生產/載入失敗)自動退回純向量畫法(衝擊環+放射短線),兩者互不依賴、零風險疊加

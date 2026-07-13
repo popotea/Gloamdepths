@@ -203,6 +203,38 @@ const SPIKE_TRAP_CFG = { dmg: 7, cd: 0.8, charges: 20 };
 // 誘光罐:裝滿光的假星核——「蝕影怕光又想搶光」的敘事直接變機制:暗潮怪在範圍內且身邊沒玩家可追時,
 // 優先撲向罐子(4 格內有玩家仍追人=不能拿它當隱形掛機盾;穿牆系看得穿贗品不上當)
 const DECOY_CFG = { range: 10, maxPerPlayer: 2 };
+
+// 快速手勢(emote):按 C 開輪盤,選了就在頭上冒圖示氣泡,co-op 溝通用(「這裡有礦」「小心」),
+// 純視覺+一句話廣播,不影響任何遊戲數值。冷卻防手滑連點洗頻。
+const EMOTE_CFG = { dur: 2.2, cd: 0.6 };
+const EMOTE_LIST = [
+  { icon: '👋', text: '哈囉!' },
+  { icon: '👍', text: '好耶' },
+  { icon: '❗', text: '這裡有礦!' },
+  { icon: '⚠️', text: '小心!' },
+  { icon: '🆘', text: '救我!' },
+  { icon: '❤️', text: '謝啦' },
+  { icon: '😂', text: '笑死' },
+  { icon: '🎉', text: '太棒了!' },
+];
+
+// 成就/圖鑑:全隊共享的里程碑紀錄(不分玩家,呼應「螢火隊」是一起打拼的);
+// 達成時 unlockAchv(entities.js)廣播訊息+寫入 G.achv,存讀檔保留。圖鑑(擊殺過的怪物種類)
+// 另外走 G.bestiary,直接借用 ENEMY_TYPES 的 name/icon,不用再開一張表。
+const ACHIEVEMENTS = {
+  first_blood:   { name: '初次獵殺', icon: '⚔️', desc: '擊敗第一隻蝕影' },
+  first_shard:   { name: '星核之心', icon: '🔷', desc: '帶回第一塊星核碎片' },
+  first_boss:    { name: '喚醒者', icon: '🗿', desc: '擊敗一座神殿守望者' },
+  all_boss:      { name: '三神合一', icon: '👑', desc: '擊敗全部三座神殿守望者' },
+  first_diamond: { name: '閃耀之礦', icon: '💎', desc: '挖到第一顆鑽石' },
+  auto_pioneer:  { name: '自動化先驅', icon: '⚙️', desc: '建造第一台自動採礦機' },
+  first_tame:    { name: '牧場主人', icon: '🐔', desc: '第一次餵飽動物' },
+  revive_hero:   { name: '救援英雄', icon: '💪', desc: '成功救起一次倒下的隊友' },
+  wave_survivor: { name: '暗潮不倒', icon: '🌊', desc: '撐過第一波暗潮' },
+  void_breach:   { name: '深淵行者', icon: '🌑', desc: '踏入淵核區' },
+  endless_enter: { name: '永不止息', icon: '🏆', desc: '通關,進入無盡模式' },
+  max_level:     { name: '滿級戰士', icon: '⭐', desc: `練到等級上限 Lv.${LEVEL_CFG.maxLv}` },
+};
 // 歸巢螢石:手持右鍵引導數秒傳送回星核;移動/受傷立即中斷(不消耗),完成才消耗——
 // 探索半徑不再被「暗潮警告 30 秒內趕不趕得回」綁死,但被怪纏上時還是得先殺出來才能回城
 const RECALL_CFG = { channel: 4, moveCancel: 0.3 };

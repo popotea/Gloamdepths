@@ -122,6 +122,7 @@ const NET = {
         objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null, o.stage ?? null, o.t ?? null, o.nestType ?? null, o.dir ?? null, o.fuel ?? null, o.items ?? null]),
         core: { energy: G.core.energy, shards: G.core.shards },
         shrines: G.shrines, traders: G.traders, wave: G.wave, time: G.time, difficulty: G.difficulty, unsealed: G.unsealed, won: G.won,
+        bestiary: G.bestiary, achv: G.achv,
         players: [...G.players.values()].map(pl => [pl.id, pl.name, pl.x, pl.y, pl.hp, pl.dead ? 1 : 0, pl.lv || 1, pl.xp || 0, pl.downed ? 1 : 0, Math.ceil(pl.downedT || 0), Math.round((pl.reviveP || 0) * 100)]),
         inv: p.inv, over: G.over,
       });
@@ -166,6 +167,7 @@ const NET = {
       case 'storeput': doStorageDeposit(p, d.x | 0, d.y | 0, d.slot | 0); break;
       case 'storetake': doStorageWithdraw(p, d.x | 0, d.y | 0, d.si | 0); break;
       case 'storequick': doStorageQuick(p, d.x | 0, d.y | 0); break;
+      case 'emote': doEmote(p, d.idx | 0); break;
       case 'eat': doEat(p, d.slot | 0); break;
       case 'deposit': doDeposit(p); break;
       case 'drop': doDropItem(p, d.slot | 0); break;
@@ -375,7 +377,8 @@ const NET = {
         G.difficulty = DIFFICULTY_CFG[d.difficulty] ? d.difficulty : 'normal';
         G.unsealed = !!d.unsealed;
         G.won = !!d.won;
-        G.enemies = []; G.drops = []; G.floaters = []; G.cracks.clear(); G.projs = []; G.animals = []; G.hitFx = [];
+        G.bestiary = d.bestiary || {}; G.achv = d.achv || {};
+        G.enemies = []; G.drops = []; G.floaters = []; G.cracks.clear(); G.projs = []; G.animals = []; G.hitFx = []; G.emoteFx = [];
         G.players.clear();
         for (const [id, name, x, y, hp, dead, lv, xp, downed, downedT, revP] of d.players) {
           const p = makePlayer(id, name);
@@ -454,6 +457,8 @@ const NET = {
       case 'tile': setTile(d.i % MAP_W, (d.i / MAP_W) | 0, d.v, true); break;
       case 'unseal': unsealVoidZone(true); break; // 房主通關 → 客戶端也把封印牆 SEAL 換成 FLOOR
       case 'obj': setObj(d.i % MAP_W, (d.i / MAP_W) | 0, d.o, true); break;
+      case 'achv': G.achv[d.id] = true; break; // 成就達成:host 已經 msgAll 廣播文字了,這裡只補狀態
+      case 'seen': G.bestiary[d.type] = true; break; // 圖鑑新條目,靜默記錄不跳訊息
       case 'fx': applyFx(d.f); break;
       case 'msg': showMsg(d.text); break;
       case 'chat': showChat(d.name, d.text); break;
