@@ -285,6 +285,14 @@ function explodeAt(x, y, cfg) {
       if (cfg.slow) { p.buffs = p.buffs || {}; p.buffs.slow = { mult: cfg.slow.mult, t: cfg.slow.dur }; }
     }
   }
+  // 加農塔用:玩家發射的 aoe 彈道要炸到敵人(既有呼叫端都是敵方彈道炸玩家,cfg.hitEnemies 短路不影響原行為)。
+  // 倒序迴圈:hurtEnemy 可能觸發 killEnemy 從 G.enemies 中 splice,正序迭代會跳過緊接著的下一隻
+  if (cfg.hitEnemies) {
+    for (let i = G.enemies.length - 1; i >= 0; i--) {
+      const e = G.enemies[i];
+      if (dist(x, y, e.x, e.y) < cfg.r) hurtEnemy(e, cfg.dmg, { x, y }, null, cfg.elem || null);
+    }
+  }
   if (dist(x, y, G.core.x, G.core.y) < cfg.r + 1) {
     G.core.energy = Math.max(0, G.core.energy - cfg.core);
     addFloater(G.core.x, G.core.y - 1, `-${Math.round(cfg.core)} ⚡`, '#ff6b6b');
@@ -490,7 +498,7 @@ function updateProjs(dt) {
           if (pj.hitSet && pj.hitSet.has(e.id)) continue;
           const et = ENEMY_TYPES[e.type];
           if (dist(pj.x, pj.y, e.x, e.y) < et.r + 0.18) {
-            hurtEnemy(e, pj.dmg, pj.owner, null, pj.elem);
+            if (!pj.aoe) hurtEnemy(e, pj.dmg, pj.owner, null, pj.elem); // 加農塔的 aoe 彈道改由爆炸統一處理,避免直擊+爆炸疊加兩次傷害
             if (pj.pierce) pj.hitSet.add(e.id); else { dead = true; }
             if (!pj.pierce) break;
           }
@@ -506,10 +514,11 @@ function updateProjs(dt) {
         }
       }
     }
-    // 敵方彈道帶 aoe(火球):不論是撞到玩家死、還是撞牆/出圖自然死,
-    // 落地那一刻都炸一次範圍傷害(直擊玩家改由爆炸傷害統一處理,避免命中+爆炸疊加兩次傷害)
-    if (dead && pj.aoe && pj.from === 'e') {
-      explodeAt(pj.x, pj.y, { r: pj.aoe.r, dmg: pj.dmg, wallDmg: pj.aoe.wallDmg, core: 0, slow: pj.aoe.slow || null });
+    // 帶 aoe 的彈道(敵方火球 / 玩家加農砲彈):不論是命中死、還是撞牆/出圖自然死,
+    // 落地那一刻都炸一次範圍傷害(直擊改由爆炸傷害統一處理,避免命中+爆炸疊加兩次傷害)
+    if (dead && pj.aoe) {
+      if (pj.from === 'e') explodeAt(pj.x, pj.y, { r: pj.aoe.r, dmg: pj.dmg, wallDmg: pj.aoe.wallDmg, core: 0, slow: pj.aoe.slow || null });
+      else explodeAt(pj.x, pj.y, { r: pj.aoe.r, dmg: pj.dmg, wallDmg: pj.aoe.wallDmg || 0, core: 0, hitEnemies: true, elem: pj.elem || null });
     }
     if (dead) G.projs.splice(i, 1);
   }
@@ -902,6 +911,7 @@ function doEquip(p, slot) {
   p.invDirty = true;
   addFloater(p.x, p.y - 0.8, `已裝備 ${it.name}`, '#7dff8e');
   emitFx({ k: 'sfx', s: 'craft' });
+  unlockAchv('first_equip');
 }
 function doUnequip(p, part) {
   if (p.dead || !p.equip || !p.equip[part]) return;
@@ -909,6 +919,33 @@ function doUnequip(p, part) {
   p.equip[part] = null;
   if (addEnhancedItem(p, eq.id, eq.lv, eq.dur)) spawnDrop(eq.id, 1, p.x, p.y, eq.lv, eq.dur);
   p.invDirty = true;
+}
+
+// 玩家間贈送:對著隊友右鍵,把選中格整疊道具送過去。帶強化等級/耐久的裝備類走 addEnhancedItem 保留狀態,
+// 一般道具照堆疊規則送(對方背包沒滿位置就先給多少,沒送出去的留在自己背包,不會憑空消失)
+function doGift(p, slot, targetId) {
+  if (p.dead || p.downed) return;
+  const target = G.players.get(targetId);
+  if (!target || target.id === p.id || target.dead) return;
+  if (dist(p.x, p.y, target.x, target.y) > 3.8) return;
+  const s = p.inv[slot];
+  if (!s) return;
+  const it = ITEMS[s.id];
+  const hasEnh = s.lv || (s.dur !== undefined && s.dur !== null);
+  let given;
+  if (hasEnh) {
+    given = addEnhancedItem(target, s.id, s.lv, s.dur) === 0 ? 1 : 0;
+    if (given) p.inv[slot] = null;
+  } else {
+    const rest = addItem(target, s.id, s.count);
+    given = s.count - rest;
+    if (given > 0) { s.count -= given; if (s.count <= 0) p.inv[slot] = null; }
+  }
+  if (!given) { addFloater(target.x, target.y - 0.8, '對方背包滿了', '#ff9d5c'); return; }
+  p.invDirty = true;
+  addFloater(target.x, target.y - 0.8, `${p.name} 送來 ${it.icon}${it.name}`, '#7dff8e');
+  emitFx({ k: 'sfx', s: 'craft' });
+  unlockAchv('first_gift');
 }
 // 舊存檔沒有 equip 欄位:掃背包找最好的胸甲類裝備自動穿上,保留原本的防禦力(見 CLAUDE.md 裝備欄位一節)
 function migrateLegacyArmor(p) {
@@ -985,6 +1022,16 @@ function doPlace(p, slot, x, y) {
       return;
     }
   }
+  // 塔類第二批(加農塔/連弩塔/重砲塔):比照凜鈴塔同標準的每人上限
+  if (it.place === 'cannon_tower' || it.place === 'multi_tower' || it.place === 'sniper_tower') {
+    const cfg = it.place === 'cannon_tower' ? CANNON_TOWER_CFG : it.place === 'multi_tower' ? MULTI_TOWER_CFG : SNIPER_TOWER_CFG;
+    let owned = 0;
+    for (const [, o] of G.objects) if (o.type === it.place && o.owner === p.id) owned++;
+    if (owned >= cfg.maxPerPlayer) {
+      addFloater(x + 0.5, y + 0.5, `每人最多 ${cfg.maxPerPlayer} 座${it.name}`, '#ff9d5c');
+      return;
+    }
+  }
   // 會擋路的東西不能蓋在任何人/怪身上;非固體地形(如軌道)可站上去,不受這個限制
   // (否則玩家站原地就沒法在自己腳下鋪軌道),所以查地形的 solid 屬性而不是「只要用 placeTile 就當擋路」。
   // 光簾閘門雖不在 OBJ_SOLID(玩家可穿),但對怪是牆,不能蓋在怪身上瞬間關禁閉
@@ -1005,6 +1052,7 @@ function doPlace(p, slot, x, y) {
     // 傳輸帶方向依玩家「放置時面向」決定(0=右 1=下 2=左 3=上),之後可右鍵空手旋轉
     if (it.place === 'belt') { o.owner = p.id; o.dir = dirFromAngle(p.aim); }
     if (it.place === 'frost_tower' || it.place === 'decoy') o.owner = p.id; // maxPerPlayer 計數用
+    if (it.place === 'cannon_tower' || it.place === 'multi_tower' || it.place === 'sniper_tower') o.owner = p.id; // maxPerPlayer 計數用
     setObj(x, y, o);
   }
   emitFx({ k: 'sfx', s: 'place' });
@@ -1413,6 +1461,94 @@ function updateFrostTowers(dt) {
       hit++;
     }
     if (hit) emitFx({ k: 'ft', x: tx, y: ty - 0.6, txt: '❄️', color: '#a8e8ff' });
+  }
+}
+
+// ===== 加農塔(房主):慢速發射會爆炸的砲彈,命中處範圍傷害,克怪群 =====
+// 彈道帶 aoe,實際傷害在 updateProjs 落地時透過 explodeAt(cfg.hitEnemies) 統一結算,這裡只負責瞄準/發射
+function updateCannonTowers(dt) {
+  for (const i of G.cannonIdx) {
+    const o = G.objects.get(i);
+    o.shootT = (o.shootT ?? 0) - dt;
+    if (o.shootT > 0) continue;
+    const tx = (i % MAP_W) + 0.5, ty = ((i / MAP_W) | 0) + 0.5;
+    let best = null, bd = CANNON_TOWER_CFG.range;
+    for (const e of G.enemies) {
+      const d = dist(tx, ty, e.x, e.y);
+      if (d < bd) { bd = d; best = e; }
+    }
+    if (best) {
+      o.shootT = CANNON_TOWER_CFG.cd;
+      const ang = Math.atan2(best.y - ty, best.x - tx);
+      spawnProj({
+        x: tx + Math.cos(ang) * 0.4, y: ty + Math.sin(ang) * 0.4,
+        vx: Math.cos(ang) * CANNON_TOWER_CFG.speed, vy: Math.sin(ang) * CANNON_TOWER_CFG.speed,
+        dmg: CANNON_TOWER_CFG.dmg, from: 'p', owner: null, ttl: 1.6,
+        aoe: { r: CANNON_TOWER_CFG.aoeR, wallDmg: 0 }, // wallDmg=0:不會炸到自己蓋的牆/塔
+      });
+      emitFx({ k: 'sfx', s: 'shoot' });
+    }
+  }
+}
+
+// ===== 連弩塔(房主):同時鎖定範圍內最多 targets 隻怪各射一箭,免彈藥但單發傷害低,克分散怪群 =====
+function updateMultiTowers(dt) {
+  for (const i of G.multiIdx) {
+    const o = G.objects.get(i);
+    o.shootT = (o.shootT ?? 0) - dt;
+    if (o.shootT > 0) continue;
+    const tx = (i % MAP_W) + 0.5, ty = ((i / MAP_W) | 0) + 0.5;
+    const targets = G.enemies
+      .map(e => ({ e, d: dist(tx, ty, e.x, e.y) }))
+      .filter(t => t.d < MULTI_TOWER_CFG.range)
+      .sort((a, b) => a.d - b.d)
+      .slice(0, MULTI_TOWER_CFG.targets);
+    if (targets.length) {
+      o.shootT = MULTI_TOWER_CFG.cd;
+      for (const { e } of targets) {
+        const ang = Math.atan2(e.y - ty, e.x - tx);
+        spawnProj({
+          x: tx + Math.cos(ang) * 0.4, y: ty + Math.sin(ang) * 0.4,
+          vx: Math.cos(ang) * MULTI_TOWER_CFG.speed, vy: Math.sin(ang) * MULTI_TOWER_CFG.speed,
+          dmg: MULTI_TOWER_CFG.dmg, from: 'p', owner: null, ttl: 1.2,
+        });
+      }
+      emitFx({ k: 'sfx', s: 'shoot' });
+    }
+  }
+}
+
+// ===== 重砲塔(房主):射程最遠,優先鎖定精英/神殿 Boss(沒有才退回打最近的),單發爆傷極高但冷卻很慢 =====
+function updateSniperTowers(dt) {
+  for (const i of G.sniperIdx) {
+    const o = G.objects.get(i);
+    o.shootT = (o.shootT ?? 0) - dt;
+    if (o.shootT > 0) continue;
+    const tx = (i % MAP_W) + 0.5, ty = ((i / MAP_W) | 0) + 0.5;
+    let best = null, bd = SNIPER_TOWER_CFG.range;
+    for (const e of G.enemies) { // 第一輪:只找精英/Boss
+      const d = dist(tx, ty, e.x, e.y);
+      if (d < bd && (e.elite || ENEMY_TYPES[e.type].boss)) { best = e; bd = d; }
+    }
+    if (!best) { // 沒有精英/Boss 才退回打最近的一般怪
+      bd = SNIPER_TOWER_CFG.range;
+      for (const e of G.enemies) {
+        const d = dist(tx, ty, e.x, e.y);
+        if (d < bd) { best = e; bd = d; }
+      }
+    }
+    if (best) {
+      o.shootT = SNIPER_TOWER_CFG.cd;
+      const tough = best.elite || ENEMY_TYPES[best.type].boss;
+      const dmg = tough ? SNIPER_TOWER_CFG.dmg * SNIPER_TOWER_CFG.eliteMult : SNIPER_TOWER_CFG.dmg;
+      const ang = Math.atan2(best.y - ty, best.x - tx);
+      spawnProj({
+        x: tx + Math.cos(ang) * 0.4, y: ty + Math.sin(ang) * 0.4,
+        vx: Math.cos(ang) * SNIPER_TOWER_CFG.speed, vy: Math.sin(ang) * SNIPER_TOWER_CFG.speed,
+        dmg, from: 'p', owner: null, ttl: 1.0,
+      });
+      emitFx({ k: 'sfx', s: 'shoot' });
+    }
   }
 }
 

@@ -8,6 +8,9 @@ const TAU = Math.PI * 2;
 // 新增功能時手動往陣列最前面補一筆(最新在最上面)
 const CHANGELOG = [
   { date: '2026-07-14', items: [
+    '🐛 修正背包/快捷欄的道具數量有時要動一下滑鼠(切換選中格)才會更新成正確數字的問題',
+    '🎁 玩家間贈送:對著隊友右鍵,手上的東西直接整疊送過去',
+    '🗼 新增三種塔:加農塔(範圍爆炸傷害)、連弩塔(同時鎖定多隻怪)、重砲塔(優先狙擊精英/Boss,單發爆傷極高)',
     '🎽 角色裝備欄位:頭盔/胸甲/護腿三個獨立部位,右鍵或拖曳穿上,不再是「背包裡塞一件就生效」',
     '💀 怪物有機率掉落裝備,越強的怪物掉的越好,神殿 Boss 與最終波守衛必掉一件金裝',
     '🐾 寵物系統:5 種被動跟班寵物(螢光蝠/燼尾狐/岩甲龜/智光靈/幸運蛾),工作台合成召喚物,右鍵召喚/收回',
@@ -230,6 +233,14 @@ const SMELT_MAP = {
 // 凜鈴塔:零傷害的純控場塔——把怪「黏」在箭塔/光塔火力圈與地刺毯上,不替玩家殺怪(鐵律:自動化不取代玩家)。
 // 緩速對穿牆幽影一樣有效(ghost 的移動用同一份 e.vx/vy),是目前唯一反制穿牆突襲的防禦建築;冰系蝕影抗性=緩速時間減半
 const FROST_TOWER_CFG = { range: 3.5, cd: 2.5, dur: 2.6, mult: 0.55, maxPerPlayer: 2 };
+
+// ── 塔類第二批(2026-07-14,第十二批):填補光塔/箭塔/凜鈴塔之外的空缺,三塔各自不重疊 ──
+// 加農塔:慢速砲彈,命中處範圍爆炸,克怪群(唯一會動 explodeAt/updateProjs 共用函式的塔,見 cfg.hitEnemies)
+const CANNON_TOWER_CFG = { range: 6, cd: 3.2, dmg: 18, aoeR: 1.8, speed: 9, maxPerPlayer: 2 };
+// 連弩塔:同時鎖定範圍內最多 targets 隻怪各射一箭,免彈藥但單發傷害低,克分散怪群(跟箭塔的彈藥制單體高傷互補)
+const MULTI_TOWER_CFG = { range: 5, cd: 1.6, dmg: 9, targets: 3, speed: 12, maxPerPlayer: 2 };
+// 重砲塔:射程全塔類最遠,優先鎖定精英/神殿 Boss(沒有才退回打最近的),單發爆傷極高但冷卻很慢
+const SNIPER_TOWER_CFG = { range: 9, cd: 4.0, dmg: 55, eliteMult: 1.6, speed: 20, maxPerPlayer: 2 };
 // 地刺陷阱:貼地消耗性陷阱,蝕影踩到被扎(穿牆幽影飄在空中扎不到)。o.hp 直接當「剩餘刺數」用,
 // 扎完自動碎裂;不給經驗值(hurtEnemy 的 src 不帶 name)=補位而非取代玩家輸出
 const SPIKE_TRAP_CFG = { dmg: 7, cd: 0.8, charges: 20 };
@@ -268,6 +279,8 @@ const ACHIEVEMENTS = {
   endless_enter: { name: '永不止息', icon: '🏆', desc: '通關,進入無盡模式' },
   max_level:     { name: '滿級戰士', icon: '⭐', desc: `練到等級上限 Lv.${LEVEL_CFG.maxLv}` },
   first_pet:     { name: '有夥伴了', icon: '🐾', desc: '第一次召喚寵物出戰' },
+  first_equip:   { name: '全副武裝', icon: '🎽', desc: '第一次穿上裝備欄裝備' },
+  first_gift:    { name: '好朋友', icon: '🎁', desc: '第一次送禮給隊友' },
 };
 // 歸巢螢石:手持右鍵引導數秒傳送回星核;移動/受傷立即中斷(不消耗),完成才消耗——
 // 探索半徑不再被「暗潮警告 30 秒內趕不趕得回」綁死,但被怪纏上時還是得先殺出來才能回城
@@ -482,6 +495,12 @@ const ITEMS = {
   frost_tower:     { name: '凜鈴塔', icon: '🔔', place: 'frost_tower',
                      desc: `掛著冰晶的小鈴鐺:每 ${FROST_TOWER_CFG.cd} 秒叮一聲,${FROST_TOWER_CFG.range} 格內的蝕影通通腳麻(大幅緩速;連穿牆幽影都黏得住,冰系抗性減半)。
 不造成傷害,搭配箭塔/地刺效果拔群。每人最多 ${FROST_TOWER_CFG.maxPerPlayer} 座` },
+  cannon_tower:    { name: '加農塔', icon: '🎆', place: 'cannon_tower',
+                     desc: `發射會爆炸的砲彈,命中處 ${CANNON_TOWER_CFG.aoeR} 格內的蝕影一起遭殃,克怪群。射程 ${CANNON_TOWER_CFG.range} 格,冷卻較慢。每人最多蓋 ${CANNON_TOWER_CFG.maxPerPlayer} 座` },
+  multi_tower:     { name: '連弩塔', icon: '🎯', place: 'multi_tower',
+                     desc: `同時鎖定最多 ${MULTI_TOWER_CFG.targets} 隻範圍內的蝕影各射一箭,不用彈藥,適合對付分散的怪群。單發傷害不高,靠數量取勝。每人最多蓋 ${MULTI_TOWER_CFG.maxPerPlayer} 座` },
+  sniper_tower:    { name: '重砲塔', icon: '🔭', place: 'sniper_tower',
+                     desc: `射程全塔類最遠(${SNIPER_TOWER_CFG.range} 格),優先鎖定精英怪與神殿守衛狙擊,單發爆傷極高但冷卻很慢。每人最多蓋 ${SNIPER_TOWER_CFG.maxPerPlayer} 座` },
   spike_trap:      { name: '地刺陷阱', icon: '🪤', place: 'spike_trap',
                      desc: `鋪在地上的光刺:蝕影踩到被扎 ${SPIKE_TRAP_CFG.dmg} 傷還會被彈開(穿牆幽影飄著扎不到;螢火隊有穿鞋不怕)。共 ${SPIKE_TRAP_CFG.charges} 刺,扎完自動碎裂` },
   decoy:           { name: '誘光罐', icon: '🏺', place: 'decoy',
@@ -575,6 +594,9 @@ const RECIPES = [
   { out: 'recall_stone', n: 1, cost: { lumite: 3, stone: 5 },            station: 'workbench' },
   { out: 'frost_tower',  n: 1, cost: { stone: 6, iron_bar: 2, lumite: 8 }, station: 'workbench' },
   { out: 'decoy',        n: 1, cost: { stone: 6, lumite: 4 },            station: 'workbench' },
+  { out: 'cannon_tower', n: 1, cost: { stone: 10, iron_bar: 4, lumite: 8 }, station: 'workbench' },
+  { out: 'multi_tower',  n: 1, cost: { wood: 12, stone: 4, iron_bar: 2 },   station: 'workbench' },
+  { out: 'sniper_tower', n: 1, cost: { stone: 8, gold_bar: 4, lumite: 6 },  station: 'workbench' },
   // 寵物召喚物:成本跟天賦點取得速度相仿的中期材料,五選一慢慢收集不強迫二選一
   { out: 'pet_glowbat',     n: 1, cost: { copper_bar: 3, lumite: 3 },         station: 'workbench' },
   { out: 'pet_emberfox',    n: 1, cost: { iron_bar: 2, coal: 4 },             station: 'workbench' },
@@ -663,14 +685,15 @@ const EQUIP_DROP_CFG = {
 
 // 已放置物件的耐久(地刺的 hp 直接當「剩餘刺數」用,跟 SPIKE_TRAP_CFG.charges 綁定)
 const OBJ_HP = { torch: 4, workbench: 20, furnace: 20, tower: 50, archer_tower: 40, chest: 12, nest: 60, auto_miner: 30, belt: 8, storage: 30, auto_smelter: 30, lantern: 4, crystal_lamp: 8, banner: 4,
-  gate: 60, frost_tower: 40, spike_trap: SPIKE_TRAP_CFG.charges, decoy: 150 };
+  gate: 60, frost_tower: 40, spike_trap: SPIKE_TRAP_CFG.charges, decoy: 150, cannon_tower: 55, multi_tower: 45, sniper_tower: 50 };
 // 物件光照半徑(自動採礦機自帶微光,呼應「需供電」的能量意象也順便讓機器周圍看得清)
 const OBJ_LIGHT = { torch: 7, tower: 6, furnace: 3, workbench: 2.5, archer_tower: 3, auto_miner: 3, auto_smelter: 3, lantern: 10, crystal_lamp: 14,
-  gate: 2, frost_tower: 3, decoy: 5 }; // 光簾門/誘光罐會發光是主題(蝕影搶光),凜鈴塔冰晶微光
+  gate: 2, frost_tower: 3, decoy: 5, cannon_tower: 3, multi_tower: 3, sniper_tower: 3 }; // 光簾門/誘光罐會發光是主題(蝕影搶光),凜鈴塔冰晶微光
 // 會擋路的物件(自動採礦機是機台,擋路;傳輸帶是地面軌道,不擋路可站上去)。
 // 光簾閘門刻意不在這裡:對玩家/投射物不算牆,只有 isSolid 的 forEnemy 參數會把它當牆(見 world.js);
 // 地刺是貼地陷阱,誰都能踩上去
-const OBJ_SOLID = { workbench: true, furnace: true, tower: true, archer_tower: true, chest: true, nest: true, auto_miner: true, storage: true, auto_smelter: true, frost_tower: true, decoy: true };
+const OBJ_SOLID = { workbench: true, furnace: true, tower: true, archer_tower: true, chest: true, nest: true, auto_miner: true, storage: true, auto_smelter: true, frost_tower: true, decoy: true,
+  cannon_tower: true, multi_tower: true, sniper_tower: true };
 
 // ── 世界據點(隨機生成)──
 // chest=廢墟寶箱(敲開拿戰利品) / nest=蝕影巢穴(持續生怪,拆掉噴光晶+卷軸)

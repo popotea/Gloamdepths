@@ -352,7 +352,8 @@ function render(dt) {
   const OBJ_ICON = { mushroom: '🍄', torch: '🕯️', workbench: '🛠️', furnace: '🔥', tower: '🗼', archer_tower: '🏹',
     chest: '🎁', nest: '🕸️', auto_miner: '⚙️', storage: '📦', auto_smelter: '🏭',
     lantern: '🏮', crystal_lamp: '💡', banner: '🚩',
-    gate: '🚪', frost_tower: '🔔', decoy: '🏺' }; // 地刺(spike_trap)走下面的貼地特例畫法,不在這表
+    gate: '🚪', frost_tower: '🔔', decoy: '🏺',
+    cannon_tower: '🎆', multi_tower: '🎯', sniper_tower: '🔭' }; // 地刺(spike_trap)走下面的貼地特例畫法,不在這表
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   for (const [i, o] of G.objects) {
     const tx = i % MAP_W, ty = (i / MAP_W) | 0;

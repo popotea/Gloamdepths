@@ -228,9 +228,14 @@ function localControl(me, dt) {
       const s = me.inv[me.sel];
       if (s) {
         const it = ITEMS[s.id];
+        // 送禮優先於任何其他右鍵動作:滑鼠指著隊友、手上有東西就整疊送過去(不看物品種類)
+        const mate = [...G.players.values()].find(pl => pl.id !== me.id && !pl.dead && dist(pl.x, pl.y, wx, wy) < 0.8);
         // 餵動物優先於吃/放置:滑鼠指著動物、手上又是牠的飼料才成立(蘑菇既是食物也是飼料)
         const ani = G.animals.find(a => dist(a.x, a.y, wx, wy) < 0.8);
-        if (ani && ANIMAL_TYPES[ani.type].feed.includes(s.id) && dist(me.x, me.y, ani.x, ani.y) <= 3.8) {
+        if (mate && dist(me.x, me.y, mate.x, mate.y) <= 3.8) {
+          if (NET.isHost()) doGift(me, me.sel, mate.id);
+          else NET.act({ t: 'gift', slot: me.sel, id: mate.id });
+        } else if (ani && ANIMAL_TYPES[ani.type].feed.includes(s.id) && dist(me.x, me.y, ani.x, ani.y) <= 3.8) {
           if (NET.isHost()) doFeed(me, ani.id, me.sel);
           else NET.act({ t: 'feed', id: ani.id, slot: me.sel });
         } else if (it.food) {

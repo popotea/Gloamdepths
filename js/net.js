@@ -171,6 +171,7 @@ const NET = {
       case 'pet': doPet(p, d.slot | 0); break;
       case 'equip': doEquip(p, d.slot | 0); break;
       case 'unequip': doUnequip(p, String(d.part || '')); break;
+      case 'gift': doGift(p, d.slot | 0, d.id | 0); break;
       case 'eat': doEat(p, d.slot | 0); break;
       case 'deposit': doDeposit(p); break;
       case 'drop': doDropItem(p, d.slot | 0); break;
@@ -359,7 +360,7 @@ const NET = {
         G.tiles = rleDec(d.tiles, MAP_W * MAP_H, Uint8Array);
         G.explored = rleDec(d.explored, MAP_W * MAP_H, Uint8Array);
         G.dmg = new Float32Array(MAP_W * MAP_H);
-        G.objects.clear(); G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.cropIdx.clear(); G.minerIdx.clear(); G.beltIdx.clear(); G.smelterIdx.clear(); G.frostIdx.clear(); G.decoyIdx.clear(); G.mushCount = 0;
+        G.objects.clear(); G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.cropIdx.clear(); G.minerIdx.clear(); G.beltIdx.clear(); G.smelterIdx.clear(); G.frostIdx.clear(); G.decoyIdx.clear(); G.cannonIdx.clear(); G.multiIdx.clear(); G.sniperIdx.clear(); G.mushCount = 0;
         for (const [i, type, hp, ammo, off, owner, stage, t, nestType, dir, fuel, items] of d.objects) {
           const o = hp === null ? { type } : { type, hp };
           if (ammo !== null && ammo !== undefined) o.ammo = ammo;

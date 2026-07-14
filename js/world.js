@@ -13,6 +13,7 @@ const G = {
   smelterIdx: new Set(), // 自動熔煉爐索引(updateSmelters 用)
   frostIdx: new Set(),   // 凜鈴塔索引(updateFrostTowers 用)
   decoyIdx: new Set(),   // 誘光罐索引(updateEnemies 的目標選擇每敵每幀要查最近誘餌,掃全 objects 太貴)
+  cannonIdx: new Set(), multiIdx: new Set(), sniperIdx: new Set(), // 塔類第二批:加農塔/連弩塔/重砲塔索引
   lights: new Map(),    // idx -> 光半徑(地形光 + 物件光)
   players: new Map(),   // id -> player
   myId: 0,
@@ -76,7 +77,8 @@ function setTile(x, y, v, fromNet = false) {
 
 function objAt(x, y) { return G.objects.get(idx(x, y)) || null; }
 
-const TOWER_IDX_SETS = { tower: 'towerIdx', archer_tower: 'archerTowerIdx', nest: 'nestIdx', crop: 'cropIdx', auto_miner: 'minerIdx', belt: 'beltIdx', auto_smelter: 'smelterIdx', frost_tower: 'frostIdx', decoy: 'decoyIdx' };
+const TOWER_IDX_SETS = { tower: 'towerIdx', archer_tower: 'archerTowerIdx', nest: 'nestIdx', crop: 'cropIdx', auto_miner: 'minerIdx', belt: 'beltIdx', auto_smelter: 'smelterIdx', frost_tower: 'frostIdx', decoy: 'decoyIdx',
+  cannon_tower: 'cannonIdx', multi_tower: 'multiIdx', sniper_tower: 'sniperIdx' };
 // 放置/移除物件(o=null 移除)
 function setObj(x, y, o, fromNet = false) {
   const i = idx(x, y);
@@ -157,6 +159,7 @@ function genWorld(seed) {
   G.objects.clear(); G.lights.clear(); G.cracks.clear();
   G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.cropIdx.clear();
   G.minerIdx.clear(); G.beltIdx.clear(); G.smelterIdx.clear(); G.frostIdx.clear(); G.decoyIdx.clear();
+  G.cannonIdx.clear(); G.multiIdx.clear(); G.sniperIdx.clear();
   G.enemies = []; G.drops = []; G.floaters = []; G.projs = []; G.animals = []; G.hitFx = [];
   G.shrines = []; G.traders = []; G.mushCount = 0; G.warned = {}; G.killCount = 0;
   G.bestiary = {}; G.achv = {}; G.emoteFx = [];

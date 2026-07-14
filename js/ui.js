@@ -401,7 +401,10 @@ function uiTick(dt) {
   if (me.dead) UI.els.deathbanner.textContent = `💧 你熄火了…… ${Math.max(0, Math.ceil(me.respawnT ?? 0))} 秒後在星核重新點燃(WASD 可移動鏡頭觀戰)`;
   else if (me.downed) UI.els.deathbanner.textContent = `🆘 倒下了!等隊友靠近站著救你(${Math.max(0, Math.ceil(me.downedT ?? 0))} 秒後徹底陣亡)`;
 
-  if (UI.invDirty) { UI.invDirty = false; refreshSlots(); }
+  // me.invDirty 是房主端模擬(doMine/craftRecipe/doGift...等十幾處)標記「背包變了」的旗標,
+  // 但過去只有寫入從未有人讀取——房主自己的畫面因此要等 UI.invDirty 被別的操作(切換快捷欄/滑鼠滾輪)
+  // 順便設成 true 才會刷新,導致「數量要動一下滾輪才會更新」。客戶端不受影響,因為每次 snap 都無條件重設 UI.invDirty。
+  if (UI.invDirty || me.invDirty) { UI.invDirty = false; me.invDirty = false; refreshSlots(); }
 
   // 合成清單(開著才更新,節流)
   if (UI.panelOpen) {
