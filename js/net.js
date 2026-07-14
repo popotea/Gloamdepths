@@ -121,7 +121,8 @@ const NET = {
         tiles: rleEnc(G.tiles), explored: rleEnc(G.explored),
         objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null, o.stage ?? null, o.t ?? null, o.nestType ?? null, o.dir ?? null, o.fuel ?? null, o.items ?? null]),
         core: { energy: G.core.energy, shards: G.core.shards, shield: G.core.shield || 0 },
-        shrines: G.shrines, traders: G.traders, wave: G.wave, time: G.time, difficulty: G.difficulty, unsealed: G.unsealed, won: G.won,
+        shrines: G.shrines, traders: G.traders, altars: G.altars, questNpcs: G.questNpcs, quests: G.quests,
+        wave: G.wave, time: G.time, difficulty: G.difficulty, unsealed: G.unsealed, won: G.won,
         bestiary: G.bestiary, achv: G.achv,
         players: [...G.players.values()].map(pl => [pl.id, pl.name, pl.x, pl.y, pl.hp, pl.dead ? 1 : 0, pl.lv || 1, pl.xp || 0, pl.downed ? 1 : 0, Math.ceil(pl.downedT || 0), Math.round((pl.reviveP || 0) * 100), pl.pet || null, Math.round(bestArmor(pl) * 100)]),
         inv: p.inv, equip: p.equip, over: G.over,
@@ -197,6 +198,11 @@ const NET = {
       }
       case 'trade': {
         const r = doTrade(p, d.idx | 0);
+        if (r && r.err) this.sendToPid(conn.pid, { t: 'msg', text: '⚠️ ' + r.err });
+        break;
+      }
+      case 'questturnin': {
+        const r = doQuestTurnIn(p, String(d.id || ''));
         if (r && r.err) this.sendToPid(conn.pid, { t: 'msg', text: '⚠️ ' + r.err });
         break;
       }
@@ -377,7 +383,8 @@ const NET = {
           const key = TOWER_IDX_SETS[type]; if (key) G[key].add(i);
         }
         G.core.energy = d.core.energy; G.core.shards = d.core.shards; G.core.shield = d.core.shield || 0;
-        G.shrines = d.shrines; G.traders = d.traders || []; G.wave = d.wave; G.time = d.time;
+        G.shrines = d.shrines; G.traders = d.traders || []; G.altars = d.altars || []; G.wave = d.wave; G.time = d.time;
+        G.questNpcs = d.questNpcs || []; G.quests = d.quests || { active: {}, done: {} };
         G.difficulty = DIFFICULTY_CFG[d.difficulty] ? d.difficulty : 'normal';
         G.unsealed = !!d.unsealed;
         G.won = !!d.won;
@@ -466,6 +473,7 @@ const NET = {
       case 'obj': setObj(d.i % MAP_W, (d.i / MAP_W) | 0, d.o, true); break;
       case 'achv': G.achv[d.id] = true; break; // 成就達成:host 已經 msgAll 廣播文字了,這裡只補狀態
       case 'seen': G.bestiary[d.type] = true; break; // 圖鑑新條目,靜默記錄不跳訊息
+      case 'quest': G.quests.done[d.id] = true; delete G.quests.active[d.id]; break; // 委託完成:host 已廣播文字,這裡只補狀態
       case 'fx': applyFx(d.f); break;
       case 'msg': showMsg(d.text); break;
       case 'chat': showChat(d.name, d.text); break;

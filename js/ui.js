@@ -11,6 +11,7 @@ const UI = {
   towerPos: null, towerT: 0,
   mapOpen: false, mapZoom: 3, mapPanX: 0, mapPanY: 0, mapDrag: null,
   traderOpen: false, traderT: 0,
+  questOpen: false, questT: 0, questNpcKey: null, // 目前開著的委託面板是哪位 NPC(null = 開著時顯示全部)
   storagePos: null, storageT: 0,
   emoteOpen: false,
   selectedDifficulty: 'normal',
@@ -32,6 +33,7 @@ function initUI() {
     enhPanel: $id('enhPanel'), equipSlots: $id('equipSlots'),
     towerPanel: $id('towerPanel'), towerBody: $id('towerBody'),
     traderPanel: $id('traderPanel'),
+    questPanel: $id('questPanel'),
     storagePanel: $id('storagePanel'),
     emotePanel: $id('emotePanel'),
     overlay: $id('overlay'), minimap: $id('minimap'), teamList: $id('teamList'),
@@ -270,11 +272,23 @@ function renderPowerPanel() {
     }
     html += `</div>`;
   }
+  // 物品清單太多(150+ 種),不適合像怪物/動物那樣整排按鈕——改用下拉選單+數量,
+  // 對應通用指令 /power give <id> <n>,新增物品自動出現在清單裡不用維護
+  html += `<h3>🎁 物品</h3><div class="power-grid">
+    <select id="giveItemSel">${Object.keys(ITEMS).map(id => `<option value="${id}">${ITEMS[id].icon} ${ITEMS[id].name}</option>`).join('')}</select>
+    <input id="giveItemNum" type="number" value="1" min="1" max="999" style="width:4.5em">
+    <button id="giveItemBtn">給予</button>
+  </div>`;
   html += `<div class="btnrow"><button id="powerClose">關閉(Esc)</button></div>`;
   panel.innerHTML = html;
   panel.querySelectorAll('.power-btn').forEach(btn => {
     btn.onclick = () => tryDebugCommand(btn.dataset.cmd);
   });
+  $id('giveItemBtn').onclick = () => {
+    const id = $id('giveItemSel').value;
+    const n = clamp(+$id('giveItemNum').value || 1, 1, 999);
+    tryDebugCommand(`/power give ${id} ${n}`);
+  };
   $id('powerClose').onclick = () => togglePowerPanel(false);
 }
 
@@ -419,6 +433,11 @@ function uiTick(dt) {
   if (UI.talentOpen) {
     UI.talentT -= dt;
     if (UI.talentT <= 0) { UI.talentT = 0.3; renderTalentPanel(); }
+  }
+  // 委託面板(開著才更新,節流;顯示兩位 NPC 全部委託,不用距離自動關閉,只需要定時刷新進度/達成狀態)
+  if (UI.questOpen) {
+    UI.questT -= dt;
+    if (UI.questT <= 0) { UI.questT = 0.3; renderQuestPanel(); }
   }
 
   // 小地圖 + 隊友名單(同一個節流頻率)
@@ -619,12 +638,84 @@ function renderTraderPanel() {
   $id('traderClose').onclick = closeTraderPanel;
 }
 
+// ===== 劇情 NPC 委託面板(右鍵任一位 NPC,或從 ESC 選單開,兩個入口共用同一份渲染)=====
+function openQuestPanel(npcKey) {
+  UI.questOpen = true;
+  UI.questT = 0;
+  UI.questNpcKey = npcKey || null;
+  UI.els.questPanel.classList.remove('hidden');
+  togglePanel(false); togglePowerPanel(false); toggleTalentPanel(false); closeTowerPanel(); toggleEmotePanel(false); closeStoragePanel(); closeTraderPanel();
+  renderQuestPanel();
+}
+function closeQuestPanel() {
+  UI.questOpen = false;
+  UI.els.questPanel.classList.add('hidden');
+}
+function execQuestTurnIn(id) {
+  const me = myPlayer();
+  if (!me) return;
+  if (NET.isHost()) {
+    const r = doQuestTurnIn(me, id);
+    if (r && r.err) showMsg('⚠️ ' + r.err);
+    renderQuestPanel();
+  } else {
+    NET.act({ t: 'questturnin', id });
+  }
+}
+// 委託進度文字:三種型態各自的「還差多少」說明,寫在 UI 讓玩家看得懂為什麼還不能交
+function questProgressText(p, q) {
+  if (q.type === 'deliver') {
+    return Object.entries(q.need).map(([id, n]) => `${ITEMS[id].icon}${ITEMS[id].name} ${countItem(p, id)}/${n}`).join('、');
+  }
+  if (q.type === 'kill') {
+    const k = (G.quests.active[q.id] && G.quests.active[q.id].kills) || 0;
+    return `擊敗${ENEMY_TYPES[q.enemyType].name} ${k}/${q.count}`;
+  }
+  if (q.type === 'achv') return ACHIEVEMENTS[q.need].desc;
+  return '';
+}
+function renderQuestPanel() {
+  if (!UI.questOpen) return;
+  const me = myPlayer();
+  if (!me) return;
+  let html = `<h2>📜 委託日誌</h2><p class="hint">完成上一關才會解鎖下一關;達成條件後按「交付」領取獎勵。</p>`;
+  for (const npcKey in QUEST_NPCS) {
+    const npc = QUEST_NPCS[npcKey];
+    html += `<h3>${npc.icon} ${npc.name}<span class="hint">「${npc.motto}」</span></h3><div class="power-grid quest-grid">`;
+    for (const q of QUESTS.filter(x => x.npc === npcKey)) {
+      const done = !!G.quests.done[q.id];
+      const avail = questAvailable(q.id);
+      if (!avail && !done) {
+        html += `<div class="power-btn quest-card locked">？？？<code>完成上一關解鎖</code></div>`;
+        continue;
+      }
+      if (done) {
+        html += `<div class="power-btn quest-card done">✅ ${q.name}<code>已完成</code></div>`;
+        continue;
+      }
+      const ready = questReady(me, q.id);
+      html += `<div class="power-btn quest-card">
+        <b>${q.name}</b><span class="hint">${q.intro}</span>
+        <code>${questProgressText(me, q)}</code>
+        <button class="quest-turnin" data-id="${q.id}" ${ready ? '' : 'disabled'}>交付</button>
+      </div>`;
+    }
+    html += `</div>`;
+  }
+  html += `<div class="btnrow"><button id="questClose">關閉(Esc)</button></div>`;
+  UI.els.questPanel.innerHTML = html;
+  UI.els.questPanel.querySelectorAll('.quest-turnin').forEach(btn => {
+    btn.onclick = () => execQuestTurnIn(btn.dataset.id);
+  });
+  $id('questClose').onclick = closeQuestPanel;
+}
+
 // ===== 快速手勢輪盤:C 鍵開啟,點一下送出圖示氣泡給全隊看(仿秘笈選單的按鈕格) =====
 function toggleEmotePanel(open) {
   UI.emoteOpen = open === undefined ? !UI.emoteOpen : open;
   UI.els.emotePanel.classList.toggle('hidden', !UI.emoteOpen);
   if (UI.emoteOpen) {
-    togglePanel(false); togglePowerPanel(false); toggleTalentPanel(false); closeTowerPanel(); closeTraderPanel(); closeStoragePanel();
+    togglePanel(false); togglePowerPanel(false); toggleTalentPanel(false); closeTowerPanel(); closeTraderPanel(); closeQuestPanel(); closeStoragePanel();
     renderEmotePanel();
   }
 }
@@ -655,7 +746,7 @@ function openStoragePanel(x, y) {
   UI.storagePos = { x, y };
   UI.storageT = 0;
   UI.els.storagePanel.classList.remove('hidden');
-  togglePanel(false); togglePowerPanel(false); toggleTalentPanel(false); closeTowerPanel(); closeTraderPanel(); toggleEmotePanel(false);
+  togglePanel(false); togglePowerPanel(false); toggleTalentPanel(false); closeTowerPanel(); closeTraderPanel(); closeQuestPanel(); toggleEmotePanel(false);
   renderStoragePanel();
 }
 function closeStoragePanel() {
@@ -887,12 +978,14 @@ function renderMenu() {
         ${canPause ? `<button id="mPause">${G.paused ? '▶️ 繼續遊戲' : '⏸️ 暫停遊戲'}</button>` : ''}
         <button id="mStats">📊 統計</button>
         <button id="mAchv">🏆 圖鑑</button>
+        <button id="mQuests">📜 委託</button>
         <button id="mSettings">⚙️ 設定</button>
       </div>`;
     $id('mResume').onclick = () => toggleMenu(false);
     if (canPause) $id('mPause').onclick = () => { G.paused = !G.paused; renderMenu(); };
     $id('mStats').onclick = () => { UI.menuView = 'stats'; renderMenu(); };
     $id('mAchv').onclick = () => { UI.menuView = 'achv'; renderMenu(); };
+    $id('mQuests').onclick = () => { toggleMenu(false); openQuestPanel(null); };
     $id('mSettings').onclick = () => { UI.menuView = 'settings'; renderMenu(); };
     return;
   }
@@ -1101,6 +1194,11 @@ function drawMinimap() {
     mc.fillStyle = ndef.color;
     mc.fillRect(nx - 2, ny - 2, 4, 4);
   }
+  for (const a of G.altars) {
+    if (!G.explored[idx(Math.floor(a.x), Math.floor(a.y))]) continue; // 沒探索過不暴雷,跟巢穴同規則
+    mc.fillStyle = a.dead ? '#666' : '#c88cff';
+    mc.fillRect(a.x - 2, a.y - 2, 4, 4);
+  }
   for (const p of G.players.values()) {
     if (p.dead) continue;
     const isMe = p.id === G.myId;
@@ -1132,6 +1230,10 @@ function mapMarkers() {
     if (!o) continue;
     const ndef = NEST_TYPES[o.nestType] || NEST_TYPES.common;
     marks.push({ x: (i % MAP_W) + 0.5, y: ((i / MAP_W) | 0) + 0.5, icon: ndef.icon, label: ndef.name });
+  }
+  for (const a of G.altars) {
+    if (!G.explored[idx(Math.floor(a.x), Math.floor(a.y))]) continue; // 沒探索過不暴雷,跟巢穴同規則
+    marks.push({ x: a.x, y: a.y, icon: a.dead ? '⚫' : '🏛️', label: `深怪祭壇${a.dead ? '(已擊破)' : ''}` });
   }
   return marks;
 }

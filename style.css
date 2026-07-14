@@ -163,6 +163,15 @@ button:disabled { opacity: .4; cursor: default; }
 #traderPanel h2 { text-align: center; }
 .trade-btn { min-width: 220px; }
 
+/* 委託日誌面板(仿商人交易面板,#questPanel 沿用 .menu-panel 置中彈窗樣式) */
+#questPanel { width: 680px; max-width: 92vw; max-height: 82vh; overflow-y: auto; text-align: left; }
+#questPanel h2 { text-align: center; }
+.quest-grid { grid-template-columns: repeat(2, 1fr); }
+.quest-card { gap: 6px; cursor: default; }
+.quest-card.locked, .quest-card.done { opacity: .55; }
+.quest-card .hint { font-size: 11px; color: #9aa4b8; }
+.quest-turnin { align-self: flex-end; margin-top: 2px; }
+
 /* 儲物箱面板:上半箱內容 + 下半背包,格子點擊即存/取 */
 #storagePanel { width: 680px; max-width: 94vw; max-height: 86vh; overflow-y: auto; text-align: left; }
 #storagePanel h2 { text-align: center; }

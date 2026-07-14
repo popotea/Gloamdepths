@@ -13,6 +13,9 @@ const TAU = Math.PI * 2;
 // 新增功能時手動往陣列最前面補一筆(最新在最上面)
 const CHANGELOG = [
   { date: '2026-07-15', items: [
+    '📜 新增劇情 NPC「鐵匠錚錚」與「拾光者微塵」,各帶 3 關委託任務(遞交材料/擊殺蝕影/達成成就),完成有專屬對話與獎勵;ESC 選單新增「📜 委託」查看進度',
+    '🎁 秘笈選單新增「給予物品」下拉選單,測試/除錯拿道具不用再靠合成或運氣',
+    '🏛️ 新增「深怪祭壇」迷你王據點(石岩/黑曜區,共 6 座):擊破看守者不重生,保底掉強化卷軸+一件精良裝備,還會開出一個寶箱,大地圖/小地圖都有標記',
     '🗺️ 地圖放大(200×200→280×280),各分區/礦物/據點數量同步調整,探索範圍明顯變大',
     '👹 修正暗處生怪與暗潮的怪物種類太單調:吐影者(遠程)、爆裂蝕影(自爆)、穿牆幽影、裂地者(拆牆)終於會自然出現了,不再只有小蝕影/蝕影獵手/深淵蝕影三種',
   ] },
@@ -306,6 +309,9 @@ const ACHIEVEMENTS = {
   first_dodge:   { name: '好身手', icon: '💨', desc: '第一次觸發敏捷護符的完全閃避' },
   tower_collector: { name: '塔藝大師', icon: '🏗️', desc: '光塔/箭塔/凜鈴塔/加農塔/連弩塔/重砲塔六種塔全部蓋過' },
   void_forge:      { name: '淵晶鍛造', icon: '🔮', desc: '合成第一件淵晶裝備' },
+  altar_breaker:   { name: '祭壇征服者', icon: '🗿', desc: '擊破一座深怪祭壇的看守者' },
+  quest_novice:    { name: '委託新手', icon: '📜', desc: '完成第一個 NPC 委託' },
+  quest_master:    { name: '委託大師', icon: '🏵️', desc: '完成所有 NPC 的委託' },
 };
 // tower_collector 成就檢查用:全隊只要地圖上同時存在這六種塔各一座就算(不分誰蓋的)
 const TOWER_COLLECTOR_TYPES = ['tower', 'archer_tower', 'frost_tower', 'cannon_tower', 'multi_tower', 'sniper_tower'];
@@ -825,6 +831,42 @@ function traderOffers() {
   return list;
 }
 
+// ── 劇情 NPC + 任務日誌(2026-07-15,第十七批)──
+// 兩位固定站在中層區域附近的 NPC,各自帶一條 3 關的委託鏈(呼應「莫勾」商人已有的名字+個性慣例)。
+// 任務鏈用 requires 串起(必須完成上一關才解鎖下一關),三種任務型態全部重用既有系統判斷達成條件:
+//   deliver = 遞交材料(比照商人 canAfford/payCost)/ kill = 接到委託後累計擊殺數(見 G.quests.active[id].kills)/
+//   achv = 條件是「已解鎖某成就」(直接讀 G.achv,零額外追蹤——擊敗神殿/踏入淵核區本來就有對應成就)
+const QUEST_NPCS = {
+  smith:   { name: '鐵匠錚錚', icon: '🔨', motto: '爐火不熄,手藝不老。' },
+  scholar: { name: '拾光者微塵', icon: '📖', motto: '每一粒光,都值得被記住。' },
+};
+const QUESTS = [
+  { id: 'smith1', npc: 'smith', name: '重燃爐火', requires: null,
+    intro: '「唉……爐火熄了好久了。能不能……幫我找點煤跟鐵錠?」',
+    outro: '「謝謝你,火終於旺起來了。這幾張卷軸,拿去用。」',
+    type: 'deliver', need: { coal: 10, iron_bar: 3 }, reward: { enh_scroll: 2 } },
+  { id: 'smith2', npc: 'smith', name: '淬煉之石', requires: 'smith1',
+    intro: '「爐火夠旺了,但要打好東西,還缺點硬料——金錠、鑽石,有嗎?」',
+    outro: '「這下……夠了。這些材料,拿去用,自己想辦法練成正式裝備吧。」',
+    type: 'deliver', need: { gold_bar: 2, diamond: 1 }, reward: { enh_scroll: 3, gold_bar: 1 } },
+  { id: 'smith3', npc: 'smith', name: '深怪之心', requires: 'smith2',
+    intro: '「聽說淵核區有種發亮的晶體……那個,能不能弄一點給我?我想試試能不能打出更好的東西。」',
+    outro: '「……好美。謝謝你,螢火隊。」',
+    type: 'deliver', need: { void_shard: 3 }, reward: { enh_scroll: 5, gold_bar: 3 } },
+  { id: 'scholar1', npc: 'scholar', name: '螢火初識', requires: null,
+    intro: '「我在研究蝕影……牠們怕光,卻又想搶光,好矛盾對吧?能幫我『請』幾隻小蝕影來『談談』嗎?(擊敗 5 隻小蝕影)」',
+    outro: '「原來如此……牠們不是想傷害我們,只是,好想要一點光而已。謝謝你。」',
+    type: 'kill', enemyType: 'imp', count: 5, reward: { lumite: 10 } },
+  { id: 'scholar2', npc: 'scholar', name: '喚醒的證明', requires: 'scholar1',
+    intro: '「聽說神殿裡的『守望者』,被光喚醒後會恢復神智……你們真的辦到了嗎?(擊敗任一神殿守望者)」',
+    outro: '「太好了……這代表黑暗本身,或許也不是永遠的敵人。這份筆記,給你。」',
+    type: 'achv', need: 'first_boss', reward: { enh_scroll: 3, diamond: 1 } },
+  { id: 'scholar3', npc: 'scholar', name: '深淵的低語', requires: 'scholar2',
+    intro: '「淵核區……那是連光都很難抵達的地方。如果你們真能去,拜託帶回一些見聞。(踏入淵核區)」',
+    outro: '「這就是……深淵的樣子啊。謝謝你們,替我看見了我永遠去不到的地方。」',
+    type: 'achv', need: 'void_breach', reward: { enh_scroll: 5, void_shard: 2 } },
+];
+
 // 巢穴種類(世界生成時依 weight 加權抽選,見 world.js pickNestType):
 // spawnCD=每次嘗試生怪的間隔秒數 / nearCap=周圍活怪數到此就暫停生 /
 // spawnType 不填=沿用原本依區域決定生什麼怪的邏輯,填了就固定生該種
@@ -844,6 +886,15 @@ const CHEST_LOOT = [
   [ ['arrow', 12], ['iron_bar', 2], ['enh_scroll', 1], ['lumite', 4], ['bow', 1] ],
   [ ['arrow', 15], ['gold_bar', 2], ['enh_scroll', 2], ['lumite', 6], ['crossbow', 1] ],
 ];
+
+// 深怪祭壇:小型迷你王據點(2026-07-15,呼應地圖放大批——放大後的地圖需要更多「值得走過去」的據點)。
+// 守衛刻意重用既有怪種套額外倍率(不新增 ENEMY_TYPES,省掉新美術/新平衡的成本),死亡不重生、獎勵是
+// 保底卷軸 + 一件精良裝備(重用 EQUIP_DROP_CFG 的池子)+ 開啟一個寶箱(重用既有 chest 物件與 CHEST_LOOT)。
+const ALTAR_CFG = {
+  count: 6,
+  hpMult: 1.9, dmgMult: 1.3, // 疊在 ELITE_CFG 之上,比一般精英巢穴怪更兇一階,呼應「迷你王」定位
+  guardian: { 1: 'hunter', 2: 'abyss' }, // 依生成所在分區(zone1/zone2)決定看守者底怪種
+};
 
 // ===== 小工具 =====
 function mulberry32(seed) {

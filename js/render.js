@@ -49,6 +49,10 @@ function monsterImg(type) {
 function traderImg() {
   return bakedSprite('assets/npcs/trader.png', Math.ceil(TILE * 1.1));
 }
+// 劇情 NPC(失敗退回 emoji+同一套金色光暈,跟商人共用畫法慣例;找 assets/npcs/<key>.png)
+function questNpcImg(key) {
+  return bakedSprite(`assets/npcs/${key}.png`, Math.ceil(TILE * 1.1));
+}
 // 動物(失敗退回 emoji——過去一直只畫 emoji,cow.png/hen.png 素材其實早就在了)
 function animalImg(type) {
   return bakedSprite(`assets/animals/${type}.png`, Math.ceil(TILE * ANIMAL_TYPES[type].r * 2.3));
@@ -641,6 +645,40 @@ function render(dt) {
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       const nameY = sy - TILE * 0.7;
       const label = `${TRADER_CFG.name}(右鍵交易)`;
+      ctx.fillStyle = '#000a'; ctx.fillText(label, sx + 1, nameY + 1);
+      ctx.fillStyle = '#ffd23f'; ctx.fillText(label, sx, nameY);
+    }
+  }
+
+  // ---- 劇情 NPC(固定攤位,不會動;畫法完全比照商人,貼圖找不到就 emoji+光暈 fallback) ----
+  for (const n of G.questNpcs) {
+    if (n.x < x0 - 1 || n.x > x1 + 2 || n.y < y0 - 1 || n.y > y1 + 2) continue;
+    if (lightOf(n.x, n.y) < 0.04) continue;
+    const npc = QUEST_NPCS[n.npc];
+    const [sx, sy] = worldToScreen(n.x, n.y);
+    const bob = Math.sin(performance.now() / 500 + 1.5) * 2; // 相位錯開,避免跟商人同步彈動看起來呆板
+    const img = questNpcImg(n.npc);
+    if (img) {
+      const size = TILE * 1.1;
+      ctx.drawImage(img, sx - size / 2, sy - size / 2 + bob, size, size);
+    } else {
+      ctx.fillStyle = 'rgba(255,210,63,0.18)';
+      ctx.beginPath();
+      ctx.arc(sx, sy + TILE * 0.1, TILE * 0.55, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(5,5,10,0.42)';
+      ctx.beginPath();
+      ctx.arc(sx, sy + TILE * 0.42, TILE * 0.32, 0, TAU);
+      ctx.fill();
+      ctx.font = `${TILE * 0.85}px "Segoe UI Emoji"`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(npc.icon, sx, sy + bob);
+    }
+    if (dist(me.x, me.y, n.x, n.y) < 4) {
+      ctx.font = 'bold 12px sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const nameY = sy - TILE * 0.7;
+      const label = `${npc.name}(右鍵委託)`;
       ctx.fillStyle = '#000a'; ctx.fillText(label, sx + 1, nameY + 1);
       ctx.fillStyle = '#ffd23f'; ctx.fillText(label, sx, nameY);
     }

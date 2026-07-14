@@ -218,6 +218,7 @@ function killEnemy(e, killer) {
   if (i >= 0) G.enemies.splice(i, 1);
   markSeen(e.type);
   unlockAchv('first_blood');
+  advanceKillQuests(e.type);
   G.killCount++;
   emitFx({ k: 'sfx', s: 'break_' });
   if (killer) grantXp(killer, (ENEMY_XP[e.type] || 0) * (e.elite ? ELITE_CFG.xpMult : 1));
@@ -227,7 +228,20 @@ function killEnemy(e, killer) {
   const SCROLL_RATE = { imp: 0.03, spore: 0.02, hunter: 0.06, spitter: 0.08, bomber: 0.08, phantom: 0.1, breaker: 0.12, abyss: 0.1, revenant: 0.18, voidling: 0.15 };
   if (SCROLL_RATE[e.type] && Math.random() < SCROLL_RATE[e.type]) spawnDrop('enh_scroll', 1, e.x, e.y);
   rollEquipDrop(e); // 怪物掉裝備:越強的怪 pool 越好,機率在 EQUIP_DROP_CFG 調(config.js)
-  if (e.type === 'imp') { if (Math.random() < 0.4) spawnDrop('lumite', 1, e.x, e.y); }
+  if (e.altar) {
+    // 深怪祭壇看守者:守衛的底怪種(hunter/abyss)一定要在這裡先攔截,不然會被下面的
+    // e.type 分支(掉一般光晶那些)吃掉,永遠走不到這支——借用神殿守衛同一套「戀家」AI(e.home,
+    // 原封不動),但死亡不給碎片,走獨立的戰利品分支
+    const altar = G.altars.find(a => a.x === e.altar.x && a.y === e.altar.y);
+    spawnDrop('enh_scroll', 2, e.x, e.y);
+    spawnDrop(randChoice(EQUIP_DROP_CFG.pools[altar && altar.zone >= 2 ? 'elite' : 'mid']), 1, e.x, e.y);
+    if (altar) altar.dead = true;
+    const ai = idx(Math.floor(e.altar.x), Math.floor(e.altar.y));
+    if (!G.objects.has(ai)) setObj(Math.floor(e.altar.x), Math.floor(e.altar.y), { type: 'chest', hp: OBJ_HP.chest });
+    msgAll(`🗿 ${killer ? killer.name : '螢火隊'}擊破了深怪祭壇的看守者!祭壇中央的寶箱開啟了`);
+    unlockAchv('altar_breaker');
+  }
+  else if (e.type === 'imp') { if (Math.random() < 0.4) spawnDrop('lumite', 1, e.x, e.y); }
   else if (e.type === 'spore') { if (Math.random() < 0.25) spawnDrop('lumite', 1, e.x, e.y); }
   else if (e.type === 'hunter') spawnDrop('lumite', 1 + (Math.random() < 0.5 ? 1 : 0), e.x, e.y);
   else if (e.type === 'spitter') spawnDrop('lumite', 1, e.x, e.y);
@@ -686,6 +700,13 @@ function runPowerCmd(p, action, arg, num) {
       p.invDirty = true;
       return `🌟 +${n} 天賦點(按 T 分配)`;
     }
+    case 'give': {
+      if (!ITEMS[arg]) return `⚠️ 找不到物品「${arg}」`;
+      const n = clamp(num | 0 || 1, 1, 999);
+      const left = addItem(p, arg, n);
+      if (left > 0) spawnDrop(arg, left, p.x, p.y); // 背包滿了就掉腳邊,不會憑空消失
+      return `🎁 獲得 ${n} 個${ITEMS[arg].name}`;
+    }
     default: return `⚠️ 未知指令 /power ${action}`;
   }
 }
@@ -878,6 +899,56 @@ function doTrade(p, offerIdx) {
     const left = addItem(p, id, offer.get[id]);
     if (left > 0) spawnDrop(id, left, p.x, p.y);
   }
+  emitFx({ k: 'sfx', s: 'craft' });
+  return null;
+}
+
+// ===== 劇情 NPC 任務日誌(全隊共享,房主權威;比照商人交易的 canAfford/payCost 重用模式)=====
+// 一個任務要「可見」:自己沒完成過,且 requires(上一關)已完成(requires:null 一開始就可見)
+function questAvailable(id) {
+  if (G.quests.done[id]) return false;
+  const q = QUESTS.find(x => x.id === id);
+  if (!q) return false;
+  return !q.requires || !!G.quests.done[q.requires];
+}
+// 判斷條件是否已達成(給 UI 顯示「可以交付」用,不修改任何狀態,client/host 都能算)
+function questReady(p, id) {
+  if (!questAvailable(id)) return false;
+  const q = QUESTS.find(x => x.id === id);
+  if (q.type === 'deliver') return canAfford(p, q.need);
+  if (q.type === 'kill') return (G.quests.active[id]?.kills || 0) >= q.count;
+  if (q.type === 'achv') return !!G.achv[q.need];
+  return false;
+}
+// 擊殺型任務進度:killEnemy 開頭呼叫,只在「已接到且未完成」的擊殺型任務裡累加(逐一比對 6 筆任務,量少不擔心效能)
+function advanceKillQuests(type) {
+  for (const q of QUESTS) {
+    if (q.type === 'kill' && q.enemyType === type && G.quests.active[q.id] && !G.quests.done[q.id]) {
+      G.quests.active[q.id].kills++;
+    }
+  }
+}
+// 遞交/領取委託:房主權威,達成條件才會執行,完成後解鎖下一關(若下一關是擊殺型,從這一刻才開始算進度)
+function doQuestTurnIn(p, id) {
+  if (p.dead || p.downed) return { err: '你已倒下' };
+  const q = QUESTS.find(x => x.id === id);
+  if (!q) return { err: '委託不存在' };
+  if (!questReady(p, id)) return { err: '還沒達成委託條件' };
+  if (q.type === 'deliver') payCost(p, q.need);
+  for (const rid in q.reward) {
+    const left = addItem(p, rid, q.reward[rid]);
+    if (left > 0) spawnDrop(rid, left, p.x, p.y);
+  }
+  G.quests.done[id] = true;
+  delete G.quests.active[id];
+  const next = QUESTS.find(x => x.requires === id);
+  if (next && next.type === 'kill') G.quests.active[next.id] = { kills: 0 };
+  const npc = QUEST_NPCS[q.npc];
+  msgAll(`📜 ${p.name} 完成了${npc.name}的委託「${q.name}」!`);
+  msgAll(q.outro);
+  unlockAchv('quest_novice');
+  if (QUESTS.every(x => G.quests.done[x.id])) unlockAchv('quest_master');
+  if (NET.isHost()) NET.sendAll({ t: 'quest', id }); // 增量同步 done/active 狀態(比照 achv/seen 的既有模式)
   emitFx({ k: 'sfx', s: 'craft' });
   return null;
 }

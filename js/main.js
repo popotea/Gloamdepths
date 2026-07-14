@@ -35,6 +35,7 @@ function bindInput() {
       else if (UI.panelOpen) togglePanel(false);
       else if (UI.towerPos) closeTowerPanel();
       else if (UI.traderOpen) closeTraderPanel();
+      else if (UI.questOpen) closeQuestPanel();
       else if (UI.storagePos) closeStoragePanel();
       else if (UI.emoteOpen) toggleEmotePanel(false);
       else if (UI.powerOpen) togglePowerPanel(false);
@@ -201,8 +202,11 @@ function localControl(me, dt) {
     const targetObj = objAt(tx0, ty0);
     const inRange = dist(me.x, me.y, tx0 + 0.5, ty0 + 0.5) <= 3.8;
     const trader = G.traders.find(t => dist(t.x, t.y, wx, wy) < 0.8);
+    const qnpc = G.questNpcs.find(n => dist(n.x, n.y, wx, wy) < 0.8);
     if (trader && dist(me.x, me.y, trader.x, trader.y) <= 3.8) {
       openTraderPanel();
+    } else if (qnpc && dist(me.x, me.y, qnpc.x, qnpc.y) <= 3.8) {
+      openQuestPanel(qnpc.npc);
     } else if (targetObj && targetObj.type === 'archer_tower' && inRange) {
       openTowerPanel(tx0, ty0);
     } else if (targetObj && targetObj.type === 'auto_miner' && inRange) {

@@ -327,3 +327,27 @@
 - **修法是新增一個共用的分區加權池 `ZONE_SPAWN_POOL` + `pickZoneEnemy(zone)`(config.js)**,三處呼叫端全部改呼叫這個函式,不再各自維護一份邏輯。池子刻意讓該區「招牌怪」仍占多數(zone0 imp 7:2 bomber、zone1 hunter 5:2:2 spitter/phantom、zone2 abyss 5:3 breaker)——**保留原本一區一特色的設計語感,只是混入同分區調性的變化款**,不是把所有怪打散到全地圖亂生。`spore` 刻意不放進加權池,維持它只在 `swarm` 巢穴成群出現的「特色」定位不被稀釋。
 - **淵核區(zone 3)維持原本 revenant/voidling 各半的獨立分支**,沒有併進 `ZONE_SPAWN_POOL`(那是通關後內容,呼叫端各自處理更清楚);`pickZoneEnemy` 對未知 zone 的防呆 fallback 實際上不會被呼叫到(zone3 呼叫端都繞過它),純粹是防禦性寫法。
 - 測試:延伸 `simtest14.js` 到 31 個斷言,新增地圖尺寸/分區邊界/`ZONE_R` 讀值驗證,`pickZoneEnemy` 三分區各抽樣 300~400 次確認新舊怪種都會出現,以及跑 30 波 `startWave()` 驗證暗潮確實會生出「過去暗潮從未生成過」的新變化款怪物(不是只驗證「有 3 種怪」這種舊代碼也能通過的弱斷言)。額外用獨立腳本量測 `genWorld(12345)` 實際耗時與地形/據點統計數字,確認放大後生成時間與密度都在合理範圍。
+
+## 深怪祭壇:迷你王據點(2026-07-15,第十六批)
+呼應剛放大的地圖需要「更多值得走過去的據點」——新增一種比精英巢穴更兇一階、但比神殿更輕量的單次遭遇戰,**全程刻意最大化重用既有系統**,零新增怪物美術/新協定/main.js 改動。
+- **資料/實體分離,完全比照神殿的既有模式**:`G.altars`(`[{x,y,dead,zone}]`)只存位置與生死,跟 `G.shrines` 一樣不落 `G.enemies`(敵人不進存檔)。實際守衛實體由 `spawnAltarGuardians()`(game.js)另外生成,呼叫點也完全比照 `spawnShrineBosses()`——`startNewGame()`、`applySave()` 各一次,`net.js` 的 client `case 'init'` 完全不用管(守衛跟其他敵人一樣,靠之後的 `snap` 快照自然同步給客戶端,不需要客戶端自己生成)。
+- **看守者重用既有怪種,不新增 `ENEMY_TYPES`**:`ALTAR_CFG.guardian` 依生成所在分區(zone1→hunter、zone2→abyss)決定底怪種,`spawnEnemy(..., {elite:true, home:{x,y}, altar:{x,y}})` 疊 `ELITE_CFG` 再疊 `ALTAR_CFG.hpMult/dmgMult` 兩層倍率,省掉設計新怪美術/新元素相剋的成本。`home` 欄位是刻意重用神殿守衛既有的「戀家」AI(`updateEnemies` 對 `e.home` 的通用處理:玩家靠近就追、拉太遠就回防回血),**零改動**就讓看守者不會離開祭壇亂跑。
+- **`e.altar` 這支 `else if` 一定要放在 `killEnemy` 整條 `e.type===X` 判斷鏈的最前面,不能插在 `e.home` 前面就好**:第一次寫的時候插在 `e.home` 判斷之前,想說「反正比 `e.home` 早檢查就對了」,結果測試全滅——因為看守者的底怪種(`hunter`/`abyss`)自己就有專屬的 `else if (e.type==='hunter')`/`else if (e.type==='abyss')` 分支(掉一般光晶用),這兩支排在更前面,鏈式 `else if` 一路比對下來早就先命中、走不到後面的 `e.altar` 分支。**修法是把 `e.altar` 檢查移到整條 `if/else if` 鏈的最開頭**(在 `if (e.type==='imp')` 之前),不管守衛底怪種是什麼都優先攔截。`simtest16.js` 一開始就是被這個 bug 抓到全部相關斷言失敗,才挖出問題所在。
+- **死亡不給碎片,跟神殿死亡流程明確分開**:保底 2 張卷軸 + 重用 `EQUIP_DROP_CFG.pools['mid'/'elite']`(依 zone)保底一件精良裝備 + 在祭壇中心 `setObj` 生一個 `chest` 物件(**重用整套既有寶箱系統**:玩家用鎬敲開,自動走 `openChest`/`CHEST_LOOT`,零新程式碼)。`unlockAchv('altar_breaker')` 走既有冪等入口。
+- **存讀檔完全比照 `traders` 的寫法**(`G.altars = s.altars || G.altars`):`applySave` 一開始就用同一個種子重跑 `genWorld()`,新舊版本的 `genWorld` 都會產生確定性一致的祭壇位置,舊存檔沒有 `altars` 欄位時直接沿用剛生成的那份(不會少一批據點);已擊破的祭壇讀檔後不會重新長出守衛(`spawnAltarGuardians()` 對 `a.dead` 的檢查沿用跟 `spawnShrineBosses()` 一樣的邏輯)。**唯一的已知小缺口**:非常舊、在此功能上線前存的檔,讀回來後 `G.altars`(重新生成的)座標理論上跟該局的 `s.tiles`(舊地形,沒有祭壇的石環造型)對不上,看守者會站在普通洞穴裡而不是石環空地——純視覺落差,不影響戰鬥/掉落功能,沿用專案一貫「新地形特徵不回溯裝飾舊地圖」的做法不特別處理。
+- 大/小地圖標記(ui.js `mapMarkers`/`drawMinimap`)比照巢穴的「沒探索過不暴雷」規則,圖示 `🏛️` 跟神殿的 `🗿` 刻意用不同符號區分。
+- 測試:`simtest16.js`(20 個斷言)涵蓋祭壇生成數量與 zone 分佈、守衛血量正確疊乘兩層倍率、擊殺後 `altar.dead`/成就/掉落/開箱、**神殿死亡流程的回歸測試**(確保沒有把 `e.altar` 分支插壞 `e.home` 分支,神殿守衛死亡依然正常給碎片)、存讀檔往返後祭壇生死狀態與守衛不重複生成。
+
+## 劇情 NPC + 任務日誌(2026-07-15,第十七批)
+玩家提議「可以新增更多 NPC 需求/劇情等設計嗎」,選定規模是**獨立任務日誌系統**(新 UI 面板追蹤多條進度)+ **新增 1、2 位有個性的 NPC**——這是遊戲第一個任務系統,設計重點是把三種任務型態的判斷條件全部掛在既有資料上,不建立新的追蹤機制。
+- **兩位新 NPC**:鐵匠錚錚(要材料練裝備)、拾光者微塵(研究蝕影與守望者,呼應既有「喚醒不是殺戮」的敘事支線),各自 3 關委託組成一條小劇情,`requires` 欄位串成鏈——完成上一關才解鎖下一關,面板對未解鎖的關卡顯示「？？？」保留懸念。站位/渲染/存讀檔/init 同步**完全比照商人「莫勾」的既有模式**(`G.questNpcs` 對應 `G.traders`,`questNpcImg` 對應 `traderImg`,右鍵距離判定同一套寫法)。
+- **三種任務型態,判斷條件全部重用既有資料,只有一種需要新追蹤**:
+  - `deliver`(遞交材料):直接重用商人交易的 `canAfford`/`payCost`,零新邏輯。
+  - `achv`(達成某成就):直接讀 `G.achv[need]`,**零額外追蹤**——「擊敗神殿」「踏入淵核區」本來就有對應成就,拿來當任務條件不用另外設計判斷式。
+  - `kill`(累計擊殺數):**唯一需要新狀態的型態**,`G.quests.active[id] = {kills}` 記錄「接到委託之後」的擊殺數(不是歷史總擊殺,不然還沒解鎖的任務會因為玩家過去打過那種怪而偷跑完成)。`advanceKillQuests(type)`(entities.js)插在 `killEnemy` 最開頭(`markSeen` 之後),逐一比對 6 筆任務找出「型態是 kill 且種類符合且已接取未完成」的那筆才加 1——資料量小(目前只有 1 筆是 kill 型),用迴圈掃描比額外維護一份索引更簡單。
+  - 一個任務解鎖時,若下一關剛好是 kill 型,`doQuestTurnIn` 會在該時刻才幫它 seed `active` 記錄(`requires:null` 的第一關則在 `genWorld()` 直接 seed)——**確保進度只從「玩家看得到這個任務」的那一刻算起**。
+  - `questAvailable(id)`/`questReady(p,id)` 兩個函式**不修改任何狀態**,client/host 都能直接呼叫(用來畫面板);真正的 `doQuestTurnIn` 才是房主權威、會改動背包與 `G.quests`。這跟磁吸範圍/裝備加成那套「唯讀計算本地跑,異動一定過房主」的既有分工原則一致。
+- **同步走「全量 init 快照 + 增量 `{t:'quest'}` 廣播」雙層模式,完全比照 `achv`/`seen` 的既有寫法**:新加入的人從 `init` 拿到目前全部 `G.quests`(含 `active`/`done`),完成當下再補一個小封包讓在線的人立刻更新面板,不用等下次重連。
+- **踩到一個順序雷,教訓值得記住**:第一版把 `else if (e.altar)`(上一批深怪祭壇)前面新插的 `advanceKillQuests` 呼叫點放對了位置(`killEnemy` 最前面,不受任何 `else if` 鏈影響),但這正是因為**上一批才剛學到「新的通用判斷要放在型別分支最前面」的教訓**——這批直接用「不透過 `killEnemy` 內的 `else if` 鏈,獨立一行呼叫」完全繞開同一個陷阱,不用擔心分支順序。
+- **`/power give <物品> <數量>`(同一批附帶修的缺口)**:玩家反映 `/power` 選單能召喚任何怪物/動物(`Object.keys(ENEMY_TYPES)`/`Object.keys(ANIMAL_TYPES)` 自動列出、新種類免維護),但完全沒有「給物品」的通用指令,測試新道具(羊毛/淵晶/祭壇裝備池…)只能用合成或運氣取得。新增 `case 'give'`(entities.js `runPowerCmd`)+ 秘笈選單的下拉選單(`Object.keys(ITEMS)` 自動列出所有物品,同樣不用手動維護清單)。背包滿了掉腳邊(沿用 `spawnDrop` 慣例),不會憑空消失。
+- 測試:`simtest17.js`(40 個斷言)涵蓋 NPC 生成數量、三種任務型態各自的可見性/達成判斷、deliver 型材料正確扣除、kill 型擊殺累計與解鎖時機、achv 型讀成就狀態、完成委託解鎖下一關與 `quest_novice`/`quest_master` 成就、**既有商人交易的回歸測試**(確保新系統沒有動到 `doTrade`)、存讀檔往返保留任務進度,以及 `/power give` 的正常給予與找不到物品的錯誤處理。

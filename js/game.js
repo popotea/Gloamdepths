@@ -68,6 +68,7 @@ function startNewGame(name, difficulty) {
   const p = makePlayer(0, name);
   G.players.set(0, p);
   spawnShrineBosses();
+  spawnAltarGuardians();
   G.started = true;
   showMsg('🕯️ 星核熄滅後,黑暗湧回深淵——而你們是「螢火隊」,來把光帶回來的!');
   showMsg('🌑 星核肚子咕嚕叫了!挖光晶💠(藍色礦脈)按 F 餵它一口~');
@@ -79,6 +80,18 @@ function startNewGame(name, difficulty) {
 function spawnShrineBosses() {
   for (const s of G.shrines) {
     if (!s.dead) spawnEnemy(s.boss || 'sentinel', s.x, s.y, { home: { x: s.x, y: s.y } });
+  }
+}
+
+// 依 G.altars 各自的生死生成深怪祭壇看守者(資料/實體分離同 spawnShrineBosses):
+// 守衛套 ALTAR_CFG 的倍率疊在精英怪加成之上,elite:true 讓渲染/existing 精英視覺一併套用
+function spawnAltarGuardians() {
+  for (const a of G.altars) {
+    if (a.dead) continue;
+    const type = ALTAR_CFG.guardian[a.zone] || 'hunter';
+    const e = spawnEnemy(type, a.x, a.y, { elite: true, home: { x: a.x, y: a.y }, altar: { x: a.x, y: a.y } });
+    e.hp = Math.round(e.hp * ALTAR_CFG.hpMult); e.maxhp = e.hp;
+    e.dmgMult *= ALTAR_CFG.dmgMult;
   }
 }
 
@@ -315,6 +328,9 @@ function buildSave() {
     wave: { n: G.wave.n, timer: Math.max(45, G.wave.state === 'calm' ? G.wave.timer : 45), final: G.wave.final && G.core.shards < CORE_CFG.needShards ? false : G.wave.final, en: G.wave.en || 0 },
     shrines: G.shrines.map(s => ({ x: s.x, y: s.y, dead: s.dead, boss: s.boss })),
     traders: G.traders.map(t => ({ x: t.x, y: t.y })),
+    altars: G.altars.map(a => ({ x: a.x, y: a.y, dead: a.dead, zone: a.zone })),
+    questNpcs: G.questNpcs.map(n => ({ x: n.x, y: n.y, npc: n.npc })),
+    quests: G.quests,
     playersByName: G.playersByName,
     hostName: G.players.get(G.myId)?.name || '',
     won: G.won,
@@ -389,6 +405,9 @@ function applySave(s, name) {
   G.wave = { n: s.wave.n, state: 'calm', timer: s.wave.timer, final: false };
   G.shrines = s.shrines;
   G.traders = s.traders || G.traders;
+  G.altars = s.altars || G.altars; // 舊存檔沒有這欄位就留著 genWorld 剛生成的(新世界升級舊存檔也不會少一批據點)
+  G.questNpcs = s.questNpcs || G.questNpcs;
+  G.quests = s.quests || G.quests; // 同上;genWorld 已經 seed 過 requires:null 的擊殺型任務進度
   G.playersByName = s.playersByName || {};
   G.time = s.time || 0;
   G.killCount = s.killCount || 0;
@@ -402,6 +421,7 @@ function applySave(s, name) {
   if (s.won) G.wave = { n: s.wave.n, state: 'calm', timer: Math.max(90, s.wave.timer || 90), final: false, endless: true, en: s.wave.en || 0 };
   rebuildLights();
   spawnShrineBosses();
+  spawnAltarGuardians();
   if (s.core.shards >= CORE_CFG.needShards && !s.won) G.wave = { n: s.wave.n, state: 'warn', timer: 20, final: true };
 
   // 用名字還原玩家背包

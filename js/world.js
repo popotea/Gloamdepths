@@ -26,6 +26,9 @@ const G = {
   wave: { n: 0, state: 'calm', timer: WAVE_CFG.first, final: false },
   shrines: [],          // [{x,y,dead,boss}]  boss = ENEMY_TYPES 的 key,固定分配三座神殿各自守哪隻 Boss
   traders: [],          // [{x,y}] 中層區域固定攤位,不會動,不進 snap(靠 init/存讀檔同步)
+  altars: [],           // [{x,y,dead,zone}] 深怪祭壇(迷你王據點),資料/實體分離同神殿——實際守衛敵人由 spawnAltarGuardians() 另外生成
+  questNpcs: [],        // [{x,y,npc}] 劇情 NPC 固定攤位(不會動),npc = QUEST_NPCS 的 key
+  quests: { active: {}, done: {} }, // active: {questId:{kills}} 只有擊殺型任務要記錄;done: {questId:true}
   playersByName: {},    // 離線好友的背包(以名字為鍵,由房主保存)
   time: 0, seed: 0, over: null, started: false,
   mushCount: 0, warned: {},
@@ -161,7 +164,11 @@ function genWorld(seed) {
   G.minerIdx.clear(); G.beltIdx.clear(); G.smelterIdx.clear(); G.frostIdx.clear(); G.decoyIdx.clear();
   G.cannonIdx.clear(); G.multiIdx.clear(); G.sniperIdx.clear();
   G.enemies = []; G.drops = []; G.floaters = []; G.projs = []; G.animals = []; G.hitFx = [];
-  G.shrines = []; G.traders = []; G.mushCount = 0; G.warned = {}; G.killCount = 0;
+  G.shrines = []; G.traders = []; G.altars = []; G.questNpcs = []; G.mushCount = 0; G.warned = {}; G.killCount = 0;
+  // 任務日誌:每個新世界重新開始收集(跟 achv/bestiary 同一套設計語言);requires:null 的擊殺型任務
+  // 一開局就要開始累計進度,所以在這裡直接 seed 一筆(其餘擊殺型任務——目前沒有——會在上一關完成時才 seed)
+  G.quests = { active: {}, done: {} };
+  for (const q of QUESTS) if (q.type === 'kill' && !q.requires) G.quests.active[q.id] = { kills: 0 };
   G.bestiary = {}; G.achv = {}; G.emoteFx = [];
   G.core = { x: CX + 0.5, y: CY + 0.5, energy: CORE_CFG.maxE, shards: 0, shield: 0 };
   G.wave = { n: 0, state: 'calm', timer: WAVE_CFG.first, final: false };
@@ -343,6 +350,44 @@ function genWorld(seed) {
       const x = Math.floor(CX + Math.cos(ang) * d), y = Math.floor(CY + Math.sin(ang) * d);
       if (!inMap(x, y) || G.tiles[idx(x, y)] !== T.FLOOR || G.objects.has(idx(x, y))) continue;
       G.traders.push({ x: x + 0.5, y: y + 0.5 });
+      break;
+    }
+  }
+
+  // 6.6) 劇情 NPC:兩位固定站在近距離的據點(zone0~zone1 邊界,方便早期就找到、之後回頭交任務)
+  for (const npcKey of Object.keys(QUEST_NPCS)) {
+    for (let tries = 0; tries < 40; tries++) {
+      const ang = rnd() * TAU, d = ZONE_R.dirt * 0.5 + rnd() * (ZONE_R.dirt * 0.6);
+      const x = Math.floor(CX + Math.cos(ang) * d), y = Math.floor(CY + Math.sin(ang) * d);
+      if (!inMap(x, y) || G.tiles[idx(x, y)] !== T.FLOOR || G.objects.has(idx(x, y))) continue;
+      if (dist(x, y, G.core.x, G.core.y) < 14) continue;
+      G.questNpcs.push({ x: x + 0.5, y: y + 0.5, npc: npcKey });
+      break;
+    }
+  }
+
+  // 6.7) 深怪祭壇:小型迷你王據點(呼應地圖放大批——放大後的地圖需要更多「值得走過去」的據點)。
+  // 只放在 zone1~zone2(石岩/黑曜),清出一塊小空地+一圈石環當標記;守衛實體不在這裡生成,
+  // 只存座標/生死資料,比照神殿的「資料/實體分離」模式,實際敵人由 spawnAltarGuardians()(game.js)另外生成
+  for (let n = 0; n < ALTAR_CFG.count; n++) {
+    for (let tries = 0; tries < 30; tries++) {
+      const ang = rnd() * TAU, d = ZONE_R.dirt + rnd() * (ZONE_R.obsidian - ZONE_R.dirt);
+      const cx = Math.floor(CX + Math.cos(ang) * d), cy = Math.floor(CY + Math.sin(ang) * d);
+      if (!inMap(cx, cy) || dist(cx, cy, CX, CY) < 20) continue;
+      let ok = true;
+      for (let dy = -3; dy <= 3 && ok; dy++) for (let dx = -3; dx <= 3 && ok; dx++) {
+        const x = cx + dx, y = cy + dy;
+        if (!inMap(x, y) || G.tiles[idx(x, y)] === T.BEDROCK || dist(x, y, G.core.x, G.core.y) < 20) ok = false;
+      }
+      if (!ok) continue;
+      for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
+        const dd = Math.hypot(dx, dy);
+        const x = cx + dx, y = cy + dy;
+        if (dd <= 2.2) { G.tiles[idx(x, y)] = T.FLOOR; G.objects.delete(idx(x, y)); }
+        else if (dd <= 3) G.tiles[idx(x, y)] = T.STONEWALL; // 一圈石環,標記出「這裡不一樣」
+      }
+      const zone = Math.min(2, Math.max(1, zoneOf(cx + 0.5, cy + 0.5))); // 夾在 zone1~zone2,邊界誤差保底不落到 zone0
+      G.altars.push({ x: cx + 0.5, y: cy + 0.5, dead: false, zone });
       break;
     }
   }
