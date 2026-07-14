@@ -13,6 +13,8 @@ const TAU = Math.PI * 2;
 // 新增功能時手動往陣列最前面補一筆(最新在最上面)
 const CHANGELOG = [
   { date: '2026-07-15', items: [
+    '🔪 新增雙持匕首武器線(鐵/金):全近戰最快攻速,適合搭配獵殺勳章打暴擊流',
+    '🧭 第三位劇情 NPC「拓路人耘」上線,委託圍繞探索里程碑(挖到鑽石/擊敗三神殿/通關)',
     '👑 淵核區終極守護者「淵魄君主・冥」上線:全遊戲最強單體,通關解封後才會出現,只有一隻、擊敗不重生,掉落豐厚(大量淵晶+鑽石+卷軸)',
     '📜 鐵匠/拾光者的委託鏈各加一關「終章」,呼應淵魄君主(拾光者的終章要先擊敗牠才能交付)',
     '📜 新增劇情 NPC「鐵匠錚錚」與「拾光者微塵」,各帶 3 關委託任務(遞交材料/擊殺蝕影/達成成就),完成有專屬對話與獎勵;ESC 選單新增「📜 委託」查看進度',
@@ -454,6 +456,13 @@ const ITEMS = {
                      desc: '選中使用:慢但大範圍橫掃+超強擊退;重擊剋石(裂地者/石像守衛)' },
   gold_hammer:     { name: '金鎚', icon: '🔨', sword: { dmg: 50, cd: 0.8, range: 2.0, arc: 1.5, kb: 14, manual: true, elem: 'smash' }, max: 1, dur: 300, tint: '#8a6d1f',
                      desc: '選中使用:慢但大範圍橫掃+超強擊退;重擊剋石(裂地者/石像守衛)' },
+  // 第十九批:雙持匕首——攻速是所有近戰武器最快的(cd 遠低於劍的預設 0.35),但每下傷害較低、
+  // 距離較短;耐久按攻速比例放大(磨損是「每次命中扣1」不是按傷害,攻速快耐久要跟著補),
+  // 定位是搭配獵殺勳章(暴擊飾品)的高頻出手流,跟矛(長距離)/鎚(範圍+擊退)做出第三種取捨
+  iron_dagger:     { name: '鐵匕首', icon: '🔪', sword: { dmg: 12, cd: 0.2, range: 1.5, arc: 0.9, manual: true }, max: 1, dur: 380, tint: '#5c6570',
+                     desc: '選中使用:攻速全近戰最快,適合搭配獵殺勳章打出高頻暴擊;距離較短' },
+  gold_dagger:     { name: '金匕首', icon: '🔪', sword: { dmg: 19, cd: 0.2, range: 1.5, arc: 0.9, manual: true }, max: 1, dur: 520, tint: '#8a6d1f',
+                     desc: '選中使用:攻速全近戰最快,適合搭配獵殺勳章打出高頻暴擊;距離較短' },
   // 遠程武器:選中後左鍵發射,消耗彈藥
   bow:             { name: '獵弓', icon: '🏹', ranged: { dmg: 14, cd: 0.5, speed: 13, ammo: 'arrow' }, max: 1, dur: 150,
                      desc: '選中使用:發射箭矢(需背包有箭)' },
@@ -617,6 +626,8 @@ const RECIPES = [
   { out: 'iron_hammer',  n: 1, cost: { iron_bar: 4, wood: 1 },           station: 'workbench' },
   { out: 'crossbow',     n: 1, cost: { iron_bar: 3, wood: 3 },           station: 'workbench' },
   { out: 'gold_hammer',  n: 1, cost: { gold_bar: 4, wood: 1 },           station: 'workbench' },
+  { out: 'iron_dagger',  n: 1, cost: { iron_bar: 2, wood: 1 },           station: 'workbench' },
+  { out: 'gold_dagger',  n: 1, cost: { gold_bar: 2, wood: 1 },           station: 'workbench' },
   { out: 'flame_sword',  n: 1, cost: { iron_bar: 2, copper_bar: 3 },     station: 'furnace' },
   { out: 'frost_sword',  n: 1, cost: { iron_bar: 2, lumite: 6 },         station: 'workbench' },
   { out: 'lumite_staff', n: 1, cost: { gold_bar: 2, lumite: 8, wood: 2 }, station: 'workbench' },
@@ -850,6 +861,7 @@ function traderOffers() {
 const QUEST_NPCS = {
   smith:   { name: '鐵匠錚錚', icon: '🔨', motto: '爐火不熄,手藝不老。' },
   scholar: { name: '拾光者微塵', icon: '📖', motto: '每一粒光,都值得被記住。' },
+  guide:   { name: '拓路人耘', icon: '🧭', motto: '路是走出來的,不是等出來的。' },
 };
 const QUESTS = [
   { id: 'smith1', npc: 'smith', name: '重燃爐火', requires: null,
@@ -885,6 +897,24 @@ const QUESTS = [
     intro: '「淵核區最深處……好像有『什麼』一直在看著這一切。如果那也是被黑暗纏住的孩子,你們願意去見見牠嗎?(擊敗淵魄君主)」',
     outro: '「原來如此……連最深最古老的黑暗,也只是想被看見而已。謝謝你們,替所有怕光又想搶光的孩子,說了這句話。」',
     type: 'achv', need: 'void_lord_slain', reward: { enh_scroll: 8, diamond: 3, void_shard: 3 } },
+  // 第十九批:第三位 NPC「拓路人耘」,委託全走 achv 型(探索里程碑),零額外追蹤——
+  // 四個成就(first_diamond/all_boss/endless_enter)本來就存在,直接拿來當條件就好
+  { id: 'guide1', npc: 'guide', name: '整裝待發', requires: null,
+    intro: '「準備出發前,想不想跟我換點路上用得到的東西?木頭跟石頭,越多越好。」',
+    outro: '「這些箭跟乾糧,路上省著點用。祝你們一路平安。」',
+    type: 'deliver', need: { wood: 15, stone: 10 }, reward: { arrow: 10, cooked_mushroom: 3 } },
+  { id: 'guide2', npc: 'guide', name: '越過黑曜', requires: 'guide1',
+    intro: '「聽說黑曜區深處藏著會發光的鑽石……你們找到過嗎?」',
+    outro: '「哇,是真的!能活著從那麼深的地方回來,你們比我想像的還要厲害。」',
+    type: 'achv', need: 'first_diamond', reward: { gold_bar: 2, enh_scroll: 2 } },
+  { id: 'guide3', npc: 'guide', name: '三神歸位', requires: 'guide2',
+    intro: '「三座神殿的守望者……你們真的能一次都喚醒嗎?那可不是普通的旅程。」',
+    outro: '「了不起。我走遍這片深淵,還沒見過像你們這樣的隊伍。」',
+    type: 'achv', need: 'all_boss', reward: { diamond: 2, enh_scroll: 4 } },
+  { id: 'guide4', npc: 'guide', name: '永不止息的旅人', requires: 'guide3',
+    intro: '「星核甦醒之後,深淵並沒有結束,對吧?你們還打算走多遠?」',
+    outro: '「路的盡頭永遠有更遠的路。謝謝你們讓我看見,深淵不只有黑暗。」',
+    type: 'achv', need: 'endless_enter', reward: { void_shard: 2, enh_scroll: 5 } },
 ];
 
 // 巢穴種類(世界生成時依 weight 加權抽選,見 world.js pickNestType):
