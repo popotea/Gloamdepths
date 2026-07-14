@@ -355,7 +355,7 @@ function uiTick(dt) {
   const eR = G.core.energy / CORE_CFG.maxE;
   UI.els.corefill.style.width = (eR * 100) + '%';
   UI.els.corefill.classList.toggle('low', eR < 0.3);
-  UI.els.coretext.textContent = `💠 星核 ${Math.ceil(G.core.energy)}`;
+  UI.els.coretext.textContent = `💠 星核 ${Math.ceil(G.core.energy)}` + (G.core.shield > 0 ? ` 🛡️${Math.ceil(G.core.shield)}` : '');
   UI.els.shards.textContent = '🔷'.repeat(G.core.shards) + '◇'.repeat(Math.max(0, CORE_CFG.needShards - G.core.shards));
 
   // 料理 buff 列(有 buff 才顯示;客戶端的 buffs 由快照同步)+ 出戰中的寵物(常駐,沒有倒數)

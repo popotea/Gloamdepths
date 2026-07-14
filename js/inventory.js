@@ -212,6 +212,12 @@ function equipSpeedBonus(p) {
   const it = eq && ITEMS[eq.id];
   return (it && it.speedBonus) || 0;
 }
+// 飾品欄的掉落物磁吸範圍(拾取戒指用),沒裝就是基礎值
+function magnetRangeOf(p) {
+  const eq = p.equip && p.equip.accessory;
+  const it = eq && ITEMS[eq.id];
+  return (it && it.magnetMult) ? MAGNET_RANGE * it.magnetMult : MAGNET_RANGE;
+}
 
 // 附近是否有指定合成站
 const STATION_RANGE = 6;

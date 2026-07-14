@@ -14,7 +14,7 @@ function makePlayer(id, name) {
     downed: false, downedT: 0, reviveP: 0, // 隊友救援(倒地非陣亡),見 REVIVE_CFG
     emoteCD: 0, // 快速手勢冷卻(防手滑連點洗頻),見 EMOTE_CFG
     pet: null, // 目前出戰的寵物(PET_TYPES 的 key 或 null),見 doPet
-    equip: { head: null, chest: null, legs: null }, // 裝備欄:{id,lv,dur} 或 null,見 doEquip/bestArmor
+    equip: { head: null, chest: null, legs: null, accessory: null }, // 裝備欄:{id,lv,dur} 或 null,見 doEquip/bestArmor
     lv: 1, xp: 0,
     stamina: 100, dashCD: 0, dashT: 0,
     buffs: {},   // 料理 buff:kind -> { mult/value, t 剩餘秒數 }
@@ -274,6 +274,16 @@ function killEnemy(e, killer) {
   }
 }
 
+// 星核護盾(超載餵食來的,見 doDeposit)優先吸收任何星核傷害來源,扣完護盾才動到本體能量——
+// 唯一的星核扣血入口,暗潮怪直接攻擊/爆裂蝕影炸到星核都走這裡,不用各自複製一份「先扣護盾」的邏輯
+function drainCore(amount) {
+  G.core.shield = G.core.shield || 0;
+  const fromShield = Math.min(G.core.shield, amount);
+  G.core.shield -= fromShield;
+  const remain = amount - fromShield;
+  if (remain > 0) G.core.energy = Math.max(0, G.core.energy - remain);
+}
+
 // 爆裂蝕影引信歸零時觸發:範圍內玩家/星核/牆壁一起炸,cfg = { r, dmg, wallDmg, core }
 function explodeAt(x, y, cfg) {
   emitFx({ k: 'sfx', s: 'hurt' });
@@ -294,7 +304,7 @@ function explodeAt(x, y, cfg) {
     }
   }
   if (dist(x, y, G.core.x, G.core.y) < cfg.r + 1) {
-    G.core.energy = Math.max(0, G.core.energy - cfg.core);
+    drainCore(cfg.core);
     addFloater(G.core.x, G.core.y - 1, `-${Math.round(cfg.core)} ⚡`, '#ff6b6b');
   }
   const x0 = Math.floor(x - cfg.r), x1 = Math.floor(x + cfg.r);
@@ -466,7 +476,7 @@ function updateEnemies(dt) {
     // 攻擊星核(直接扣能量)
     if (e.wave && e.hitT <= 0 && dist(e.x, e.y, core.x, core.y) < et.r + 1.3) {
       e.hitT = 1.0;
-      core.energy = Math.max(0, core.energy - CORE_CFG.hitDrain);
+      drainCore(CORE_CFG.hitDrain);
       addFloater(core.x, core.y - 1, `-${CORE_CFG.hitDrain} ⚡`, '#ff6b6b');
       emitFx({ k: 'sfx', s: 'hurt' });
     }
@@ -533,8 +543,22 @@ function enterDead(p) {
   msgAll(`💧 ${p.name} 熄火了……5 秒後在星核重新點燃!`);
 }
 
+// 飾品欄(敏捷護符)的完全閃避判定,獨立於護甲/buff 的減傷計算之外(0 傷害而不是打折)
+function rollDodge(p) {
+  const eq = p.equip && p.equip.accessory;
+  const it = eq && ITEMS[eq.id];
+  return !!(it && it.dodgeChance && Math.random() < it.dodgeChance);
+}
+// 飾品欄(獵殺勳章)的暴擊判定,回傳傷害倍率(沒觸發=1)
+function rollCrit(p) {
+  const eq = p.equip && p.equip.accessory;
+  const it = eq && ITEMS[eq.id];
+  return (it && it.critChance && Math.random() < it.critChance) ? it.critMult : 1;
+}
+
 function damagePlayer(p, amount) {
   if (p.godmode) return; // /power godmode:秘笈開啟的無敵狀態
+  if (rollDodge(p)) { addFloater(p.x, p.y - 0.6, '💨 閃避!', '#a0e8ff'); return; }
   // 岩鎧 buff 與護甲相乘(不是相加),兩者都拉滿也不會變成免疫
   const dmg = Math.max(1, Math.round(amount * (1 - bestArmor(p)) * (1 - buffVal(p, 'guard')) * (1 - petVal(p, 'guard'))));
   p.hp -= dmg; p.iframe = 0.8; p.lastHurt = G.time;
@@ -701,7 +725,7 @@ function doSwing(p, aim) {
   if (p.dead || p.downed || p.atkCD > 0) return;
   const w = meleeWeaponOf(p);
   p.atkCD = w.cd ?? 0.35; p.swing = w.manual ? 0.22 : 0.22; p.aim = aim; p.action = 'atk';
-  const dmg = w.dmg * playerDmgMult(p);
+  const dmg = w.dmg * playerDmgMult(p) * rollCrit(p);
   let hits = 0;
   for (const e of [...G.enemies]) {
     const d = dist(p.x, p.y, e.x, e.y);
@@ -738,7 +762,7 @@ function doShoot(p, aim) {
   }
   wearItem(p, s);
   p.atkCD = w.cd; p.swing = 0.18; p.aim = aim; p.action = 'atk';
-  const dmg = w.dmg * enhMult(s) * playerDmgMult(p);
+  const dmg = w.dmg * enhMult(s) * playerDmgMult(p) * rollCrit(p);
   spawnProj({
     x: p.x + Math.cos(aim) * 0.4, y: p.y + Math.sin(aim) * 0.4,
     vx: Math.cos(aim) * w.speed, vy: Math.sin(aim) * w.speed,
@@ -950,7 +974,7 @@ function doGift(p, slot, targetId) {
 // 舊存檔沒有 equip 欄位:掃背包找最好的胸甲類裝備自動穿上,保留原本的防禦力(見 CLAUDE.md 裝備欄位一節)
 function migrateLegacyArmor(p) {
   if (p.equip) return;
-  p.equip = { head: null, chest: null, legs: null };
+  p.equip = { head: null, chest: null, legs: null, accessory: null };
   let bestI = -1, bestV = 0;
   for (let i = 0; i < p.inv.length; i++) {
     const s = p.inv[i];
@@ -1179,12 +1203,24 @@ function doDeposit(p) {
   const n = countItem(p, 'lumite');
   if (n <= 0) { addFloater(p.x, p.y - 0.6, '沒有光晶', '#8899aa'); return; }
   const canUse = Math.min(n, Math.ceil((CORE_CFG.maxE - G.core.energy) / CORE_CFG.feed));
-  if (canUse <= 0) { addFloater(G.core.x, G.core.y - 1, '星核能量已滿', '#7ef0ff'); return; }
-  payCost(p, { lumite: canUse });
-  G.core.energy = Math.min(CORE_CFG.maxE, G.core.energy + canUse * CORE_CFG.feed);
-  addFloater(G.core.x, G.core.y - 1, `+${canUse * CORE_CFG.feed} ⚡`, '#7ef0ff');
+  if (canUse > 0) {
+    payCost(p, { lumite: canUse });
+    G.core.energy = Math.min(CORE_CFG.maxE, G.core.energy + canUse * CORE_CFG.feed);
+    addFloater(G.core.x, G.core.y - 1, `+${canUse * CORE_CFG.feed} ⚡`, '#7ef0ff');
+    emitFx({ k: 'sfx', s: 'deposit' });
+    msgAll(`💠 ${p.name} 餵了 ${canUse} 顆光晶,星核滿足地嗡嗡發亮(能量 ${Math.round(G.core.energy)})`);
+    return;
+  }
+  // 超載餵食:能量已滿時繼續餵,多的轉換成護盾(SHIELD_CFG.feedShield 比正常 feed 低,反映溢出損耗)
+  G.core.shield = G.core.shield || 0;
+  const shieldRoom = Math.ceil((SHIELD_CFG.maxShield - G.core.shield) / SHIELD_CFG.feedShield);
+  const useShield = Math.min(n, shieldRoom);
+  if (useShield <= 0) { addFloater(G.core.x, G.core.y - 1, '星核能量與護盾都已滿', '#7ef0ff'); return; }
+  payCost(p, { lumite: useShield });
+  G.core.shield = Math.min(SHIELD_CFG.maxShield, G.core.shield + useShield * SHIELD_CFG.feedShield);
+  addFloater(G.core.x, G.core.y - 1, `🛡️+${useShield * SHIELD_CFG.feedShield}`, '#a0e8ff');
   emitFx({ k: 'sfx', s: 'deposit' });
-  msgAll(`💠 ${p.name} 餵了 ${canUse} 顆光晶,星核滿足地嗡嗡發亮(能量 ${Math.round(G.core.energy)})`);
+  msgAll(`🛡️ ${p.name} 超載餵食了 ${useShield} 顆光晶,星核張開了一層護盾!(護盾 ${Math.round(G.core.shield)})`);
 }
 
 // ===== 掉落物 =====
@@ -1203,8 +1239,13 @@ function updateDrops(dt) {
     d.vx *= f; d.vy *= f;
     if (!circleHitsSolid(d.x + d.vx * dt, d.y, 0.15)) d.x += d.vx * dt;
     if (!circleHitsSolid(d.x, d.y + d.vy * dt, 0.15)) d.y += d.vy * dt;
-    // 磁吸 + 撿取
-    const p = nearestAlivePlayer(d.x, d.y, 2.4);
+    // 磁吸 + 撿取:拾取戒指讓範圍因人而異,不能用固定半徑的 nearestAlivePlayer,自己找最近符合範圍的人
+    let p = null, bd = Infinity;
+    for (const q of G.players.values()) {
+      if (q.dead) continue;
+      const dd = dist(d.x, d.y, q.x, q.y);
+      if (dd < magnetRangeOf(q) && dd < bd) { bd = dd; p = q; }
+    }
     if (p) {
       const dd = dist(d.x, d.y, p.x, p.y);
       if (dd < 0.55) {

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>微光深淵 Gloamdepths</title>
-<link rel="stylesheet" href="style.css?v=70">
+<link rel="stylesheet" href="style.css?v=72">
 <!-- PeerJS:與朋友連線用(免費信令服務);沒網路時仍可離線單人遊玩 -->
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
@@ -14,7 +14,7 @@
   <div id="stats">
     <div class="bar hp"><div id="hpfill"></div><span id="hptext"></span></div>
     <div class="bar stamina" title="體力值,按 Shift 衝刺消耗體力,體力不足需等待回復"><div id="stafill"></div><span id="statext"></span></div>
-    <div class="bar core" title="星核能量持續流失&#10;挖光晶💠回來按 F 灌入(每顆 +6)&#10;能量歸零 = 全隊失敗"><div id="corefill"></div><span id="coretext"></span></div>
+    <div class="bar core" title="星核能量持續流失&#10;挖光晶💠回來按 F 灌入(每顆 +6)&#10;能量滿了繼續灌會超載轉成護盾🛡️,優先擋暗潮傷害&#10;能量歸零 = 全隊失敗"><div id="corefill"></div><span id="coretext"></span></div>
     <div class="bar xp" title="擊殺怪物獲得經驗值,升級增加最大HP與攻擊力,並獲得 1 天賦點(按 T 分配)"><div id="xpfill"></div><span id="xptext"></span></div>
     <div id="shards"></div>
     <div id="buffbar" title="料理 buff:吃帶效果的料理獲得,時間到自動消失"></div>
@@ -48,6 +48,7 @@
       <div class="eqslot" data-part="head" title="頭盔"><span class="eqicon">🪖</span><span class="icon"></span><span class="eqlabel">頭盔</span></div>
       <div class="eqslot" data-part="chest" title="胸甲"><span class="eqicon">🛡️</span><span class="icon"></span><span class="eqlabel">胸甲</span></div>
       <div class="eqslot" data-part="legs" title="護腿"><span class="eqicon">🥾</span><span class="icon"></span><span class="eqlabel">護腿</span></div>
+      <div class="eqslot" data-part="accessory" title="飾品"><span class="eqicon">💍</span><span class="icon"></span><span class="eqlabel">飾品</span></div>
     </div>
     <div id="invgrid"></div>
     <div id="enhPanel" class="hidden"></div>
@@ -67,15 +68,15 @@
     <div id="mapHint">🖱️滾輪縮放・拖曳平移・M/Esc 關閉</div>
   </div>
 </div>
-<script src="js/config.js?v=70"></script>
-<script src="js/sfx.js?v=70"></script>
-<script src="js/world.js?v=70"></script>
-<script src="js/inventory.js?v=70"></script>
-<script src="js/entities.js?v=70"></script>
-<script src="js/game.js?v=70"></script>
-<script src="js/net.js?v=70"></script>
-<script src="js/render.js?v=70"></script>
-<script src="js/ui.js?v=70"></script>
-<script src="js/main.js?v=70"></script>
+<script src="js/config.js?v=72"></script>
+<script src="js/sfx.js?v=72"></script>
+<script src="js/world.js?v=72"></script>
+<script src="js/inventory.js?v=72"></script>
+<script src="js/entities.js?v=72"></script>
+<script src="js/game.js?v=72"></script>
+<script src="js/net.js?v=72"></script>
+<script src="js/render.js?v=72"></script>
+<script src="js/ui.js?v=72"></script>
+<script src="js/main.js?v=72"></script>
 </body>
 </html>

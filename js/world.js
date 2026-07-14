@@ -22,7 +22,7 @@ const G = {
   emoteFx: [],           // 快速手勢特效(頭上的圖示氣泡,純視覺、client/host 各自倒數,不進存檔)
   animals: [],          // 被動生物(牲畜),房主模擬、快照同步,跟 enemies 分開的一套
 
-  core: { x: CX + 0.5, y: CY + 0.5, energy: CORE_CFG.maxE, shards: 0 },
+  core: { x: CX + 0.5, y: CY + 0.5, energy: CORE_CFG.maxE, shards: 0, shield: 0 },
   wave: { n: 0, state: 'calm', timer: WAVE_CFG.first, final: false },
   shrines: [],          // [{x,y,dead,boss}]  boss = ENEMY_TYPES 的 key,固定分配三座神殿各自守哪隻 Boss
   traders: [],          // [{x,y}] 中層區域固定攤位,不會動,不進 snap(靠 init/存讀檔同步)
@@ -163,7 +163,7 @@ function genWorld(seed) {
   G.enemies = []; G.drops = []; G.floaters = []; G.projs = []; G.animals = []; G.hitFx = [];
   G.shrines = []; G.traders = []; G.mushCount = 0; G.warned = {}; G.killCount = 0;
   G.bestiary = {}; G.achv = {}; G.emoteFx = [];
-  G.core = { x: CX + 0.5, y: CY + 0.5, energy: CORE_CFG.maxE, shards: 0 };
+  G.core = { x: CX + 0.5, y: CY + 0.5, energy: CORE_CFG.maxE, shards: 0, shield: 0 };
   G.wave = { n: 0, state: 'calm', timer: WAVE_CFG.first, final: false };
   G.time = 0; G.over = null; G.won = false;
 

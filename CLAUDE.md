@@ -280,4 +280,22 @@
 - **修法**(`ui.js` 的 `uiTick`):把讀取端補上,一行解決——`if (UI.invDirty || me.invDirty) { UI.invDirty = false; me.invDirty = false; refreshSlots(); }`。`me` 在房主端就是被十幾處函式直接改動的那個活物件,`me.invDirty` 因此能立刻反映出「這一幀背包真的變了」;對客戶端沒有副作用,因為客戶端自己的 `me.invDirty` 只在剛建立時的預設值 `true` 生效一次就被這行清掉,之後完全靠既有的快照機制驅動,行為不變。**沒有改任何一處寫入端**,單純讓既有一直存在但沒人用的旗標開始發揮作用。
 - 順便修掉裝備欄面板(`renderEquipSlots`,同一個 `refreshSlots()` 呼叫鏈)的同一種延遲——房主端穿脫裝備後,裝備欄圖示現在也會立刻反映,不用等滾一下滑鼠。
 - 沒有寫自動化測試:這是 DOM 渲染時機的 bug,現有的無頭模擬測試框架只載入 config/world/inventory/entities/game 五支檔案(不含 `ui.js`),純邏輯層面在這次改動前後行為完全一致(照跑過整套既有回歸測試,10 支全過),建議直接在遊戲裡操作驗證(挖礦/合成/送禮後數量是否立即更新)。
+
+## 星核超載餵食(護盾)(2026-07-14,第十三批)
+延續核心迴圈「挖光晶回來按 F 灌星核」,解決「能量已經滿了,多挖的光晶除了賣掉沒地方用」的痛點——CLAUDE.md 先前就把這個構想記為候補。
+- **`G.core.shield`**:能量滿了以後 `doDeposit` 繼續收光晶,依 `SHIELD_CFG.feedShield`(3,刻意比正常餵食的 `CORE_CFG.feed`=6 低,反映「溢出」轉換有損耗)疊護盾值,封頂 `SHIELD_CFG.maxShield`(30)。護盾與能量是兩段獨立判斷(先試填能量,`canUse<=0` 才進超載分支),UI 訊息與音效比照原本的餵食流程,只是文字/顏色換成護盾主題(🛡️ 青色)。
+- **`drainCore(amount)` 是新增的唯一星核扣血入口**(entities.js):護盾優先吸收,扣完護盾才動到本體 `energy`。原本兩處各自直接改 `G.core.energy` 的地方(`explodeAt` 的爆炸炸到星核、`updateEnemies` 暗潮怪直接打星核)都改呼叫這個共用函式——**跟 `hurtEnemy`/`damagePlayer` 是同一種「傷害先過一層共用函式」的設計語言**,之後任何新的星核傷害來源(如果有的話)也該接這個函式,不要繞過去直接扣 `energy`。
+- **存讀檔/同步是熟悉的既有模式**:`G.core` 多一個 `shield` 欄位,`buildSave`/`applySave`(game.js)與 `init`/`snap` 的編解碼(net.js,四處)各自比照 `energy`/`shards` 補上一行,舊存檔沒有這欄位時 `|| 0` 兜底。snap 的欄位縮寫成 `sh`(呼應既有 `e`=energy、`s`=shards 的精簡命名慣例)。
+- **視覺**:星核外圍除了原本的能量環(青/紅,依比例畫弧),護盾 >0 時在外側多畫一圈淡青色護盾環(`render.js`);HUD 的星核數字後面有護盾時附加 `🛡️數字`(`ui.js`);hover 提示文字補一句超載說明,新玩家才會知道這個機制存在(呼應先前地圖入口太隱晦的教訓,新機制優先確保「玩家找得到」)。
+- 測試:`simtest11.js`(11 個斷言)涵蓋能量未滿時正常餵食不轉護盾、能量滿後溢出正確轉換效率、護盾封頂且用不完的光晶留在背包不會被白吃、`drainCore` 優先扣護盾且護盾扣完才動能量(含護盾恰好不夠扣的邊界)、爆炸傷害星核同樣先扣護盾、存讀檔保留護盾值。
+
+## 飾品欄(第四裝備格)(2026-07-14,第十三批延伸)
+延續裝備欄系統,加第四格「飾品」,給拾取範圍/閃避/暴擊這類「特殊」被動,跟頭盔/胸甲(護甲%)、護腿(移速%)的數值型加成做出區隔——比照設計官對寵物系統的評語,不同裝備類型給不同種加成才有取捨感。
+- **`doEquip`/`doUnequip` 完全不用改**:當初裝備欄設計就是讀 `it.equipSlot` 存進 `p.equip[part]` 的通用邏輯,沒有寫死 head/chest/legs 三選一。`p.equip` 多一個 `accessory` 鍵、`EQUIP_SLOT_NAME` 補一筆、`index.html` 的 `#equipSlots` 多一個 `.eqslot` div——**ui.js 的穿脫/拖放/面板刷新也完全不用改**,因為那些程式碼本來就是 `querySelectorAll('.eqslot')` 掃現有的 DOM 元素,不是寫死的清單。這是先前裝備欄批次「做成通用機制」的直接回報。
+- **三款飾品各自對應一個從沒被動過的生效點**,刻意不跟已有系統(天賦/料理/寵物)重疊數值類型:
+  - `ring_magnet`(拾取戒指):掉落物磁吸範圍 ×1.5。原本 `updateDrops` 用寫死的 `nearestAlivePlayer(d.x,d.y,2.4)` 找最近的人,**因為磁吸範圍現在因人而異,不能再用固定半徑的通用函式**,改成自己寫迴圈比大小(`dd < magnetRangeOf(q) && dd < bd`)——這是本批唯一動到既有共用函式呼叫方式的地方,注意不要漏改別的呼叫端(`nearestAlivePlayer` 本身沒有改,其他呼叫這個函式的地方不受影響)。
+  - `ring_dodge`(敏捷護符):15% 機率完全免傷,插入點在 `damagePlayer` 最頂端(`p.godmode` 檢查之後、算傷害之前)——**是「0 傷害」不是「打折」**,跟護甲/岩鎧 buff 的減傷計算完全獨立,兩者不衝突(閃避沒觸發時,原本的護甲%計算照常套用)。
+  - `ring_crit`(獵殺勳章):20% 機率造成 1.8 倍傷害,插入點是 `doSwing`/`doShoot` 的傷害計算式(`* rollCrit(p)`)。**一次揮擊只roll一次**(多目標的範圍武器,揮到的所有敵人共用同一次判定結果),沿用原本 `dmg` 只算一次、迴圈裡重複套用的既有寫法,不是每個目標各自判定。
+- **踩雷記錄(TDZ)**:一開始把 `MAGNET_RANGE` 常數定義在 `ITEMS` 表**之後**(跟着 `EQUIP_SLOT_NAME` 放),但 `ring_magnet` 的 desc 模板字串在 `ITEMS` 表**之內**引用了它——`const` 的暫時性死區導致載入就整個崩掉(`ReferenceError: Cannot access 'MAGNET_RANGE' before initialization`),回歸測試一跑全部炸掉才抓到。**這正是 CLAUDE.md 反覆提醒過的「TDZ 陷阱」,這次還是中招**,修法跟 `AUTO_MINER_CFG`/`EQUIP_DROP_CFG` 同一套:把常數搬到 `ITEMS` 定義之前。教訓:新增任何會被 `ITEMS` 內 desc 模板引用的常數,寫的當下就要確認插入位置在 `ITEMS` 之前,不要等測試爆炸才發現。
+- 測試:`simtest12.js`(11 個斷言)涵蓋飾品欄穿脫沿用既有邏輯、拾取戒指的磁吸範圍計算與實際掉落物拉近行為、敏捷護符觸發時完全免傷/沒觸發時正常受傷兩種分支、獵殺勳章暴擊傷害倍率(含 `hurtEnemy` 取整的容許誤差)、存讀檔保留飾品欄。
 - **UI 走既有的 `setOverlay(mode)` 多模式 overlay 架構**,新增 `'changelog'` 分支(仿 `'slots'`/`'win'` 等既有分支的寫法),不是另開一個獨立面板系統。主選單標題下方加一顆低調的文字連結按鈕(`.linklike`,不搶新世界/繼續存檔等主要按鈕的視覺重量),點了切到 `setOverlay('changelog')`,返回按鈕切回 `setOverlay('start')`。

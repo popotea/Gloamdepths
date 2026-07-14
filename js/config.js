@@ -8,6 +8,8 @@ const TAU = Math.PI * 2;
 // 新增功能時手動往陣列最前面補一筆(最新在最上面)
 const CHANGELOG = [
   { date: '2026-07-14', items: [
+    '💍 裝備欄新增第四格「飾品」:拾取戒指(擴大撿東西範圍)、敏捷護符(機率完全閃避)、獵殺勳章(機率暴擊)',
+    '🛡️ 星核超載餵食:能量餵滿了繼續餵光晶,多的會轉成護盾,優先幫星核擋暗潮傷害',
     '🐛 修正背包/快捷欄的道具數量有時要動一下滑鼠(切換選中格)才會更新成正確數字的問題',
     '🎁 玩家間贈送:對著隊友右鍵,手上的東西直接整疊送過去',
     '🗼 新增三種塔:加農塔(範圍爆炸傷害)、連弩塔(同時鎖定多隻怪)、重砲塔(優先狙擊精英/Boss,單發爆傷極高)',
@@ -48,6 +50,9 @@ const CORE_CFG = {
   hitDrain: 5,        // 暗潮怪打星核一下扣的能量
   needShards: 3,
 };
+// 星核超載餵食(護盾):能量已滿時繼續餵光晶,多的轉換成護盾——解決「能量滿了,多挖的光晶除了賣掉沒地方用」的痛點。
+// 護盾優先吸收任何星核傷害來源(見 drainCore),feedShield 刻意比 feed(6)低,反映「溢出」的轉換效率打折
+const SHIELD_CFG = { maxShield: 30, feedShield: 3 };
 
 // 暗潮設定
 const WAVE_CFG = {
@@ -357,6 +362,10 @@ const CROP_TYPES = {
           growTime: 90, icons: ['🌱', '🌿', '🍄'] },
 };
 
+// 掉落物磁吸基礎半徑,拾取戒指(ring_magnet)在這基礎上乘倍率(updateDrops 用)。
+// 定義在 ITEMS 之前:ring_magnet 的 desc 模板字串引用了這個值(TDZ,晚定義會載入即崩)
+const MAGNET_RANGE = 2.4;
+
 // 物品表:pick=鎬(tier 階級/power 每下傷害), sword=劍, armor=減傷比例
 // place='物件類型' 或 placeTile=地形代號
 const ITEMS = {
@@ -423,6 +432,12 @@ const ITEMS = {
   gold_helmet:     { name: '金盔', icon: '🪖', armor: 0.20, equipSlot: 'head', max: 1, tint: '#8a6d1f', desc: '裝備欄:頭盔,受傷 -20%(與胸甲疊加)' },
   iron_greaves:    { name: '鐵護腿', icon: '🥾', speedBonus: 0.05, equipSlot: 'legs', max: 1, tint: '#5c6570', desc: '裝備欄:護腿,移動速度 +5%' },
   gold_greaves:    { name: '金護腿', icon: '🥾', speedBonus: 0.08, equipSlot: 'legs', max: 1, tint: '#8a6d1f', desc: '裝備欄:護腿,移動速度 +8%' },
+  ring_magnet:     { name: '拾取戒指', icon: '🧲', equipSlot: 'accessory', magnetMult: 1.5, max: 1,
+                     desc: `裝備欄:飾品,掉落物磁吸範圍 ×1.5(${MAGNET_RANGE}→${MAGNET_RANGE * 1.5} 格)` },
+  ring_dodge:      { name: '敏捷護符', icon: '💨', equipSlot: 'accessory', dodgeChance: 0.15, max: 1,
+                     desc: '裝備欄:飾品,15% 機率完全閃避受到的傷害' },
+  ring_crit:       { name: '獵殺勳章', icon: '🏅', equipSlot: 'accessory', critChance: 0.2, critMult: 1.8, max: 1,
+                     desc: '裝備欄:飾品,近戰/遠程攻擊 20% 機率造成 1.8 倍傷害' },
   // 農耕:鏟子只用來翻土,不能拿去挖牆(doMine 完全不認得 till 這個欄位);
   // seed 記錄要種出哪種作物,對照 CROP_TYPES 的 key
   shovel:          { name: '鏟子', icon: '🥄', till: true, max: 1, desc: '對地板右鍵翻成農地;鏟子不能用來挖牆' },
@@ -540,6 +555,9 @@ const RECIPES = [
   { out: 'gold_armor',   n: 1, cost: { gold_bar: 5 },            station: 'workbench' },
   { out: 'gold_helmet',  n: 1, cost: { gold_bar: 3 },            station: 'workbench' },
   { out: 'gold_greaves', n: 1, cost: { gold_bar: 3 },            station: 'workbench' },
+  { out: 'ring_magnet',  n: 1, cost: { copper_bar: 3, lumite: 4 }, station: 'workbench' },
+  { out: 'ring_dodge',   n: 1, cost: { iron_bar: 3, lumite: 6 },   station: 'workbench' },
+  { out: 'ring_crit',    n: 1, cost: { gold_bar: 2, lumite: 6 },   station: 'workbench' },
   { out: 'bow',          n: 1, cost: { wood: 6 },                        station: 'workbench' },
   { out: 'arrow',        n: 8, cost: { wood: 1, stone: 1 },              station: 'workbench' },
   { out: 'copper_spear', n: 1, cost: { copper_bar: 2, wood: 2 },         station: 'workbench' },
@@ -668,7 +686,10 @@ function isEnhancable(id) {
 }
 
 // 裝備欄位(頭盔/胸甲/護腿),類似創世神的分部位裝備;護腿刻意給移速而非護甲,跟胸甲/頭盔做出取捨差異
-const EQUIP_SLOT_NAME = { head: '頭盔', chest: '胸甲', legs: '護腿' };
+const EQUIP_SLOT_NAME = { head: '頭盔', chest: '胸甲', legs: '護腿', accessory: '飾品' };
+// 飾品欄(第四裝備格):給元素抗性/拾取範圍/閃避/暴擊這類「特殊」被動,跟頭盔/胸甲(護甲)、護腿(移速)的
+// 數值型加成做出區隔;doEquip/doUnequip 已經是通用邏輯(讀 it.equipSlot 存進 p.equip[part]),
+// 新增這個欄位不用改穿脫邏輯,只要新增物品+各自的生效點
 
 // 怪物掉裝備:越強的怪 pool 越好,機率調這裡就好(不用動邏輯)。rate 是每隻怪死亡時的判定機率
 const EQUIP_DROP_CFG = {

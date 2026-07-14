@@ -504,6 +504,15 @@ function render(dt) {
       ctx.beginPath();
       ctx.arc(sx, sy, TILE * 1.1, -Math.PI / 2, -Math.PI / 2 + TAU * eR);
       ctx.stroke();
+      // 護盾環(超載餵食來的):畫在能量環外圈一點,只有 >0 才顯示,淡青色呼應護盾的「額外」感
+      if (G.core.shield > 0) {
+        const shR = G.core.shield / SHIELD_CFG.maxShield;
+        ctx.strokeStyle = '#a0e8ff';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(sx, sy, TILE * 1.32, -Math.PI / 2, -Math.PI / 2 + TAU * shR);
+        ctx.stroke();
+      }
       // 已收集碎片
       for (let k = 0; k < G.core.shards; k++) {
         const a = performance.now() / 900 + k * TAU / CORE_CFG.needShards;

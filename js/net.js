@@ -120,7 +120,7 @@ const NET = {
         t: 'init', id: pid,
         tiles: rleEnc(G.tiles), explored: rleEnc(G.explored),
         objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null, o.stage ?? null, o.t ?? null, o.nestType ?? null, o.dir ?? null, o.fuel ?? null, o.items ?? null]),
-        core: { energy: G.core.energy, shards: G.core.shards },
+        core: { energy: G.core.energy, shards: G.core.shards, shield: G.core.shield || 0 },
         shrines: G.shrines, traders: G.traders, wave: G.wave, time: G.time, difficulty: G.difficulty, unsealed: G.unsealed, won: G.won,
         bestiary: G.bestiary, achv: G.achv,
         players: [...G.players.values()].map(pl => [pl.id, pl.name, pl.x, pl.y, pl.hp, pl.dead ? 1 : 0, pl.lv || 1, pl.xp || 0, pl.downed ? 1 : 0, Math.ceil(pl.downedT || 0), Math.round((pl.reviveP || 0) * 100), pl.pet || null, Math.round(bestArmor(pl) * 100)]),
@@ -246,7 +246,7 @@ const NET = {
       animals: G.animals.map(a => [a.id, a.type, r2(a.x), r2(a.y), Math.round(a.hp), a.fedT > 0 ? 1 : 0]),
       drops: G.drops.map(d => [d.id, d.item, d.n, r2(d.x), r2(d.y), d.lv || 0]),
       projs: G.projs.map(pj => [pj.id, r2(pj.x), r2(pj.y), pj.from === 'e' ? 1 : 0, pj.elem || null]),
-      core: { e: r2(G.core.energy), s: G.core.shards },
+      core: { e: r2(G.core.energy), s: G.core.shards, sh: r2(G.core.shield || 0) },
       wave: { n: G.wave.n, state: G.wave.state, timer: Math.round(G.wave.timer), alive: G.wave.alive || 0, final: G.wave.final, endless: G.wave.endless || false, en: G.wave.en || 0 },
       kills: G.killCount,
     };
@@ -376,7 +376,7 @@ const NET = {
           if (type === 'mushroom') G.mushCount++;
           const key = TOWER_IDX_SETS[type]; if (key) G[key].add(i);
         }
-        G.core.energy = d.core.energy; G.core.shards = d.core.shards;
+        G.core.energy = d.core.energy; G.core.shards = d.core.shards; G.core.shield = d.core.shield || 0;
         G.shrines = d.shrines; G.traders = d.traders || []; G.wave = d.wave; G.time = d.time;
         G.difficulty = DIFFICULTY_CFG[d.difficulty] ? d.difficulty : 'normal';
         G.unsealed = !!d.unsealed;
@@ -393,7 +393,7 @@ const NET = {
           G.players.set(id, p);
         }
         const me = G.players.get(G.myId);
-        if (me) { me.inv = d.inv; me.equip = d.equip || { head: null, chest: null, legs: null }; }
+        if (me) { me.inv = d.inv; me.equip = d.equip || { head: null, chest: null, legs: null, accessory: null }; }
         G.over = d.over;
         rebuildLights();
         G.started = true;
@@ -447,14 +447,14 @@ const NET = {
         }
         G.drops = d.drops.map(([id, item, n, x, y, lv]) => ({ id, item, n, x, y, lv: lv || 0 }));
         G.projs = (d.projs || []).map(([id, x, y, fromE, elem]) => ({ id, x, y, from: fromE ? 'e' : 'p', elem }));
-        G.core.energy = d.core.e; G.core.shards = d.core.s;
+        G.core.energy = d.core.e; G.core.shards = d.core.s; G.core.shield = d.core.sh || 0;
         G.wave = d.wave; G.time = d.time; G.killCount = d.kills || 0;
         if (d.me) {
           const me = G.players.get(G.myId);
           if (me) {
             me.inv = d.me.inv; me.hp = d.me.hp; me.buffs = d.me.buffs || {};
             me.talents = d.me.talents || {}; me.talentPts = d.me.pts | 0;
-            me.equip = d.me.equip || { head: null, chest: null, legs: null };
+            me.equip = d.me.equip || { head: null, chest: null, legs: null, accessory: null };
             me.maxhp = playerMaxHp(me); // talents 到手後重算,強韌體魄的血量上限才會反映在血條
             UI.invDirty = true;
           }

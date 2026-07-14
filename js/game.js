@@ -311,7 +311,7 @@ function buildSave() {
     // lv/dur 一起存:掉在地上的強化裝備讀檔回來不能被洗白(0 與 undefined 用 null 佔位)
     drops: G.drops.map(d => [d.item, d.n, d.x, d.y, d.lv || 0, d.dur ?? null]),
     animals: G.animals.map(a => [a.type, Math.round(a.x * 10) / 10, Math.round(a.y * 10) / 10, Math.round(a.hp), Math.round(a.fedT || 0)]),
-    core: { energy: G.core.energy, shards: G.core.shards },
+    core: { energy: G.core.energy, shards: G.core.shards, shield: G.core.shield || 0 },
     wave: { n: G.wave.n, timer: Math.max(45, G.wave.state === 'calm' ? G.wave.timer : 45), final: G.wave.final && G.core.shards < CORE_CFG.needShards ? false : G.wave.final, en: G.wave.en || 0 },
     shrines: G.shrines.map(s => ({ x: s.x, y: s.y, dead: s.dead, boss: s.boss })),
     traders: G.traders.map(t => ({ x: t.x, y: t.y })),
@@ -385,7 +385,7 @@ function applySave(s, name) {
   }
   // 戰敗當下存的檔能量是 0,原樣讀回來第一個 tick 就再敗一次(讀檔即輸的死循環)——
   // 給一口急救能量,玩家至少有機會衝去挖光晶搶救
-  G.core.energy = Math.max(s.core.energy, 25); G.core.shards = s.core.shards;
+  G.core.energy = Math.max(s.core.energy, 25); G.core.shards = s.core.shards; G.core.shield = s.core.shield || 0;
   G.wave = { n: s.wave.n, state: 'calm', timer: s.wave.timer, final: false };
   G.shrines = s.shrines;
   G.traders = s.traders || G.traders;
