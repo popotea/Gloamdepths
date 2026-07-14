@@ -1,13 +1,26 @@
 // ===== 全域常數與資料表 =====
 const TILE = 40;                 // 每格像素
-const MAP_W = 200, MAP_H = 200;  // 地圖大小(格)
+// 地圖大小(2026-07-15 放大批):200×200 → 280×280(×1.4),解決「探索太快就沒東西可挖」的回饋——
+// world.js genWorld() 內所有分區半徑/生成距離(42/72/96/116 等)都跟著同比例縮放,zoneOf() 同步更新
+const MAP_W = 280, MAP_H = 280;  // 地圖大小(格)
 const CX = MAP_W / 2, CY = MAP_H / 2;
+// 分區半徑(隨地圖放大同比例縮放,200×200 版本原始值是 dirt42/stone72/obsidian96/seal 94~96/voidOut116,
+// 這裡全部 ×1.4):world.js 的 genWorld()/zoneOf() 共用同一份,調地圖大小只要改這裡,不用到處找魔術數字
+const ZONE_R = { dirt: 59, stone: 101, obsidian: 134, sealIn: 132, sealOut: 134, voidOut: 162 };
 const TAU = Math.PI * 2;
 
 // 更新紀錄:主選單「📜 更新紀錄」按鈕顯示用,純展示、不影響任何遊戲邏輯,
 // 新增功能時手動往陣列最前面補一筆(最新在最上面)
 const CHANGELOG = [
+  { date: '2026-07-15', items: [
+    '🗺️ 地圖放大(200×200→280×280),各分區/礦物/據點數量同步調整,探索範圍明顯變大',
+    '👹 修正暗處生怪與暗潮的怪物種類太單調:吐影者(遠程)、爆裂蝕影(自爆)、穿牆幽影、裂地者(拆牆)終於會自然出現了,不再只有小蝕影/蝕影獵手/深淵蝕影三種',
+  ] },
   { date: '2026-07-14', items: [
+    '🐑🐷 新增動物:幽草羊(產羊毛)、沼躣豬(產松露),野外偶遇、圍籬圈養、餵食流程與雞牛完全相同',
+    '🧣 新飾品「暖絨護符」:羊毛編織,冰系攻擊的緩速效果時間 -50%',
+    '🔮 淵核區終極裝備線:淵晶劍/淵晶甲,材料「淵晶」來自通關後淵核區的淵魂/蝕裂者掉落',
+    '🍱 新料理「松露燉肉」:稀有食材燉出的頂級防禦料理',
     '🏆 新增 5 枚成就:全副打扮、護盾騎士、致命一擊、好身手、塔藝大師',
     '💍 裝備欄新增第四格「飾品」:拾取戒指(擴大撿東西範圍)、敏捷護符(機率完全閃避)、獵殺勳章(機率暴擊)',
     '🛡️ 星核超載餵食:能量餵滿了繼續餵光晶,多的會轉成護盾,優先幫星核擋暗潮傷害',
@@ -292,6 +305,7 @@ const ACHIEVEMENTS = {
   crit_master:   { name: '致命一擊', icon: '🏅', desc: '第一次觸發獵殺勳章的暴擊' },
   first_dodge:   { name: '好身手', icon: '💨', desc: '第一次觸發敏捷護符的完全閃避' },
   tower_collector: { name: '塔藝大師', icon: '🏗️', desc: '光塔/箭塔/凜鈴塔/加農塔/連弩塔/重砲塔六種塔全部蓋過' },
+  void_forge:      { name: '淵晶鍛造', icon: '🔮', desc: '合成第一件淵晶裝備' },
 };
 // tower_collector 成就檢查用:全隊只要地圖上同時存在這六種塔各一座就算(不分誰蓋的)
 const TOWER_COLLECTOR_TYPES = ['tower', 'archer_tower', 'frost_tower', 'cannon_tower', 'multi_tower', 'sniper_tower'];
@@ -355,10 +369,15 @@ const ANIMAL_TYPES = {
          feed: ['mush_spore', 'mushroom'], product: 'egg', productCD: 90, meat: [1, 1] },
   cow: { name: '苔絨牛', icon: '🐮', hp: 50, r: 0.48, speed: 2.2, hopCD: 2.0,
          feed: ['glowcap', 'mushroom'], product: 'milk', productCD: 150, meat: [2, 3] },
+  // 第六批新內容(2026-07-14):新增品種只要照這個模板加一筆,其餘生成/餵食/宰殺/存讀檔/同步全走既有通用邏輯(逐一確認過都是 Object.keys(ANIMAL_TYPES) 掃描,零額外程式碼)
+  sheep: { name: '幽草羊', icon: '🐑', hp: 26, r: 0.34, speed: 2.4, hopCD: 1.8,
+           feed: ['glowcap', 'mushroom'], product: 'wool', productCD: 110, meat: [1, 2] },
+  pig: { name: '沼躣豬', icon: '🐷', hp: 34, r: 0.38, speed: 2.0, hopCD: 2.2,
+         feed: ['mushroom', 'glowcap'], product: 'truffle', productCD: 160, meat: [2, 3] },
 };
 const ANIMAL_CFG = {
-  worldSpawn: 8,   // 開新世界散布幾隻
-  cap: 10,         // 野外自然補充的上限(圈養的也算在內)
+  worldSpawn: 15,  // 開新世界散布幾隻(地圖放大批同比例調高)
+  cap: 19,         // 野外自然補充的上限(圈養的也算在內)
   followRange: 5,  // 手持飼料多近會被跟隨
 };
 
@@ -540,6 +559,20 @@ const ITEMS = {
                      desc: `召喚智光靈跟著你:${PET_TYPES.witlight.desc}。右鍵切換出戰/收回` },
   pet_luckmoth:    { name: '幸運蛾哨', icon: '🦋', pet: 'luckmoth', max: 1,
                      desc: `召喚幸運蛾跟著你:${PET_TYPES.luckmoth.desc}。右鍵切換出戰/收回` },
+  // ── 第十四批(2026-07-14 續):新動物產物 + 淵核區終極裝備線(呼應 3.1 遺留的「第五區域專屬裝備」)──
+  wool:            { name: '羊毛', icon: '🧶', desc: '幽草羊產出的蓬鬆羊毛,厚實保暖,是編織禦寒飾品的材料' },
+  truffle:         { name: '松露', icon: '🌰', food: 20, desc: '沼躣豬拱出來的稀有美味,直接吃就很香,燉煮更是絕品' },
+  truffle_stew:    { name: '松露燉肉', icon: '🍱', food: 55, buff: { kind: 'guard', value: 0.32, dur: 130 },
+                     desc: '回血 55;受到傷害再 -32%(與護甲相乘),持續 130 秒;稀有食材燉出的頂級佳餚' },
+  // 暖絨護符:飾品欄,對抗冰系 Boss 附加的緩速 debuff(explodeAt 的 cfg.slow 套用 slowResistOf 打折持續時間)
+  wool_charm:      { name: '暖絨護符', icon: '🧣', equipSlot: 'accessory', slowResist: 0.5, max: 1,
+                     desc: '裝備欄:飾品,羊毛編織而成,遭冰系攻擊附加的緩速效果時間 -50%' },
+  // 淵晶裝備線:材料只能從淵核區深層怪(淵魂/蝕裂者)掉落取得,是通關後才有意義的終局裝備目標
+  void_shard:      { name: '淵晶', icon: '🔮', desc: '淵核區深層蝕影(淵魂/蝕裂者)才會掉的稀有晶體,鍛造終極裝備的材料' },
+  void_sword:      { name: '淵晶劍', icon: '🗡️', sword: { dmg: 58 }, max: 1, dur: 340, tint: '#3a2a52',
+                     desc: '淵核區材料鍛造的終極劍,傷害超越金劍;材料來自通關解封的淵核區' },
+  void_armor:      { name: '淵晶甲', icon: '🛡️', armor: 0.62, equipSlot: 'chest', max: 1, tint: '#3a2a52',
+                     desc: '裝備欄:胸甲,受傷 -62%,淵核區材料鍛造的終極護甲' },
 };
 
 // 合成配方:station=null 徒手 / 'workbench' / 'furnace'
@@ -629,6 +662,11 @@ const RECIPES = [
   { out: 'pet_stoneturtle', n: 1, cost: { stone: 10, iron_bar: 2 },           station: 'workbench' },
   { out: 'pet_witlight',    n: 1, cost: { lumite: 6, gold_ore: 2 },           station: 'workbench' },
   { out: 'pet_luckmoth',    n: 1, cost: { glowcap: 3, lumite: 3 },            station: 'workbench' },
+  // 第十四批:新動物產物料理 + 淵核區終極裝備(需先擊敗淵魂/蝕裂者取得淵晶,材料本身就是進度門檻,配方不用額外設限)
+  { out: 'truffle_stew', n: 1, cost: { truffle: 1, meat: 1, glowcap: 1 }, station: 'furnace' },
+  { out: 'wool_charm',   n: 1, cost: { wool: 4, lumite: 2 },             station: 'workbench' },
+  { out: 'void_sword',   n: 1, cost: { gold_bar: 3, void_shard: 4 },     station: 'workbench' },
+  { out: 'void_armor',   n: 1, cost: { gold_bar: 4, void_shard: 5 },     station: 'workbench' },
 ];
 
 // 敵人表:speed=跳撲衝量, hopCD=跳撲間隔
@@ -662,6 +700,24 @@ const ENEMY_TYPES = {
   voidling: { name: '蝕裂者', hp: 90,  dmg: 16, r: 0.46, speed: 3.8, hopCD: 1.5, color: '#3e2a6a', eye: '#c88cff', shape: 'mouth', elem: 'dark', wallMult: 3, icon: 'voidling.png',
               ranged: { range: 6, cd: 2.0, dmg: 16, speed: 8 } },
 };
+
+// 各分區(0=泥土/1=石岩/2=黑曜)的野外生成加權池:ambientSpawn(暗處自然生怪)、updateNests(一般/精英巢穴
+// 沒指定 spawnType 時)、startWave(暗潮)三處共用同一份——2026-07-15 修正「地圖怪物種類很單調」:
+// 修之前這三處各自寫死「該區只有一種怪」(zone0=imp/zone1=hunter/zone2=abyss),導致 spitter/bomber/
+// phantom/breaker 這 4 種完整實作的怪(遠程/自爆/穿牆/拆牆)全專案沒有任何自然生成點,只能靠 /power 召喚。
+// 池子刻意讓該區「招牌怪」仍占多數(保留原本一區一特色的設計語感),只是混入同分區調性的變化款。
+const ZONE_SPAWN_POOL = {
+  0: [['imp', 7], ['bomber', 2]],
+  1: [['hunter', 5], ['spitter', 2], ['phantom', 2]],
+  2: [['abyss', 5], ['breaker', 3]],
+};
+function pickZoneEnemy(zone) {
+  const pool = ZONE_SPAWN_POOL[zone];
+  if (!pool) return zone === 0 ? 'imp' : zone === 1 ? 'hunter' : 'abyss'; // zone 3(淵核區)呼叫端各自處理,不會走到這裡
+  let r = Math.random() * pool.reduce((s, [, w]) => s + w, 0);
+  for (const [type, w] of pool) { if ((r -= w) < 0) return type; }
+  return pool[0][0];
+}
 
 // ── 屬性相剋:attackElem → enemyElem → 倍率(未列 = 1.0)──
 // 光剋暗、焰剋冰、冰剋焰、重擊(鎚)剋石;同屬性打折
@@ -726,10 +782,11 @@ const OBJ_SOLID = { workbench: true, furnace: true, tower: true, archer_tower: t
 
 // ── 世界據點(隨機生成)──
 // chest=廢墟寶箱(敲開拿戰利品) / nest=蝕影巢穴(持續生怪,拆掉噴光晶+卷軸)
+// 地圖放大批(2026-07-15):數量跟著地圖面積放大倍率(×1.9)一起調,維持放大前的據點密度
 const POI_CFG = {
-  ruins: 7,   // 廢墟數(石磚小房,內有寶箱)
-  nests: 6,   // 巢穴數
-  pools: 10,  // 幽光水池數(釣魚點)
+  ruins: 13,  // 廢墟數(石磚小房,內有寶箱)
+  nests: 11,  // 巢穴數
+  pools: 19,  // 幽光水池數(釣魚點)
 };
 
 // ── NPC 商人:中層區域隨機生成的固定攤位,用多餘資源換稀有材料。

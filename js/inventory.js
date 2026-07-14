@@ -218,6 +218,12 @@ function magnetRangeOf(p) {
   const it = eq && ITEMS[eq.id];
   return (it && it.magnetMult) ? MAGNET_RANGE * it.magnetMult : MAGNET_RANGE;
 }
+// 飾品欄(暖絨護符)的緩速抗性:遭冰系攻擊附加的 p.buffs.slow debuff,持續時間打折(explodeAt 套用)
+function slowResistOf(p) {
+  const eq = p.equip && p.equip.accessory;
+  const it = eq && ITEMS[eq.id];
+  return (it && it.slowResist) || 0;
+}
 
 // 附近是否有指定合成站
 const STATION_RANGE = 6;
@@ -240,5 +246,6 @@ function craftRecipe(p, ri) {
   payCost(p, r.cost);
   const left = addItem(p, r.out, r.n);
   if (left > 0) spawnDrop(r.out, left, p.x, p.y); // 背包滿了就掉在腳邊
+  if (r.out === 'void_sword' || r.out === 'void_armor') unlockAchv('void_forge');
   return null;
 }

@@ -175,7 +175,7 @@ function startWave() {
   for (let k = 0; k < count; k++) {
     const pos = findWaveSpawn();
     if (!pos) continue;
-    let type = 'imp';
+    let type = pickZoneEnemy(0); // 預設池:imp 為主,混一點 bomber(呼應「地圖怪物種類單調」的修正)
     const roll = Math.random(), n = w.final ? 6 : w.n;
     if (w.endless) {
       // 無盡波:淵核區的高階蝕影加入陣容,越後面占比越高(最高一半)
@@ -184,8 +184,8 @@ function startWave() {
       else if (roll < hi) type = 'revenant';
       else if (roll < hi + 0.25) type = 'abyss';
       else if (roll < hi + 0.5) type = 'hunter';
-    } else if (n >= 5 && roll < 0.3) type = 'abyss';
-    else if (n >= 3 && roll < 0.6) type = 'hunter';
+    } else if (n >= 5 && roll < 0.3) type = pickZoneEnemy(2);
+    else if (n >= 3 && roll < 0.6) type = pickZoneEnemy(1);
     const e = spawnEnemy(type, pos.x, pos.y);
     e.wave = true;
     if (w.endless) e.dmgMult *= endlessDmgMult(); // 疊在難度/精英倍率之上
@@ -234,8 +234,8 @@ function ambientSpawn(dt) {
   if (lightAtPoint(x + 0.5, y + 0.5) > 0.12) return; // 亮處不生怪
   const zone = zoneOf(x + 0.5, y + 0.5);
   // 淵核區(zone 3)生更兇的專屬怪(淵魂/蝕裂者各半);通關解封前玩家進不去,自然也不會在那生
-  const type = zone === 0 ? 'imp' : zone === 1 ? 'hunter' : zone === 2 ? 'abyss'
-    : (Math.random() < 0.5 ? 'revenant' : 'voidling');
+  // zone 0~2 走分區加權池(ZONE_SPAWN_POOL,config.js),不再是「一區只有一種怪」
+  const type = zone === 3 ? (Math.random() < 0.5 ? 'revenant' : 'voidling') : pickZoneEnemy(zone);
   spawnEnemy(type, x + 0.5, y + 0.5);
 }
 
@@ -244,8 +244,8 @@ function mushroomRegrow(dt) {
   mushT -= dt;
   if (mushT > 0) return;
   mushT = 15;
-  if (G.mushCount >= 150) return;
-  const ang = Math.random() * TAU, d = 8 + Math.random() * 32;
+  if (G.mushCount >= 285) return; // 地圖放大批:上限跟著 genWorld() 的初始生成量一起調高
+  const ang = Math.random() * TAU, d = 11 + Math.random() * 45;
   const x = Math.floor(CX + Math.cos(ang) * d), y = Math.floor(CY + Math.sin(ang) * d);
   if (inMap(x, y) && tileAt(x, y) === T.FLOOR && !G.objects.has(idx(x, y)))
     setObj(x, y, { type: 'mushroom' });
@@ -258,7 +258,7 @@ function animalRegrow(dt) {
   if (animalT > 0) return;
   animalT = 45;
   if (G.animals.length >= ANIMAL_CFG.cap) return;
-  const ang = Math.random() * TAU, d = 10 + Math.random() * 30;
+  const ang = Math.random() * TAU, d = 14 + Math.random() * 42;
   const x = Math.floor(CX + Math.cos(ang) * d), y = Math.floor(CY + Math.sin(ang) * d);
   if (!inMap(x, y) || tileAt(x, y) !== T.FLOOR || G.objects.has(idx(x, y))) return;
   const kinds = Object.keys(ANIMAL_TYPES);

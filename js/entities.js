@@ -239,13 +239,15 @@ function killEnemy(e, killer) {
     if (Math.random() < 0.25) spawnDrop('gold_ore', 1, e.x, e.y);
   }
   else if (e.type === 'revenant') {
-    // 淵核區深層怪:通關後內容,獎勵豐厚(光晶+機率鑽石)
+    // 淵核區深層怪:通關後內容,獎勵豐厚(光晶+機率鑽石+淵晶終極裝備材料)
     spawnDrop('lumite', 3, e.x, e.y);
     if (Math.random() < 0.35) spawnDrop('diamond', 1, e.x, e.y);
+    if (Math.random() < 0.22) spawnDrop('void_shard', 1, e.x, e.y);
   }
   else if (e.type === 'voidling') {
     spawnDrop('lumite', 2, e.x, e.y);
     if (Math.random() < 0.2) spawnDrop('diamond', 1, e.x, e.y);
+    if (Math.random() < 0.18) spawnDrop('void_shard', 1, e.x, e.y);
   }
   else if (e.type === 'sentinel' && !e.home) {
     // 暗潮最終波的裸體石像守衛(game.js):不是神殿 Boss,維持原掉落,不進神殿死亡流程
@@ -293,7 +295,7 @@ function explodeAt(x, y, cfg) {
     if (p.dead) continue;
     if (dist(x, y, p.x, p.y) < cfg.r) {
       damagePlayer(p, cfg.dmg);
-      if (cfg.slow) { p.buffs = p.buffs || {}; p.buffs.slow = { mult: cfg.slow.mult, t: cfg.slow.dur }; }
+      if (cfg.slow) { p.buffs = p.buffs || {}; p.buffs.slow = { mult: cfg.slow.mult, t: cfg.slow.dur * (1 - slowResistOf(p)) }; }
     }
   }
   // 加農塔用:玩家發射的 aoe 彈道要炸到敵人(既有呼叫端都是敵方彈道炸玩家,cfg.hitEnemies 短路不影響原行為)。
@@ -1444,7 +1446,7 @@ function updateNests(dt) {
       const x = Math.floor(nx + Math.cos(ang) * d), y = Math.floor(ny + Math.sin(ang) * d);
       if (!inMap(x, y) || tileAt(x, y) !== T.FLOOR) continue;
       const zone = zoneOf(x + 0.5, y + 0.5);
-      const type = def.spawnType || (zone === 0 ? 'imp' : zone === 1 ? 'hunter' : 'abyss');
+      const type = def.spawnType || pickZoneEnemy(zone); // 一般/精英巢穴沒指定 spawnType 時走分區加權池(見 ZONE_SPAWN_POOL)
       spawnEnemy(type, x + 0.5, y + 0.5, def.elite ? { elite: true } : undefined);
     }
   }

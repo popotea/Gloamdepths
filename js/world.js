@@ -1,5 +1,5 @@
 // ===== 世界狀態與地圖生成 =====
-// 效能重點:地圖用 TypedArray(200×200 僅約 40KB),渲染只處理視野內的格子
+// 效能重點:地圖用 TypedArray(280×280 僅約 77KB),渲染只處理視野內的格子
 const G = {
   tiles: null,          // Uint8Array 地形
   dmg: null,            // Float32Array 挖掘進度
@@ -184,26 +184,26 @@ function genWorld(seed) {
   }
 
   // 2) 依距離分區指定材質
-  // 第五區域「淵核區」(96~116)在最外圈,外邊界 BEDROCK 推到 116;94~96 是「封印環」——
-  // 一圈強制填滿的 SEAL 牆(不看細胞自動機,才不會有洞讓玩家通關前溜進去),通關事件才解除
+  // 第五區域「淵核區」(obsidian~voidOut)在最外圈,外邊界 BEDROCK 推到 ZONE_R.voidOut;
+  // sealIn~sealOut 是「封印環」——一圈強制填滿的 SEAL 牆(不看細胞自動機,才不會有洞讓玩家通關前溜進去),通關事件才解除
   for (let y = 0; y < MAP_H; y++) for (let x = 0; x < MAP_W; x++) {
     const d = Math.hypot(x + 0.5 - CX, y + 0.5 - CY);
     let t;
-    // 地圖最外 2 格強制基岩:淵核區外邊界推到 116 後,上下左右方向(x=0/199 距中心才 ~100)
-    // 會直接撞地圖邊緣,用這圈基岩收邊,不會露出「地圖被切平」的直邊
+    // 地圖最外 2 格強制基岩:淵核區外邊界比地圖半寬(MAP_W/2)大,上下左右方向會直接撞地圖邊緣,
+    // 用這圈基岩收邊,不會露出「地圖被切平」的直邊
     if (x < 2 || y < 2 || x >= MAP_W - 2 || y >= MAP_H - 2) t = T.BEDROCK;
-    else if (d >= 116) t = T.BEDROCK;
-    else if (d >= 94 && d < 96) t = T.SEAL;              // 封印環:完整封閉,擋住淵核區
-    else if (d < 6) t = d < 3.5 ? T.GLOW : T.FLOOR;
+    else if (d >= ZONE_R.voidOut) t = T.BEDROCK;
+    else if (d >= ZONE_R.sealIn && d < ZONE_R.sealOut) t = T.SEAL; // 封印環:完整封閉,擋住淵核區
+    else if (d < 8) t = d < 5 ? T.GLOW : T.FLOOR;
     else if (!a[idx(x, y)]) t = T.FLOOR;
-    else t = d < 42 ? T.DIRT : d < 72 ? T.STONE : d < 96 ? T.OBSIDIAN : T.VOIDROCK;
+    else t = d < ZONE_R.dirt ? T.DIRT : d < ZONE_R.stone ? T.STONE : d < ZONE_R.obsidian ? T.OBSIDIAN : T.VOIDROCK;
     G.tiles[idx(x, y)] = t;
   }
 
   // 3) 保底隧道:從中心往外挖 12 條,確保各區可達
   for (let k = 0; k < 12; k++) {
     let ang = rnd() * TAU;
-    for (let r = 5; r < 92; r += 0.7) {
+    for (let r = 7; r < 129; r += 0.7) {
       ang += (rnd() - 0.5) * 0.25;
       const px = CX + Math.cos(ang) * r, py = CY + Math.sin(ang) * r;
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
@@ -218,7 +218,7 @@ function genWorld(seed) {
   // 走路的人永遠繞得過去,不會把保底隧道或礦區通道堵死(這是水池生成最容易出的 bug)
   for (let n = 0; n < POI_CFG.pools; n++) {
     for (let tries = 0; tries < 40; tries++) {
-      const ang = rnd() * TAU, d = 14 + rnd() * 70;
+      const ang = rnd() * TAU, d = 20 + rnd() * 98;
       const cx = Math.floor(CX + Math.cos(ang) * d), cy = Math.floor(CY + Math.sin(ang) * d);
       const r = 1.6 + rnd() * 1.2; // 半徑 1.6~2.8 格的小圓池
       let ok = true;
@@ -281,30 +281,32 @@ function genWorld(seed) {
     }
   };
   // 主要金屬礦=礦床(集中),各分布在自己的區域深度;數量少但每塊肥
-  deposit(10, 2.4, 3.8, [T.DIRT], T.COPPER, 12, 40);
-  deposit(9,  2.4, 3.8, [T.STONE], T.IRON, 44, 70);
-  deposit(7,  2.0, 3.4, [T.OBSIDIAN], T.GOLD, 74, 92);
-  deposit(5,  1.8, 2.8, [T.OBSIDIAN], T.DIAMOND, 78, 93);
-  deposit(5,  1.6, 2.6, [T.DIRT, T.STONE, T.OBSIDIAN], T.LUMITE, 14, 90); // 光晶小礦床,供採礦機燃料
-  deposit(6,  2.0, 3.2, [T.DIRT, T.STONE], T.COAL, 12, 70);
+  // 地圖放大批(2026-07-15):distance 參數跟著 ZONE_R 等比例縮放;count 參數 ×~1.9(地圖面積放大倍率),
+  // 讓放大後的地圖維持跟原本差不多的礦物密度(單純放大距離不加數量,只會讓資源被拉得更稀疏)
+  deposit(19, 2.4, 3.8, [T.DIRT], T.COPPER, 17, 56);
+  deposit(17, 2.4, 3.8, [T.STONE], T.IRON, 62, 98);
+  deposit(13, 2.0, 3.4, [T.OBSIDIAN], T.GOLD, 104, 129);
+  deposit(9,  1.8, 2.8, [T.OBSIDIAN], T.DIAMOND, 109, 130);
+  deposit(9,  1.6, 2.6, [T.DIRT, T.STONE, T.OBSIDIAN], T.LUMITE, 20, 126); // 光晶小礦床,供採礦機燃料
+  deposit(11, 2.0, 3.2, [T.DIRT, T.STONE], T.COAL, 17, 98);
   // 零星細礦脈:探索沿途的小驚喜,量少不足以養採礦機,但夠早期起步
-  vein(22, 2, 4, [T.DIRT], T.COPPER, 8, 42);
-  vein(18, 2, 4, [T.STONE], T.IRON, 42, 72);
-  vein(14, 2, 3, [T.OBSIDIAN], T.GOLD, 72, 94);
-  vein(90, 2, 4, [T.DIRT, T.STONE, T.OBSIDIAN], T.LUMITE, 8, 94); // 光晶保持零星散布(到處撿得到,才餵得起機器)
-  vein(70, 3, 5, [T.DIRT], T.ROOT, 8, 42);
+  vein(42, 2, 4, [T.DIRT], T.COPPER, 11, 59);
+  vein(34, 2, 4, [T.STONE], T.IRON, 59, 101);
+  vein(27, 2, 3, [T.OBSIDIAN], T.GOLD, 101, 132);
+  vein(171, 2, 4, [T.DIRT, T.STONE, T.OBSIDIAN], T.LUMITE, 11, 132); // 光晶保持零星散布(到處撿得到,才餵得起機器)
+  vein(133, 3, 5, [T.DIRT], T.ROOT, 11, 59);
   // 砂礫:泥土區成片出現(比礦脈粗胖許多),打散大範圍同色泥土牆的單調感
-  vein(50, 8, 16, [T.DIRT], T.GRAVEL, 8, 42);
-  vein(40, 3, 6, [T.DIRT, T.STONE], T.COAL, 8, 72);
-  vein(10, 2, 3, [T.OBSIDIAN], T.DIAMOND, 74, 94);
+  vein(95, 8, 16, [T.DIRT], T.GRAVEL, 11, 59);
+  vein(76, 3, 6, [T.DIRT, T.STONE], T.COAL, 11, 101);
+  vein(19, 2, 3, [T.OBSIDIAN], T.DIAMOND, 104, 132);
   // 淵核區(第五區域):礦床更肥更集中,呼應「更深區域更好的礦物」(通關解封後才採得到)
-  deposit(8, 2.2, 3.4, [T.VOIDROCK], T.DIAMOND, 98, 113);
-  deposit(6, 2.0, 3.0, [T.VOIDROCK], T.LUMITE, 98, 113);
+  deposit(15, 2.2, 3.4, [T.VOIDROCK], T.DIAMOND, 137, 158);
+  deposit(11, 2.0, 3.0, [T.VOIDROCK], T.LUMITE, 137, 158);
   G.depositCenters = depositCenters;
 
-  // 5) 螢光蘑菇(泥土區地面)
-  for (let n = 0; n < 300 && G.mushCount < 120; n++) {
-    const ang = rnd() * TAU, d = 8 + rnd() * 32;
+  // 5) 螢光蘑菇(泥土區地面):count 上限跟著地圖放大批(×1.9)一起放大,維持密度
+  for (let n = 0; n < 570 && G.mushCount < 228; n++) {
+    const ang = rnd() * TAU, d = 11 + rnd() * 45;
     const x = Math.floor(CX + Math.cos(ang) * d), y = Math.floor(CY + Math.sin(ang) * d);
     if (inMap(x, y) && G.tiles[idx(x, y)] === T.FLOOR && !G.objects.has(idx(x, y))) {
       G.objects.set(idx(x, y), { type: 'mushroom' });
@@ -318,7 +320,7 @@ function genWorld(seed) {
   const baseAng = rnd() * TAU;
   for (let k = 0; k < 3; k++) {
     const ang = baseAng + k * TAU / 3;
-    const sx = Math.floor(CX + Math.cos(ang) * 80), sy = Math.floor(CY + Math.sin(ang) * 80);
+    const sx = Math.floor(CX + Math.cos(ang) * 112), sy = Math.floor(CY + Math.sin(ang) * 112);
     const toCenter = Math.atan2(CY - sy, CX - sx);
     for (let dy = -5; dy <= 5; dy++) for (let dx = -5; dx <= 5; dx++) {
       const x = sx + dx, y = sy + dy;
@@ -334,10 +336,10 @@ function genWorld(seed) {
     G.shrines.push({ x: sx + 0.5, y: sy + 0.5, dead: false, boss: SHRINE_BOSSES[k] });
   }
 
-  // 6.5) NPC 商人:中層區域(zone 1,距中心 42~72 格)隨機找一格空地板放置
+  // 6.5) NPC 商人:中層區域(zone 1,距中心 dirt~stone 格)隨機找一格空地板放置
   for (let n = 0; n < TRADER_CFG.count; n++) {
     for (let tries = 0; tries < 40; tries++) {
-      const ang = rnd() * TAU, d = 42 + rnd() * 30; // 對應 zoneOf() 的 zone 1 範圍
+      const ang = rnd() * TAU, d = ZONE_R.dirt + rnd() * (ZONE_R.stone - ZONE_R.dirt); // 對應 zoneOf() 的 zone 1 範圍
       const x = Math.floor(CX + Math.cos(ang) * d), y = Math.floor(CY + Math.sin(ang) * d);
       if (!inMap(x, y) || G.tiles[idx(x, y)] !== T.FLOOR || G.objects.has(idx(x, y))) continue;
       G.traders.push({ x: x + 0.5, y: y + 0.5 });
@@ -348,13 +350,13 @@ function genWorld(seed) {
   // 7) 廢墟(石磚小房+寶箱):在各區隨機找地板挖出 3x3 石磚房間,中央放寶箱
   for (let n = 0; n < POI_CFG.ruins; n++) {
     for (let tries = 0; tries < 30; tries++) {
-      const ang = rnd() * TAU, d = 10 + rnd() * 82;
+      const ang = rnd() * TAU, d = 14 + rnd() * 115;
       const cx = Math.floor(CX + Math.cos(ang) * d), cy = Math.floor(CY + Math.sin(ang) * d);
-      if (!inMap(cx, cy) || dist(cx, cy, CX, CY) < 8) continue;
+      if (!inMap(cx, cy) || dist(cx, cy, CX, CY) < 11) continue;
       let ok = true;
       for (let dy = -2; dy <= 2 && ok; dy++) for (let dx = -2; dx <= 2 && ok; dx++) {
         const x = cx + dx, y = cy + dy;
-        if (!inMap(x, y) || G.tiles[idx(x, y)] === T.BEDROCK || dist(x, y, G.core.x, G.core.y) < 10) ok = false;
+        if (!inMap(x, y) || G.tiles[idx(x, y)] === T.BEDROCK || dist(x, y, G.core.x, G.core.y) < 14) ok = false;
       }
       if (!ok) continue;
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
@@ -376,10 +378,10 @@ function genWorld(seed) {
   };
   for (let n = 0; n < POI_CFG.nests; n++) {
     for (let tries = 0; tries < 30; tries++) {
-      const ang = rnd() * TAU, d = 14 + rnd() * 78;
+      const ang = rnd() * TAU, d = 20 + rnd() * 109;
       const x = Math.floor(CX + Math.cos(ang) * d), y = Math.floor(CY + Math.sin(ang) * d);
       if (!inMap(x, y) || G.tiles[idx(x, y)] !== T.FLOOR || G.objects.has(idx(x, y))) continue;
-      if (dist(x, y, G.core.x, G.core.y) < 14) continue;
+      if (dist(x, y, G.core.x, G.core.y) < 20) continue;
       const nestType = pickNestType();
       const ni = idx(x, y);
       G.objects.set(ni, { type: 'nest', nestType, hp: NEST_TYPES[nestType].hp });
@@ -392,7 +394,7 @@ function genWorld(seed) {
   const animalKinds = Object.keys(ANIMAL_TYPES);
   for (let n = 0; n < ANIMAL_CFG.worldSpawn; n++) {
     for (let tries = 0; tries < 30; tries++) {
-      const ang = rnd() * TAU, d = 10 + rnd() * 30;
+      const ang = rnd() * TAU, d = 14 + rnd() * 42;
       const x = Math.floor(CX + Math.cos(ang) * d), y = Math.floor(CY + Math.sin(ang) * d);
       if (!inMap(x, y) || G.tiles[idx(x, y)] !== T.FLOOR || G.objects.has(idx(x, y))) continue;
       spawnAnimal(animalKinds[(rnd() * animalKinds.length) | 0], x + 0.5, y + 0.5);
@@ -405,7 +407,7 @@ function genWorld(seed) {
 
 function zoneOf(x, y) {
   const d = Math.hypot(x - CX, y - CY);
-  return d < 42 ? 0 : d < 72 ? 1 : d < 96 ? 2 : 3; // zone 3 = 第五區域「淵核區」(通關後解封)
+  return d < ZONE_R.dirt ? 0 : d < ZONE_R.stone ? 1 : d < ZONE_R.obsidian ? 2 : 3; // zone 3 = 第五區域「淵核區」(通關後解封)
 }
 
 // ===== RLE 壓縮(存檔 / 連線初始傳輸用) =====
