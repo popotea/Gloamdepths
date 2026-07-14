@@ -4,6 +4,37 @@ const MAP_W = 200, MAP_H = 200;  // 地圖大小(格)
 const CX = MAP_W / 2, CY = MAP_H / 2;
 const TAU = Math.PI * 2;
 
+// 更新紀錄:主選單「📜 更新紀錄」按鈕顯示用,純展示、不影響任何遊戲邏輯,
+// 新增功能時手動往陣列最前面補一筆(最新在最上面)
+const CHANGELOG = [
+  { date: '2026-07-14', items: [
+    '🐾 寵物系統:5 種被動跟班寵物(螢光蝠/燼尾狐/岩甲龜/智光靈/幸運蛾),工作台合成召喚物,右鍵召喚/收回',
+    '🗺️ 地圖強化:小地圖可直接點擊開啟大地圖,新增隊友名單(方向+距離),倒下隊友有醒目提示',
+    '🚶 修正斜向靠近牆角會卡住走不過去的問題,移動更順暢',
+  ] },
+  { date: '2026-07-13', items: [
+    '🆘 隊友救援系統:倒下不會直接陣亡,隊友靠近站著能救回來(再被打一下就真的沒救了)',
+    '💬 快速手勢輪盤(C 鍵)+ 🏆 成就/圖鑑系統(ESC 選單新分頁)',
+    '⚔️ 武器揮擊特效上色、打擊衝擊波動畫',
+    '🚪 防守強化:光簾閘門、歸巢螢石、凜鈴塔、地刺陷阱、誘光罐',
+    '🍲 新增多種料理/照明/裝飾物品',
+  ] },
+  { date: '2026-07-12', items: [
+    '⛏️ 礦物分布改集中礦床(挖礦更有 Core Keeper 的感覺),新增儲物箱、自動熔煉爐,自動化道鏈全線打通',
+    '🌑 通關解封第五區域「淵核區」,新增無盡模式(通關後暗潮無限循環)',
+    '🎨 Q 版可愛畫風全面翻新(角色/UI/文案)',
+    '💾 多存檔槽位、房主斷線自動轉移接棒、觀戰模式',
+  ] },
+  { date: '2026-07 上旬', items: [
+    '🌟 天賦樹系統(每級 1 點,T 鍵分配 6 種被動)',
+    '🐔 動物養殖、🌾 農耕系統、🎣 釣魚、🚧 圍籬',
+    '🗺️ 大地圖、🧙 NPC 商人、🎚️ 難度選項',
+    '🔥❄️👻 三神殿守望者差異化(火系/冰系/穿牆系 Boss)',
+    '🛤️ 軌道加速、⚙️ 自動採礦機 + 傳輸帶',
+    '🍳 料理 buff、🔧 裝備耐久與修理',
+  ] },
+];
+
 // 星核設定
 const CORE_CFG = {
   maxE: 100,
@@ -234,6 +265,7 @@ const ACHIEVEMENTS = {
   void_breach:   { name: '深淵行者', icon: '🌑', desc: '踏入淵核區' },
   endless_enter: { name: '永不止息', icon: '🏆', desc: '通關,進入無盡模式' },
   max_level:     { name: '滿級戰士', icon: '⭐', desc: `練到等級上限 Lv.${LEVEL_CFG.maxLv}` },
+  first_pet:     { name: '有夥伴了', icon: '🐾', desc: '第一次召喚寵物出戰' },
 };
 // 歸巢螢石:手持右鍵引導數秒傳送回星核;移動/受傷立即中斷(不消耗),完成才消耗——
 // 探索半徑不再被「暗潮警告 30 秒內趕不趕得回」綁死,但被怪纏上時還是得先殺出來才能回城
@@ -264,6 +296,20 @@ const BUFF_INFO = {
 };
 function buffMult(p, kind) { const b = p.buffs && p.buffs[kind]; return b ? (b.mult || 1) : 1; }
 function buffVal(p, kind) { const b = p.buffs && p.buffs[kind]; return b ? (b.value || 0) : 0; }
+
+// ── 寵物/跟班:純被動,不會被打也不會攻擊,右鍵召喚物切換出戰(不消耗,可換著玩)。
+// kind 沿用 BUFF_INFO 的分類(speed/guard/mine/regen/vigor),數值比天賦小一階避免疊爆;
+// 視覺上是「跟著玩家位置算出來的裝飾性偏移」(render.js),不是獨立模擬的實體——
+// 不用另外同步座標、不用碰撞判定,零額外連線負擔,召喚狀態只有 p.pet 一個欄位要同步。
+const PET_TYPES = {
+  glowbat:     { name: '螢光蝠', icon: '🦇', item: 'pet_glowbat',      kind: 'mine',  val: 0.08, desc: '挖掘力 +8%' },
+  emberfox:    { name: '燼尾狐', icon: '🦊', item: 'pet_emberfox',     kind: 'speed', val: 0.06, desc: '移動速度 +6%' },
+  stoneturtle: { name: '岩甲龜', icon: '🐢', item: 'pet_stoneturtle',  kind: 'guard', val: 0.08, desc: '受到的傷害再 -8%' },
+  witlight:    { name: '智光靈', icon: '🧚', item: 'pet_witlight',     kind: 'regen', val: 1,    desc: '每秒回 1 點血' },
+  luckmoth:    { name: '幸運蛾', icon: '🦋', item: 'pet_luckmoth',     kind: 'vigor', val: 0.4,  desc: '體力回復速度 +40%' },
+};
+function petOf(p) { return (p.pet && PET_TYPES[p.pet]) || null; }
+function petVal(p, kind) { const pet = petOf(p); return (pet && pet.kind === kind) ? pet.val : 0; }
 
 // ── 釣魚:站在岸邊對水面右鍵拋竿,計時到就開獎(移動超過 moveCancel 格 = 收竿魚跑了);
 // loot 權重表,null = 空軍(什麼都沒釣到)
@@ -433,6 +479,18 @@ const ITEMS = {
                      desc: `鋪在地上的光刺:蝕影踩到被扎 ${SPIKE_TRAP_CFG.dmg} 傷還會被彈開(穿牆幽影飄著扎不到;螢火隊有穿鞋不怕)。共 ${SPIKE_TRAP_CFG.charges} 刺,扎完自動碎裂` },
   decoy:           { name: '誘光罐', icon: '🏺', place: 'decoy',
                      desc: `裝滿光的罐罐:暗潮蝕影會忍不住先去搶它,幫你分散火力、爭取回防時間(身邊有玩家時牠們還是先打人;穿牆幽影看得穿贗品)。每人最多 ${DECOY_CFG.maxPerPlayer} 個` },
+  // 寵物召喚物:right-click 切換出戰/收回(不消耗,身上帶著就能反覆召喚);同時只能出戰一隻,
+  // 召喚新的會自動收回舊的(doPet 的邏輯,不用玩家自己先收再召)
+  pet_glowbat:     { name: '螢光蝠哨', icon: '🦇', pet: 'glowbat', max: 1,
+                     desc: `召喚螢光蝠跟著你:${PET_TYPES.glowbat.desc}。右鍵切換出戰/收回` },
+  pet_emberfox:    { name: '燼尾狐哨', icon: '🦊', pet: 'emberfox', max: 1,
+                     desc: `召喚燼尾狐跟著你:${PET_TYPES.emberfox.desc}。右鍵切換出戰/收回` },
+  pet_stoneturtle: { name: '岩甲龜哨', icon: '🐢', pet: 'stoneturtle', max: 1,
+                     desc: `召喚岩甲龜跟著你:${PET_TYPES.stoneturtle.desc}。右鍵切換出戰/收回` },
+  pet_witlight:    { name: '智光靈哨', icon: '🧚', pet: 'witlight', max: 1,
+                     desc: `召喚智光靈跟著你:${PET_TYPES.witlight.desc}。右鍵切換出戰/收回` },
+  pet_luckmoth:    { name: '幸運蛾哨', icon: '🦋', pet: 'luckmoth', max: 1,
+                     desc: `召喚幸運蛾跟著你:${PET_TYPES.luckmoth.desc}。右鍵切換出戰/收回` },
 };
 
 // 合成配方:station=null 徒手 / 'workbench' / 'furnace'
@@ -506,6 +564,12 @@ const RECIPES = [
   { out: 'recall_stone', n: 1, cost: { lumite: 3, stone: 5 },            station: 'workbench' },
   { out: 'frost_tower',  n: 1, cost: { stone: 6, iron_bar: 2, lumite: 8 }, station: 'workbench' },
   { out: 'decoy',        n: 1, cost: { stone: 6, lumite: 4 },            station: 'workbench' },
+  // 寵物召喚物:成本跟天賦點取得速度相仿的中期材料,五選一慢慢收集不強迫二選一
+  { out: 'pet_glowbat',     n: 1, cost: { copper_bar: 3, lumite: 3 },         station: 'workbench' },
+  { out: 'pet_emberfox',    n: 1, cost: { iron_bar: 2, coal: 4 },             station: 'workbench' },
+  { out: 'pet_stoneturtle', n: 1, cost: { stone: 10, iron_bar: 2 },           station: 'workbench' },
+  { out: 'pet_witlight',    n: 1, cost: { lumite: 6, gold_ore: 2 },           station: 'workbench' },
+  { out: 'pet_luckmoth',    n: 1, cost: { glowcap: 3, lumite: 3 },            station: 'workbench' },
 ];
 
 // 敵人表:speed=跳撲衝量, hopCD=跳撲間隔

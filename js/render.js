@@ -53,6 +53,10 @@ function traderImg() {
 function animalImg(type) {
   return bakedSprite(`assets/animals/${type}.png`, Math.ceil(TILE * ANIMAL_TYPES[type].r * 2.3));
 }
+// 寵物跟班(失敗退回 emoji——找不到素材也不影響玩,跟怪物/動物同一套 fallback 慣例)
+function petImg(type) {
+  return bakedSprite(`assets/pets/${type}.png`, Math.ceil(TILE * 0.55));
+}
 // 打擊特效素材(單張圖,靠 canvas 縮放/淡出做動畫);烘一個固定小尺寸,畫的時候用動態目的地矩形
 // 縮放即可做出「由小變大」的效果,不用每個當下的半徑各烤一份。找不到就交回 null,呼叫端退回向量畫法
 const HITFX_IMG = { fire: 'fire.png', frost: 'frost.png', light: 'light.png', dark: 'dark.png', smash: 'smash.png' };
@@ -834,6 +838,29 @@ function render(dt) {
       ctx.globalAlpha = swinging ? 1 : 0.85;
       ctx.fillText(held.icon, hx, hy);
       ctx.restore();
+    }
+    // 寵物:純裝飾偏移(繞著玩家位置算出來的軌跡,不是獨立模擬的實體),host/client 用同一份
+    // p.x/p.y+performance.now() 算,結果自然一致,不用額外同步座標。受黑暗遮罩影響(跟玩家本體一樣暗處看不見)
+    if (p.pet) {
+      const pet = PET_TYPES[p.pet];
+      if (pet) {
+        const orbT = performance.now() / 1000 + p.id * 1.7; // 每個玩家的寵物相位錯開,不會疊在一起
+        const orbR = R * 1.7;
+        const px = sx - Math.cos(p.aim) * orbR * 0.5 + Math.cos(orbT * 1.3) * orbR * 0.35;
+        const py = sy + R * 0.5 - Math.sin(p.aim) * orbR * 0.2 + Math.sin(orbT * 1.3) * orbR * 0.25;
+        const img = petImg(p.pet);
+        ctx.save();
+        ctx.globalAlpha = 0.95;
+        if (img) {
+          const size = TILE * 0.55;
+          ctx.drawImage(img, px - size / 2, py - size / 2, size, size);
+        } else {
+          ctx.font = `${TILE * 0.4}px "Segoe UI Emoji"`;
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText(pet.icon, px, py);
+        }
+        ctx.restore();
+      }
     }
   }
 

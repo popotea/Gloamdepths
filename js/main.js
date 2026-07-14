@@ -147,16 +147,17 @@ function localControl(me, dt) {
     me.dashCD = DASH_CFG.cd;
     emitFx({ k: 'sfx', s: 'dash' });
   }
-  // 精力 buff(奶菇濃湯):體力回復速度倍率
-  if (me.dashT <= 0) me.stamina = Math.min(100, me.stamina + DASH_CFG.regen * buffMult(me, 'vigor') * dt);
+  // 精力 buff(奶菇濃湯)× 幸運蛾寵物:體力回復速度倍率
+  if (me.dashT <= 0) me.stamina = Math.min(100, me.stamina + DASH_CFG.regen * buffMult(me, 'vigor') * (1 + petVal(me, 'vigor')) * dt);
 
   if (dx || dy) {
     const len = Math.hypot(dx, dy);
-    // 疾行 buff(料理)× 冰系減速 debuff × 健步如飛天賦:客戶端自己的 buffs/talents 由快照同步,本地預測才會跟房主一致
+    // 疾行 buff(料理)× 冰系減速 debuff × 健步如飛天賦 × 燼尾狐寵物:客戶端自己的 buffs/talents/pet
+    // 由快照同步,本地預測才會跟房主一致
     // 軌道加速:腳下 tile 是軌道就大幅提速(軌道地形靠 setTile 廣播,雙端都知道哪裡有軌道,本地預測算得出一致移速)
     const onRail = tileAt(Math.floor(me.x), Math.floor(me.y)) === T.RAIL;
     const spd = 4.6 * (me.dashT > 0 ? DASH_CFG.mult : 1) * buffMult(me, 'speed') * buffMult(me, 'slow')
-      * (1 + TALENTS.swift.val * talRank(me, 'swift')) * (onRail ? RAIL_CFG.speedMult : 1);
+      * (1 + TALENTS.swift.val * talRank(me, 'swift')) * (1 + petVal(me, 'speed')) * (onRail ? RAIL_CFG.speedMult : 1);
     moveCircle(me, dx / len * spd * dt, dy / len * spd * dt);
   }
   // 瞄準
@@ -251,6 +252,10 @@ function localControl(me, dt) {
           // 歸巢螢石:引導計時/中斷/傳送全在房主端(比照釣魚),客戶端只送意圖
           if (NET.isHost()) doRecall(me, me.sel);
           else NET.act({ t: 'recall', slot: me.sel });
+        } else if (it.pet) {
+          // 寵物召喚物:純粹切換 p.pet 欄位,不消耗物品
+          if (NET.isHost()) doPet(me, me.sel);
+          else NET.act({ t: 'pet', slot: me.sel });
         }
       }
     }

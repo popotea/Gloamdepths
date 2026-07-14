@@ -13,6 +13,7 @@ function makePlayer(id, name) {
     dead: false, respawnT: 0, invDirty: true,
     downed: false, downedT: 0, reviveP: 0, // 隊友救援(倒地非陣亡),見 REVIVE_CFG
     emoteCD: 0, // 快速手勢冷卻(防手滑連點洗頻),見 EMOTE_CFG
+    pet: null, // 目前出戰的寵物(PET_TYPES 的 key 或 null),見 doPet
     lv: 1, xp: 0,
     stamina: 100, dashCD: 0, dashT: 0,
     buffs: {},   // 料理 buff:kind -> { mult/value, t 剩餘秒數 }
@@ -513,7 +514,7 @@ function enterDead(p) {
 function damagePlayer(p, amount) {
   if (p.godmode) return; // /power godmode:秘笈開啟的無敵狀態
   // 岩鎧 buff 與護甲相乘(不是相加),兩者都拉滿也不會變成免疫
-  const dmg = Math.max(1, Math.round(amount * (1 - bestArmor(p)) * (1 - buffVal(p, 'guard'))));
+  const dmg = Math.max(1, Math.round(amount * (1 - bestArmor(p)) * (1 - buffVal(p, 'guard')) * (1 - petVal(p, 'guard'))));
   p.hp -= dmg; p.iframe = 0.8; p.lastHurt = G.time;
   // 歸巢螢石:受到任何傷害立即中斷引導(不消耗)——堵死「戰鬥中免死脫逃」,張力來源
   if (p.recall) { p.recall = null; addFloater(p.x, p.y - 0.9, '🌀 引導被打斷!', '#ff9d5c'); }
@@ -778,7 +779,7 @@ function doMine(p, x, y) {
     return;
   }
   // 挖掘力加成:料理礦勁 buff × 礦脈直覺天賦
-  G.dmg[i] += pick.power * buffMult(p, 'mine') * (1 + TALENTS.miner.val * talRank(p, 'miner'));
+  G.dmg[i] += pick.power * buffMult(p, 'mine') * (1 + TALENTS.miner.val * talRank(p, 'miner')) * (1 + petVal(p, 'mine'));
   wearItem(p, pick.slot); // 有效敲擊才磨損(tier 不夠的「太硬了」在上面就 return 了)
   emitFx({ k: 'sfx', s: 'mine' });
   if (G.dmg[i] >= info.hp) breakTile(x, y);
@@ -852,6 +853,24 @@ function doEmote(p, idx) {
   if (!e) return;
   p.emoteCD = EMOTE_CFG.cd;
   emitFx({ k: 'emote', x: p.x, y: p.y, icon: e.icon, name: p.name });
+}
+
+// 寵物召喚物右鍵切換出戰/收回:同時只能出戰一隻,召喚新的自動收回舊的(不用先手動收回)。
+// 純粹改 p.pet 這個欄位,不消耗物品(身上帶著就能反覆召喚)。這裡只擋 p.dead——
+// p.downed 不用另外擋,main.js 的右鍵輸入本來就在 localControl 開頭被 me.downed 整個攔住了
+function doPet(p, slot) {
+  if (p.dead) return;
+  const s = p.inv[slot];
+  const it = s && ITEMS[s.id];
+  if (!it || !it.pet) return;
+  p.pet = p.pet === it.pet ? null : it.pet;
+  if (p.pet) {
+    addFloater(p.x, p.y - 0.8, `${PET_TYPES[p.pet].icon} ${PET_TYPES[p.pet].name} 出戰!`, '#7dff8e');
+    emitFx({ k: 'sfx', s: 'place' });
+    unlockAchv('first_pet');
+  } else {
+    addFloater(p.x, p.y - 0.8, '寵物收回了', '#8899aa');
+  }
 }
 
 function doPlace(p, slot, x, y) {
@@ -1718,6 +1737,9 @@ function updatePlayersHost(dt) {
     // 回春 buff:不受脫戰限制,戰鬥中也持續回血(晶鱗魚湯的價值所在)
     if (p.buffs && p.buffs.regen && p.hp < p.maxhp)
       p.hp = Math.min(p.maxhp, p.hp + p.buffs.regen.value * dt);
+    // 智光靈寵物:持續回血,不受料理 buff 那條的限制(獨立生效點,兩者疊加不衝突)
+    if (petVal(p, 'regen') > 0 && p.hp < p.maxhp)
+      p.hp = Math.min(p.maxhp, p.hp + petVal(p, 'regen') * dt);
     // 走過蘑菇自動採集(有機率額外掉一顆光孢子,鼓勵去找野生蘑菇拿種子來種)
     const fx = Math.floor(p.x), fy = Math.floor(p.y);
     const o = objAt(fx, fy);

@@ -69,6 +69,8 @@ button:disabled { opacity: .4; cursor: default; }
 #buffbar { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }
 #buffbar .buff { background: #12303acc; border: 1px solid #7ec8ff; border-radius: 10px;
   padding: 1px 8px; font-size: 12px; color: #cfeaff; text-shadow: 0 1px 2px #000; }
+/* 出戰中的寵物:跟料理 buff 放同一排但用金色系區隔(常駐生效,沒有倒數秒數這回事) */
+#buffbar .buff.pet { background: #2a2410cc; border-color: var(--gold); color: #ffe9a0; }
 
 /* 上中:暗潮 */
 #wavebox { position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
@@ -319,6 +321,18 @@ button.mini { font-size: 11px; padding: 3px 9px; border-radius: 6px; }
 .menu .slotrow .slotmeta b { color: var(--gold); }
 .menu .slotrow .dim { color: var(--text-dim); }
 .menu .slotrow button { white-space: nowrap; border-radius: 999px; }
+/* 主選單「📜 更新紀錄」入口:低調的文字連結感,不搶主要按鈕的視覺重量 */
+.linklike { background: none; border: none; color: var(--text-dim); font-size: 12px; cursor: pointer;
+  text-decoration: underline; padding: 2px 4px; margin-bottom: 14px; }
+.linklike:hover { color: var(--glow); }
+/* 更新紀錄面板 */
+.changelog-menu { max-width: 620px; }
+.changelog-list { max-height: 60vh; overflow-y: auto; text-align: left; margin-bottom: 16px; }
+.changelog-group { background: var(--ink-700); border: 1px solid var(--line-soft); border-radius: var(--radius-md);
+  padding: 12px 16px; margin-bottom: 10px; }
+.changelog-date { font-weight: 700; color: var(--gold); font-size: 13px; margin-bottom: 6px; }
+.changelog-group ul { margin: 0; padding-left: 18px; }
+.changelog-group li { font-size: 13px; line-height: 1.9; color: #b7c2d4; }
 
 /* 無障礙:偏好減少動態效果時,把裝飾性動畫/過場全部縮到近乎瞬間 */
 @media (prefers-reduced-motion: reduce) {

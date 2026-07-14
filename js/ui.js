@@ -337,13 +337,16 @@ function uiTick(dt) {
   UI.els.coretext.textContent = `💠 星核 ${Math.ceil(G.core.energy)}`;
   UI.els.shards.textContent = '🔷'.repeat(G.core.shards) + '◇'.repeat(Math.max(0, CORE_CFG.needShards - G.core.shards));
 
-  // 料理 buff 列(有 buff 才顯示;客戶端的 buffs 由快照同步)
+  // 料理 buff 列(有 buff 才顯示;客戶端的 buffs 由快照同步)+ 出戰中的寵物(常駐,沒有倒數)
   {
     const list = me.buffs ? Object.entries(me.buffs).filter(([, b]) => b && b.t > 0) : [];
-    const html = list.map(([k, b]) => {
+    let html = list.map(([k, b]) => {
       const info = BUFF_INFO[k] || { icon: '✨', name: k };
       return `<span class="buff">${info.icon} ${info.name} ${Math.ceil(b.t)}s</span>`;
     }).join('');
+    // PET_TYPES 是寫死的靜態表(不是玩家輸入),字串直接內插不用跳脫;跟玩家名字那種要另外處理不一樣
+    const pet = petOf(me);
+    if (pet) html += `<span class="buff pet" title="${pet.desc}">${pet.icon} ${pet.name}</span>`;
     if (UI.els.buffbar.innerHTML !== html) UI.els.buffbar.innerHTML = html;
   }
 
@@ -1221,6 +1224,7 @@ function setOverlay(mode) {
       <div class="menu">
         <h1>微光深淵</h1>
         <p class="sub">一起把光帶回深淵吧!1~4 人合作の地底大冒險</p>
+        <button id="btnChangelog" class="linklike">📜 更新紀錄</button>
         <input id="nameInput" maxlength="12" placeholder="你的名字" value="${savedName}">
         <div class="diffrow" id="diffRow">
           ${Object.entries(DIFFICULTY_CFG).map(([key, d]) => `
@@ -1263,6 +1267,7 @@ function setOverlay(mode) {
       else { UI.slotPick = 'new'; setOverlay('slots'); } // 三格都滿:讓玩家自己挑一格覆蓋
     };
     $id('btnLoad').onclick = () => { UI.slotPick = 'load'; setOverlay('slots'); };
+    $id('btnChangelog').onclick = () => setOverlay('changelog');
     $id('btnImport').onclick = () => $id('importFile').click();
     $id('importFile').onchange = () => {
       const file = $id('importFile').files[0];
@@ -1306,6 +1311,20 @@ function setOverlay(mode) {
         () => setOverlay(null),
         err => { showMsg('⚠️ ' + err); $id('btnJoin').disabled = false; $id('btnJoin').textContent = '🔗 加入房間'; });
     };
+  } else if (mode === 'changelog') {
+    // 純展示的靜態資料(CHANGELOG,config.js),不影響任何遊戲邏輯,回主選單就是 setOverlay('start')
+    const html = CHANGELOG.map(g => `
+      <div class="changelog-group">
+        <div class="changelog-date">${g.date}</div>
+        <ul>${g.items.map(t => `<li>${t}</li>`).join('')}</ul>
+      </div>`).join('');
+    ov.innerHTML = `
+      <div class="menu changelog-menu">
+        <h1>📜 更新紀錄</h1>
+        <div class="changelog-list">${html}</div>
+        <div class="btnrow"><button id="btnChangelogBack">← 返回主選單</button></div>
+      </div>`;
+    $id('btnChangelogBack').onclick = () => setOverlay('start');
   } else if (mode === 'slots') {
     // 存檔欄位選擇:UI.slotPick = 'load'(讀哪一格)或 'new'(三格全滿時挑一格覆蓋開新世界)
     const forNew = UI.slotPick === 'new';
