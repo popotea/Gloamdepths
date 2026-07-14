@@ -280,6 +280,7 @@ function drainCore(amount) {
   G.core.shield = G.core.shield || 0;
   const fromShield = Math.min(G.core.shield, amount);
   G.core.shield -= fromShield;
+  if (fromShield > 0) unlockAchv('shield_up');
   const remain = amount - fromShield;
   if (remain > 0) G.core.energy = Math.max(0, G.core.energy - remain);
 }
@@ -547,13 +548,17 @@ function enterDead(p) {
 function rollDodge(p) {
   const eq = p.equip && p.equip.accessory;
   const it = eq && ITEMS[eq.id];
-  return !!(it && it.dodgeChance && Math.random() < it.dodgeChance);
+  const dodged = !!(it && it.dodgeChance && Math.random() < it.dodgeChance);
+  if (dodged) unlockAchv('first_dodge');
+  return dodged;
 }
 // 飾品欄(獵殺勳章)的暴擊判定,回傳傷害倍率(沒觸發=1)
 function rollCrit(p) {
   const eq = p.equip && p.equip.accessory;
   const it = eq && ITEMS[eq.id];
-  return (it && it.critChance && Math.random() < it.critChance) ? it.critMult : 1;
+  const crit = it && it.critChance && Math.random() < it.critChance;
+  if (crit) unlockAchv('crit_master');
+  return crit ? it.critMult : 1;
 }
 
 function damagePlayer(p, amount) {
@@ -891,6 +896,13 @@ function markSeen(type) {
   G.bestiary[type] = true;
   if (NET.isHost()) NET.sendAll({ t: 'seen', type });
 }
+// tower_collector 成就:地圖上六種塔是否全部至少蓋過一座(全隊共享,不分誰蓋的)
+function checkTowerCollector() {
+  if (G.achv.tower_collector) return;
+  const have = new Set();
+  for (const [, o] of G.objects) if (TOWER_COLLECTOR_TYPES.includes(o.type)) have.add(o.type);
+  if (TOWER_COLLECTOR_TYPES.every(t => have.has(t))) unlockAchv('tower_collector');
+}
 
 // 快速手勢:倒下也能用(呼叫隊友救援正是它的用途之一),陣亡才擋——房主權威 + 冷卻防洗頻
 function doEmote(p, idx) {
@@ -936,6 +948,7 @@ function doEquip(p, slot) {
   addFloater(p.x, p.y - 0.8, `已裝備 ${it.name}`, '#7dff8e');
   emitFx({ k: 'sfx', s: 'craft' });
   unlockAchv('first_equip');
+  if (p.equip.head && p.equip.chest && p.equip.legs && p.equip.accessory) unlockAchv('full_loadout');
 }
 function doUnequip(p, part) {
   if (p.dead || !p.equip || !p.equip[part]) return;
@@ -1078,6 +1091,7 @@ function doPlace(p, slot, x, y) {
     if (it.place === 'frost_tower' || it.place === 'decoy') o.owner = p.id; // maxPerPlayer 計數用
     if (it.place === 'cannon_tower' || it.place === 'multi_tower' || it.place === 'sniper_tower') o.owner = p.id; // maxPerPlayer 計數用
     setObj(x, y, o);
+    if (TOWER_COLLECTOR_TYPES.includes(it.place)) checkTowerCollector();
   }
   emitFx({ k: 'sfx', s: 'place' });
 }

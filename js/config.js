@@ -8,6 +8,7 @@ const TAU = Math.PI * 2;
 // 新增功能時手動往陣列最前面補一筆(最新在最上面)
 const CHANGELOG = [
   { date: '2026-07-14', items: [
+    '🏆 新增 5 枚成就:全副打扮、護盾騎士、致命一擊、好身手、塔藝大師',
     '💍 裝備欄新增第四格「飾品」:拾取戒指(擴大撿東西範圍)、敏捷護符(機率完全閃避)、獵殺勳章(機率暴擊)',
     '🛡️ 星核超載餵食:能量餵滿了繼續餵光晶,多的會轉成護盾,優先幫星核擋暗潮傷害',
     '🐛 修正背包/快捷欄的道具數量有時要動一下滑鼠(切換選中格)才會更新成正確數字的問題',
@@ -286,7 +287,14 @@ const ACHIEVEMENTS = {
   first_pet:     { name: '有夥伴了', icon: '🐾', desc: '第一次召喚寵物出戰' },
   first_equip:   { name: '全副武裝', icon: '🎽', desc: '第一次穿上裝備欄裝備' },
   first_gift:    { name: '好朋友', icon: '🎁', desc: '第一次送禮給隊友' },
+  full_loadout:  { name: '全副打扮', icon: '💍', desc: '頭盔/胸甲/護腿/飾品四格裝備欄同時裝滿' },
+  shield_up:     { name: '護盾騎士', icon: '🛡️', desc: '第一次讓星核護盾擋下傷害' },
+  crit_master:   { name: '致命一擊', icon: '🏅', desc: '第一次觸發獵殺勳章的暴擊' },
+  first_dodge:   { name: '好身手', icon: '💨', desc: '第一次觸發敏捷護符的完全閃避' },
+  tower_collector: { name: '塔藝大師', icon: '🏗️', desc: '光塔/箭塔/凜鈴塔/加農塔/連弩塔/重砲塔六種塔全部蓋過' },
 };
+// tower_collector 成就檢查用:全隊只要地圖上同時存在這六種塔各一座就算(不分誰蓋的)
+const TOWER_COLLECTOR_TYPES = ['tower', 'archer_tower', 'frost_tower', 'cannon_tower', 'multi_tower', 'sniper_tower'];
 // 歸巢螢石:手持右鍵引導數秒傳送回星核;移動/受傷立即中斷(不消耗),完成才消耗——
 // 探索半徑不再被「暗潮警告 30 秒內趕不趕得回」綁死,但被怪纏上時還是得先殺出來才能回城
 const RECALL_CFG = { channel: 4, moveCancel: 0.3 };
