@@ -8,6 +8,8 @@ const TAU = Math.PI * 2;
 // 新增功能時手動往陣列最前面補一筆(最新在最上面)
 const CHANGELOG = [
   { date: '2026-07-14', items: [
+    '🎽 角色裝備欄位:頭盔/胸甲/護腿三個獨立部位,右鍵或拖曳穿上,不再是「背包裡塞一件就生效」',
+    '💀 怪物有機率掉落裝備,越強的怪物掉的越好,神殿 Boss 與最終波守衛必掉一件金裝',
     '🐾 寵物系統:5 種被動跟班寵物(螢光蝠/燼尾狐/岩甲龜/智光靈/幸運蛾),工作台合成召喚物,右鍵召喚/收回',
     '🗺️ 地圖強化:小地圖可直接點擊開啟大地圖,新增隊友名單(方向+距離),倒下隊友有醒目提示',
     '🚶 修正斜向靠近牆角會卡住走不過去的問題,移動更順暢',
@@ -401,8 +403,13 @@ const ITEMS = {
                      desc: '選中使用:貫穿光束,每發耗 1 光晶;光剋暗(所有蝕影)' },
   arrow:           { name: '箭矢', icon: '➳', desc: '獵弓與強弩的彈藥' },
   enh_scroll:      { name: '強化卷軸', icon: '📜', desc: '在工作台旁對武器/鎬/護甲衝裝(+攻擊力);怪物會掉落' },
-  iron_armor:      { name: '鐵甲', icon: '🛡️', armor: 0.3, max: 1, tint: '#5c6570', desc: '放在背包即生效,受傷 -30%' },
-  gold_armor:      { name: '金甲', icon: '🛡️', armor: 0.5, max: 1, tint: '#8a6d1f', desc: '放在背包即生效,受傷 -50%' },
+  // 裝備欄位(頭盔/胸甲/護腿):equipSlot 標記穿哪格,右鍵或拖進裝備格生效,跟舊版「背包裡最好的一件」不同
+  iron_armor:      { name: '鐵甲', icon: '🛡️', armor: 0.3, equipSlot: 'chest', max: 1, tint: '#5c6570', desc: '裝備欄:胸甲,受傷 -30%' },
+  gold_armor:      { name: '金甲', icon: '🛡️', armor: 0.5, equipSlot: 'chest', max: 1, tint: '#8a6d1f', desc: '裝備欄:胸甲,受傷 -50%' },
+  iron_helmet:     { name: '鐵盔', icon: '🪖', armor: 0.12, equipSlot: 'head', max: 1, tint: '#5c6570', desc: '裝備欄:頭盔,受傷 -12%(與胸甲疊加)' },
+  gold_helmet:     { name: '金盔', icon: '🪖', armor: 0.20, equipSlot: 'head', max: 1, tint: '#8a6d1f', desc: '裝備欄:頭盔,受傷 -20%(與胸甲疊加)' },
+  iron_greaves:    { name: '鐵護腿', icon: '🥾', speedBonus: 0.05, equipSlot: 'legs', max: 1, tint: '#5c6570', desc: '裝備欄:護腿,移動速度 +5%' },
+  gold_greaves:    { name: '金護腿', icon: '🥾', speedBonus: 0.08, equipSlot: 'legs', max: 1, tint: '#8a6d1f', desc: '裝備欄:護腿,移動速度 +8%' },
   // 農耕:鏟子只用來翻土,不能拿去挖牆(doMine 完全不認得 till 這個欄位);
   // seed 記錄要種出哪種作物,對照 CROP_TYPES 的 key
   shovel:          { name: '鏟子', icon: '🥄', till: true, max: 1, desc: '對地板右鍵翻成農地;鏟子不能用來挖牆' },
@@ -506,10 +513,14 @@ const RECIPES = [
   { out: 'copper_sword',n: 1, cost: { copper_bar: 3, wood: 1 }, station: 'workbench' },
   { out: 'iron_pick',   n: 1, cost: { iron_bar: 3, wood: 1 },   station: 'workbench' },
   { out: 'iron_sword',  n: 1, cost: { iron_bar: 3, wood: 1 },   station: 'workbench' },
-  { out: 'iron_armor',  n: 1, cost: { iron_bar: 5 },            station: 'workbench' },
+  { out: 'iron_armor',   n: 1, cost: { iron_bar: 5 },            station: 'workbench' },
+  { out: 'iron_helmet',  n: 1, cost: { iron_bar: 3 },            station: 'workbench' },
+  { out: 'iron_greaves', n: 1, cost: { iron_bar: 3 },            station: 'workbench' },
   { out: 'gold_pick',   n: 1, cost: { gold_bar: 3, wood: 1 },   station: 'workbench' },
   { out: 'gold_sword',  n: 1, cost: { gold_bar: 3, wood: 1 },   station: 'workbench' },
-  { out: 'gold_armor',  n: 1, cost: { gold_bar: 5 },            station: 'workbench' },
+  { out: 'gold_armor',   n: 1, cost: { gold_bar: 5 },            station: 'workbench' },
+  { out: 'gold_helmet',  n: 1, cost: { gold_bar: 3 },            station: 'workbench' },
+  { out: 'gold_greaves', n: 1, cost: { gold_bar: 3 },            station: 'workbench' },
   { out: 'bow',          n: 1, cost: { wood: 6 },                        station: 'workbench' },
   { out: 'arrow',        n: 8, cost: { wood: 1, stone: 1 },              station: 'workbench' },
   { out: 'copper_spear', n: 1, cost: { copper_bar: 2, wood: 2 },         station: 'workbench' },
@@ -633,6 +644,22 @@ function isEnhancable(id) {
   const it = ITEMS[id];
   return !!(it && (it.sword || it.pick || it.armor || it.ranged));
 }
+
+// 裝備欄位(頭盔/胸甲/護腿),類似創世神的分部位裝備;護腿刻意給移速而非護甲,跟胸甲/頭盔做出取捨差異
+const EQUIP_SLOT_NAME = { head: '頭盔', chest: '胸甲', legs: '護腿' };
+
+// 怪物掉裝備:越強的怪 pool 越好,機率調這裡就好(不用動邏輯)。rate 是每隻怪死亡時的判定機率
+const EQUIP_DROP_CFG = {
+  pools: {
+    weak:  ['iron_helmet', 'iron_greaves'],
+    mid:   ['iron_helmet', 'iron_greaves', 'iron_armor'],
+    elite: ['gold_helmet', 'gold_greaves', 'gold_armor'],
+  },
+  rate: { imp: 0.02, spore: 0.015, hunter: 0.04, spitter: 0.05, bomber: 0.05, phantom: 0.06, breaker: 0.08, abyss: 0.08, revenant: 0.12, voidling: 0.12 },
+  tier: { imp: 'weak', spore: 'weak', hunter: 'weak', spitter: 'mid', bomber: 'mid', phantom: 'mid', breaker: 'mid', abyss: 'elite', revenant: 'elite', voidling: 'elite' },
+  eliteMult: 3, // 精英巢穴怪(e.elite)機率倍率
+  bossPool: ['gold_helmet', 'gold_greaves', 'gold_armor'], // 神殿 Boss/暗潮最終波守衛必掉一件金裝
+};
 
 // 已放置物件的耐久(地刺的 hp 直接當「剩餘刺數」用,跟 SPIKE_TRAP_CFG.charges 綁定)
 const OBJ_HP = { torch: 4, workbench: 20, furnace: 20, tower: 50, archer_tower: 40, chest: 12, nest: 60, auto_miner: 30, belt: 8, storage: 30, auto_smelter: 30, lantern: 4, crystal_lamp: 8, banner: 4,

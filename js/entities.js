@@ -14,6 +14,7 @@ function makePlayer(id, name) {
     downed: false, downedT: 0, reviveP: 0, // 隊友救援(倒地非陣亡),見 REVIVE_CFG
     emoteCD: 0, // 快速手勢冷卻(防手滑連點洗頻),見 EMOTE_CFG
     pet: null, // 目前出戰的寵物(PET_TYPES 的 key 或 null),見 doPet
+    equip: { head: null, chest: null, legs: null }, // 裝備欄:{id,lv,dur} 或 null,見 doEquip/bestArmor
     lv: 1, xp: 0,
     stamina: 100, dashCD: 0, dashT: 0,
     buffs: {},   // 料理 buff:kind -> { mult/value, t 剩餘秒數 }
@@ -203,6 +204,15 @@ function hurtEnemy(e, dmg, src, kbF, atkElem) {
   if (e.hp <= 0) killEnemy(e, src && src.name ? src : null);
 }
 
+function randChoice(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+// 一般怪掉裝備:機率與掉哪個檔次的裝備都查 EQUIP_DROP_CFG(config.js),調數值不用碰這裡
+function rollEquipDrop(e) {
+  const rate = EQUIP_DROP_CFG.rate[e.type];
+  if (!rate) return;
+  if (Math.random() >= rate * (e.elite ? EQUIP_DROP_CFG.eliteMult : 1)) return;
+  const pool = EQUIP_DROP_CFG.pools[EQUIP_DROP_CFG.tier[e.type] || 'weak'];
+  spawnDrop(randChoice(pool), 1, e.x, e.y);
+}
 function killEnemy(e, killer) {
   const i = G.enemies.indexOf(e);
   if (i >= 0) G.enemies.splice(i, 1);
@@ -216,6 +226,7 @@ function killEnemy(e, killer) {
   // 戰利品:蝕影掉光晶,回饋防守循環;各怪都有機率掉強化卷軸(衝裝來源)
   const SCROLL_RATE = { imp: 0.03, spore: 0.02, hunter: 0.06, spitter: 0.08, bomber: 0.08, phantom: 0.1, breaker: 0.12, abyss: 0.1, revenant: 0.18, voidling: 0.15 };
   if (SCROLL_RATE[e.type] && Math.random() < SCROLL_RATE[e.type]) spawnDrop('enh_scroll', 1, e.x, e.y);
+  rollEquipDrop(e); // 怪物掉裝備:越強的怪 pool 越好,機率在 EQUIP_DROP_CFG 調(config.js)
   if (e.type === 'imp') { if (Math.random() < 0.4) spawnDrop('lumite', 1, e.x, e.y); }
   else if (e.type === 'spore') { if (Math.random() < 0.25) spawnDrop('lumite', 1, e.x, e.y); }
   else if (e.type === 'hunter') spawnDrop('lumite', 1 + (Math.random() < 0.5 ? 1 : 0), e.x, e.y);
@@ -239,12 +250,14 @@ function killEnemy(e, killer) {
   else if (e.type === 'sentinel' && !e.home) {
     // 暗潮最終波的裸體石像守衛(game.js):不是神殿 Boss,維持原掉落,不進神殿死亡流程
     spawnDrop('lumite', 4, e.x, e.y);
+    spawnDrop(randChoice(EQUIP_DROP_CFG.bossPool), 1, e.x, e.y); // 最終波 Boss 必掉一件金裝
   }
   else if (e.home) {
     // 神殿 Boss 共用死亡流程:任何有 e.home 的敵人都是某座神殿的守衛,
     // 之後新增冰系/穿牆系 Boss 只要 spawnShrineBosses() 生成時帶 home,這裡完全不用再改
     const et = ENEMY_TYPES[e.type];
     spawnDrop('enh_scroll', 2, e.x, e.y);   // 守衛必掉 2 張卷軸
+    spawnDrop(randChoice(EQUIP_DROP_CFG.bossPool), 1, e.x, e.y); // 神殿 Boss 必掉一件金裝
     const owner = killer || nearestAlivePlayer(e.x, e.y, 999) || [...G.players.values()][0];
     const shrine = G.shrines.find(s => s.x === e.home.x && s.y === e.home.y);
     if (shrine) shrine.dead = true;
@@ -870,6 +883,47 @@ function doPet(p, slot) {
     unlockAchv('first_pet');
   } else {
     addFloater(p.x, p.y - 0.8, '寵物收回了', '#8899aa');
+  }
+}
+
+// 裝備欄位(頭盔/胸甲/護腿):右鍵背包裡的裝備自動穿上對應欄位,原本穿著的那件退回背包(背包滿了就掉在腳邊)
+function doEquip(p, slot) {
+  if (p.dead) return;
+  const s = p.inv[slot];
+  const it = s && ITEMS[s.id];
+  if (!it || !it.equipSlot) return;
+  const part = it.equipSlot;
+  const old = p.equip[part];
+  p.equip[part] = { id: s.id, lv: s.lv || 0, dur: s.dur };
+  p.inv[slot] = null;
+  if (old) {
+    if (addEnhancedItem(p, old.id, old.lv, old.dur)) spawnDrop(old.id, 1, p.x, p.y, old.lv, old.dur);
+  }
+  p.invDirty = true;
+  addFloater(p.x, p.y - 0.8, `已裝備 ${it.name}`, '#7dff8e');
+  emitFx({ k: 'sfx', s: 'craft' });
+}
+function doUnequip(p, part) {
+  if (p.dead || !p.equip || !p.equip[part]) return;
+  const eq = p.equip[part];
+  p.equip[part] = null;
+  if (addEnhancedItem(p, eq.id, eq.lv, eq.dur)) spawnDrop(eq.id, 1, p.x, p.y, eq.lv, eq.dur);
+  p.invDirty = true;
+}
+// 舊存檔沒有 equip 欄位:掃背包找最好的胸甲類裝備自動穿上,保留原本的防禦力(見 CLAUDE.md 裝備欄位一節)
+function migrateLegacyArmor(p) {
+  if (p.equip) return;
+  p.equip = { head: null, chest: null, legs: null };
+  let bestI = -1, bestV = 0;
+  for (let i = 0; i < p.inv.length; i++) {
+    const s = p.inv[i];
+    const it = s && ITEMS[s.id];
+    if (it && it.equipSlot === 'chest' && it.armor > bestV) { bestV = it.armor; bestI = i; }
+  }
+  if (bestI >= 0) {
+    const s = p.inv[bestI];
+    p.equip.chest = { id: s.id, lv: s.lv || 0, dur: s.dur };
+    p.inv[bestI] = null;
   }
 }
 

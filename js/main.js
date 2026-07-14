@@ -157,7 +157,7 @@ function localControl(me, dt) {
     // 軌道加速:腳下 tile 是軌道就大幅提速(軌道地形靠 setTile 廣播,雙端都知道哪裡有軌道,本地預測算得出一致移速)
     const onRail = tileAt(Math.floor(me.x), Math.floor(me.y)) === T.RAIL;
     const spd = 4.6 * (me.dashT > 0 ? DASH_CFG.mult : 1) * buffMult(me, 'speed') * buffMult(me, 'slow')
-      * (1 + TALENTS.swift.val * talRank(me, 'swift')) * (1 + petVal(me, 'speed')) * (onRail ? RAIL_CFG.speedMult : 1);
+      * (1 + TALENTS.swift.val * talRank(me, 'swift')) * (1 + petVal(me, 'speed')) * (1 + equipSpeedBonus(me)) * (onRail ? RAIL_CFG.speedMult : 1);
     moveCircle(me, dx / len * spd * dt, dy / len * spd * dt);
   }
   // 瞄準
@@ -256,6 +256,10 @@ function localControl(me, dt) {
           // 寵物召喚物:純粹切換 p.pet 欄位,不消耗物品
           if (NET.isHost()) doPet(me, me.sel);
           else NET.act({ t: 'pet', slot: me.sel });
+        } else if (it.equipSlot) {
+          // 裝備欄位:右鍵自動穿上對應欄位,不做本地預測(等下一次快照的 me.equip 更新面板)
+          if (NET.isHost()) doEquip(me, me.sel);
+          else NET.act({ t: 'equip', slot: me.sel });
         }
       }
     }

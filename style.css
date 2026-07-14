@@ -236,6 +236,18 @@ button.mini { font-size: 11px; padding: 3px 9px; border-radius: 6px; }
 #invgrid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; margin-bottom: 10px; }
 #invgrid .slot { width: auto; height: 50px; }
 #invgrid .slot.hotrow { border-bottom-color: #7ef0ff55; }
+
+/* 裝備欄位(頭盔/胸甲/護腿):空格顯示部位提示圖示(半透明),穿上後顯示裝備本身圖示 */
+#equipSlots { display: flex; gap: 8px; margin-bottom: 10px; }
+.eqslot { position: relative; flex: 1; height: 50px; border: 1px dashed var(--line-soft);
+  background: linear-gradient(180deg, #12161fcc, #0a0d14cc);
+  border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 24px; transition: border-color .12s, transform .12s; }
+.eqslot:hover { border-color: var(--glow); transform: scale(1.03); }
+.eqslot .eqicon { opacity: .35; }
+.eqslot.filled { border-style: solid; border-color: var(--gold); }
+.eqslot.filled .eqicon { display: none; }
+.eqslot .eqlabel { position: absolute; bottom: -2px; left: 0; right: 0; text-align: center; font-size: 9px; color: #6b7690; }
 #enhPanel { background: #10141fcc; border: 1px solid #3a4152; border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
 #enhPanel .enh-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 #enhPanel .enh-icon { font-size: 22px; }

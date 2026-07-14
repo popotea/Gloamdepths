@@ -298,7 +298,7 @@ function winGame() {
 function buildSave() {
   // 把目前所有玩家的背包記進名字表,離線好友下次同名加入可拿回
   for (const p of G.players.values()) {
-    G.playersByName[p.name] = { inv: p.inv, hp: p.hp, x: p.x, y: p.y, lv: p.lv, xp: p.xp, talents: p.talents, pet: p.pet };
+    G.playersByName[p.name] = { inv: p.inv, hp: p.hp, x: p.x, y: p.y, lv: p.lv, xp: p.xp, talents: p.talents, pet: p.pet, equip: p.equip };
   }
   return {
     v: 1, seed: G.seed, time: G.time, killCount: G.killCount, difficulty: G.difficulty, unsealed: G.unsealed,
@@ -417,6 +417,8 @@ function applySave(s, name) {
     p.maxhp = playerMaxHp(p);
     p.hp = Math.min(p.maxhp, saved.hp);
     p.pet = saved.pet || null;
+    p.equip = saved.equip || null;
+    migrateLegacyArmor(p); // 舊存檔沒有 equip 欄位,從背包裡挑一件胸甲自動穿上
   }
   G.players.set(0, p);
   G.started = true;
@@ -436,6 +438,8 @@ function playerJoinAs(id, name) {
     p.maxhp = playerMaxHp(p);
     p.hp = Math.max(30, Math.min(p.maxhp, saved.hp));
     p.pet = saved.pet || null;
+    p.equip = saved.equip || null;
+    migrateLegacyArmor(p); // 舊存檔沒有 equip 欄位,從背包裡挑一件胸甲自動穿上
   }
   G.players.set(id, p);
   return p;

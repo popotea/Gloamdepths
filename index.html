@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>微光深淵 Gloamdepths</title>
-<link rel="stylesheet" href="style.css?v=66">
+<link rel="stylesheet" href="style.css?v=67">
 <!-- PeerJS:與朋友連線用(免費信令服務);沒網路時仍可離線單人遊玩 -->
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
@@ -43,7 +43,12 @@
   <div id="emotePanel" class="menu-panel hidden"></div>
   <div id="invpanel" class="panel-glass hidden">
     <h3>背包 <button id="btnSortInv" class="mini">🧹 整理</button>
-      <span class="hint">(左鍵點一格再點另一格可交換;右鍵點裝備可強化;護甲放背包即生效)</span></h3>
+      <span class="hint">(左鍵點一格再點另一格可交換;右鍵點裝備可強化;右鍵護甲類/拖進裝備欄可穿上)</span></h3>
+    <div id="equipSlots">
+      <div class="eqslot" data-part="head" title="頭盔"><span class="eqicon">🪖</span><span class="icon"></span><span class="eqlabel">頭盔</span></div>
+      <div class="eqslot" data-part="chest" title="胸甲"><span class="eqicon">🛡️</span><span class="icon"></span><span class="eqlabel">胸甲</span></div>
+      <div class="eqslot" data-part="legs" title="護腿"><span class="eqicon">🥾</span><span class="icon"></span><span class="eqlabel">護腿</span></div>
+    </div>
     <div id="invgrid"></div>
     <div id="enhPanel" class="hidden"></div>
     <h3>合成 <span class="hint">(✋徒手 🛠️需工作台 🔥需熔爐)</span></h3>
@@ -62,15 +67,15 @@
     <div id="mapHint">🖱️滾輪縮放・拖曳平移・M/Esc 關閉</div>
   </div>
 </div>
-<script src="js/config.js?v=66"></script>
-<script src="js/sfx.js?v=66"></script>
-<script src="js/world.js?v=66"></script>
-<script src="js/inventory.js?v=66"></script>
-<script src="js/entities.js?v=66"></script>
-<script src="js/game.js?v=66"></script>
-<script src="js/net.js?v=66"></script>
-<script src="js/render.js?v=66"></script>
-<script src="js/ui.js?v=66"></script>
-<script src="js/main.js?v=66"></script>
+<script src="js/config.js?v=67"></script>
+<script src="js/sfx.js?v=67"></script>
+<script src="js/world.js?v=67"></script>
+<script src="js/inventory.js?v=67"></script>
+<script src="js/entities.js?v=67"></script>
+<script src="js/game.js?v=67"></script>
+<script src="js/net.js?v=67"></script>
+<script src="js/render.js?v=67"></script>
+<script src="js/ui.js?v=67"></script>
+<script src="js/main.js?v=67"></script>
 </body>
 </html>

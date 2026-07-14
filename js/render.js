@@ -743,7 +743,8 @@ function render(dt) {
     const walk = moving ? Math.sin(p._walkPh ?? 0) : 0;
 
     // 護甲等級決定輪廓色(無甲=深色 / 鐵甲=銀邊 / 金甲=金邊)
-    const armor = bestArmor(p);
+    // 房主端 p.equip 是正確的即時資料;客戶端看別人時要靠快照同步的 armorPct(自己的 p.equip 也有同步,兩者算出來一致)
+    const armor = NET.isHost() ? bestArmor(p) : (p.armorPct || 0) / 100;
     const outline = armor >= 0.5 ? '#ffd23f' : armor >= 0.3 ? '#c8ced8' : '#0008';
     const outlineW = armor > 0 ? 3 : 2;
 

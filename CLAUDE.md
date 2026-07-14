@@ -245,4 +245,15 @@
 
 ## 主選單更新紀錄(2026-07-14,第十批)
 - **`CHANGELOG`(config.js)是純展示的靜態陣列**,不影響任何遊戲邏輯,新增功能時手動把最新一筆加到陣列最前面(最新在最上面)——沒有自動從 git log 產生,純手動維護,寫的時候要用玩家看得懂的語氣(不是 commit message 那種開發者向的技術敘述)。
+
+## 角色裝備欄位 + 怪物掉裝備(2026-07-14,第十一批)
+玩家要求「類似創世神,有各個部位」——把原本「護甲丟進背包 32 格任一格就自動生效(取最好一件)」的機制,換成頭盔/胸甲/護腿三個獨立欄位,並讓怪物死亡有機會掉裝備(越強的怪掉越好的)。
+- **`p.equip = { head, chest, legs }`**(entities.js `makePlayer`),每格是 `{id, lv, dur}` 或 `null`。物品定義新增 `equipSlot: 'head'|'chest'|'legs'` 欄位(config.js `ITEMS`)——**沿用既有的 `iron_armor`/`gold_armor` 當胸甲**(補上 `equipSlot:'chest'`,數值完全不動,避免動到舊玩家已經在用的裝備平衡),新增 `iron_helmet`/`gold_helmet`(頭盔,護甲 0.12/0.20)與 `iron_greaves`/`gold_greaves`(護腿,**給移動速度 +5%/+8% 而不是護甲**,刻意做出取捨差異,呼應寵物系統「不同裝備給不同種加成」的既有設計語言)。
+- **`bestArmor(p)`(inventory.js)語意整個換掉**:舊版掃 32 格背包取單一最好的一件,新版改成**頭盔+胸甲相加**(各自套 `enhArmorBonus`,合計封頂 0.8)、護腿不計入護甲。**函式名字/簽章刻意不改**,兩個既有呼叫點(`damagePlayer`、render.js 的外框顏色判斷)完全不用碰。新增 `equipSpeedBonus(p)` 讀護腿,套用點在 main.js `localControl` 的移速公式,跟天賦/料理 buff/寵物同一套疊乘模式。
+- **穿脫是 `doEquip(p,slot)`/`doUnequip(p,part)`(entities.js)**,host 權威。穿上:讀該背包格 `it.equipSlot`,原本佔用該欄位的裝備退回背包(背包滿了用 `spawnDrop` 掉腳邊,同一套溢出慣例)。**強化等級(`lv`)在穿脫之間完整保留**——衝裝要在還沒穿上/先卸下時對背包裡的那個格子右鍵開強化面板(`isEnhancable` 認 `it.armor`,頭盔/胸甲都算,護腿沒有 `armor` 欄位所以不能衝裝,只能透過升級到金護腿換更高速度加成)。
+- **互動方式雙軌**:①右鍵背包裡的裝備類物品(選中快捷欄再對世界右鍵,跟寵物/歸巢螢石同一套 `it.equipSlot` 分派模式,main.js)②把背包格拖到 `#invpanel` 新增的 `#equipSlots` 三格上(`ondragover`/`ondrop`,複製箭塔彈藥格那套既有拖放模式,ui.js `initUI`);點裝備欄格子 = 卸下。兩條路徑最終都走 `doEquip`/`doUnequip`,不重複寫邏輯。
+- **同步是「私有全量 + 公開摘要」兩層,不是整包广播**:`p.equip` 完整物件只在 host 每個連線各自的私有 `me` 頻道帶給本人(hostTick 的 per-client send,跟 `inv`/`talents` 同一個管道;`init` 封包的頂層 `equip` 欄位也是給剛加入的自己),因為只有自己需要面板細節。**其他玩家只需要一個衍生出來的護甲百分比**(`Math.round(bestArmor(p)*100)`)塞進玩家 tuple 尾端(snap+init 各一次編碼、對應兩處解碼,共 4 處),純粹是給 render.js 畫外框顏色用——**這順便修掉一個從寵物系統之前就存在的潛在 bug**:客戶端看別人的外框顏色以前是直接呼叫 `bestArmor(otherPlayer)`,但別人的 `p.inv`/`p.equip` 從來沒同步過,算出來永遠是空的;現在 render.js 改成「host 自己算是即時的 `bestArmor(p)`,client 一律讀同步來的 `p.armorPct`」(`NET.isHost()` 判斷),兩邊都對。
+- **舊存檔遷移(`migrateLegacyArmor`,entities.js)**:舊存檔沒有 `equip` 欄位,restore 時傳進來是 `undefined`,guard 條件 `if (p.equip) return` 會放行遷移邏輯——掃該玩家背包找 `equipSlot==='chest'` 裡護甲值最高的一件自動穿上(對應舊版「取最好一件」的行為,讓老玩家讀檔後防禦力不會憑空消失),沒找到就給空殼 `{head:null,chest:null,legs:null}`。**兩個還原點(game.js 的房主自己重登、`playerJoinAs` 朋友重連)都要呼叫**,新玩家因為 `makePlayer` 已經給了非 null 的 `equip`,guard 會直接跳過(no-op),不會誤觸發。
+- **怪物掉裝備(`EQUIP_DROP_CFG`,config.js)**:沿用既有 `SCROLL_RATE` 那套「每個怪類型一個機率,查表不用改邏輯」的模式,`rate`/`tier` 兩張表決定「多容易掉」跟「掉哪個檔次的池子」(`weak`/`mid`/`elite`,越強的怪類型只出現在後面的池子,越強的怪→越好的裝備),`eliteMult` 是精英巢穴怪(`e.elite`)的機率倍率。**機率就是這張表裡的數字,要調平衡直接改 `rate`,不用碰程式邏輯**(對應玩家提出的「機率是否可調整」)。神殿 Boss 與暗潮最終波守衛額外**必掉**一件 `bossPool`(金裝)隨機一件,走既有的 `e.home`/`sentinel` 死亡分支,不跟 `rollEquipDrop` 的隨機池重疊(那兩個分支的怪類型本來就不在 `rate` 表裡,不會被判定第二次)。
+- 測試:`simtest8.js`(31 個斷言)涵蓋穿脫/退回背包、護甲相加不是取最好、護腿移速加成、強化等級穿脫保留、傷害計算實際吃到裝備、存讀檔/朋友重連保留裝備欄、舊存檔遷移(含沒有裝備跟已遷移過兩種邊界)、怪物掉裝備機率與池子分層、精英倍率、Boss 必掉金裝。
 - **UI 走既有的 `setOverlay(mode)` 多模式 overlay 架構**,新增 `'changelog'` 分支(仿 `'slots'`/`'win'` 等既有分支的寫法),不是另開一個獨立面板系統。主選單標題下方加一顆低調的文字連結按鈕(`.linklike`,不搶新世界/繼續存檔等主要按鈕的視覺重量),點了切到 `setOverlay('changelog')`,返回按鈕切回 `setOverlay('start')`。

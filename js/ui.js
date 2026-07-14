@@ -29,7 +29,7 @@ function initUI() {
     hotbar: $id('hotbar'), msglog: $id('msglog'),
     chatlog: $id('chatlog'), chatbox: $id('chatbox'), chatInput: $id('chatInput'),
     invpanel: $id('invpanel'), invgrid: $id('invgrid'), craftlist: $id('craftlist'), crafttabs: $id('crafttabs'),
-    enhPanel: $id('enhPanel'),
+    enhPanel: $id('enhPanel'), equipSlots: $id('equipSlots'),
     towerPanel: $id('towerPanel'), towerBody: $id('towerBody'),
     traderPanel: $id('traderPanel'),
     storagePanel: $id('storagePanel'),
@@ -72,6 +72,27 @@ function initUI() {
     };
     UI.els.invgrid.appendChild(d);
   }
+  // 裝備欄位(頭盔/胸甲/護腿):點一下卸下、拖背包格進來穿上,跟箭塔彈藥格同一套拖放模式
+  UI.els.equipSlots.querySelectorAll('.eqslot').forEach(el => {
+    const part = el.dataset.part;
+    el.onclick = () => {
+      const me = myPlayer();
+      if (!me) return;
+      if (NET.isHost()) doUnequip(me, part);
+      else NET.act({ t: 'unequip', part });
+    };
+    el.ondragover = (ev) => ev.preventDefault();
+    el.ondrop = (ev) => {
+      ev.preventDefault();
+      const from = +ev.dataTransfer.getData('text/plain');
+      const me = myPlayer();
+      const s = me && me.inv[from];
+      const it = s && ITEMS[s.id];
+      if (!it || it.equipSlot !== part) return;
+      if (NET.isHost()) doEquip(me, from);
+      else NET.act({ t: 'equip', slot: from });
+    };
+  });
   UI.els.hostBtn.onclick = openRoom;
   UI.els.roomcode.onclick = () => {
     navigator.clipboard?.writeText(NET.code);
@@ -470,7 +491,21 @@ function refreshSlots() {
   if (!me) return;
   [...UI.els.hotbar.children].forEach((el, i) => slotHTML(el, me.inv[i], me.sel === i));
   [...UI.els.invgrid.children].forEach((el, i) => slotHTML(el, me.inv[i], false, UI.pendingSwap === i));
+  renderEquipSlots(me);
   if (UI.enhSlot >= 0) renderEnhPanel();
+}
+
+// 裝備欄位面板:空格顯示部位圖示提示,穿上後顯示該裝備的圖示(+強化等級)
+function renderEquipSlots(me) {
+  UI.els.equipSlots.querySelectorAll('.eqslot').forEach(el => {
+    const part = el.dataset.part;
+    const eq = me.equip && me.equip[part];
+    const it = eq && ITEMS[eq.id];
+    const iconEl = el.querySelector('.icon');
+    el.classList.toggle('filled', !!it);
+    iconEl.textContent = it ? it.icon : '';
+    el.title = it ? `${EQUIP_SLOT_NAME[part]}:${it.name}${eq.lv ? ' +' + eq.lv : ''}(點一下卸下)` : `${EQUIP_SLOT_NAME[part]}(拖裝備進來穿上)`;
+  });
 }
 
 // ===== 箭塔面板:右鍵箭塔開啟,像儲物櫃一樣把箭矢拖進彈藥格補彈 =====

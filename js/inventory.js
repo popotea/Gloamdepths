@@ -195,15 +195,22 @@ function weaponOf(p) {
   if (s && ITEMS[s.id].sword)  return { ...ITEMS[s.id].sword,  name: ITEMS[s.id].name, icon: ITEMS[s.id].icon, dmg: ITEMS[s.id].sword.dmg * enhMult(s) };
   return bestSword(p);
 }
+// 裝備欄的護甲值:頭盔+胸甲相加(不是取最好一件),護腿不計入
 function bestArmor(p) {
-  let best = 0;
-  for (const s of p.inv) {
-    if (s && ITEMS[s.id].armor) {
-      const v = Math.min(0.8, ITEMS[s.id].armor + enhArmorBonus(s));
-      if (v > best) best = v;
-    }
+  if (!p.equip) return 0;
+  let total = 0;
+  for (const part of ['head', 'chest']) {
+    const eq = p.equip[part];
+    const it = eq && ITEMS[eq.id];
+    if (it && it.armor) total += it.armor + enhArmorBonus(eq);
   }
-  return best;
+  return Math.min(0.8, total);
+}
+// 護腿的移動速度加成
+function equipSpeedBonus(p) {
+  const eq = p.equip && p.equip.legs;
+  const it = eq && ITEMS[eq.id];
+  return (it && it.speedBonus) || 0;
 }
 
 // 附近是否有指定合成站
