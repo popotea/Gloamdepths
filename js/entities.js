@@ -241,6 +241,13 @@ function killEnemy(e, killer) {
     msgAll(`🗿 ${killer ? killer.name : '螢火隊'}擊破了深怪祭壇的看守者!祭壇中央的寶箱開啟了`);
     unlockAchv('altar_breaker');
   }
+  else if (e.voidLord) {
+    // 淵核區終極守護者:全遊戲最強單體,獨立死亡分支(不落神殿/祭壇的既有流程),只有一隻、死了不重生
+    for (const id in VOID_LORD_LOOT) spawnDrop(id, VOID_LORD_LOOT[id], e.x, e.y);
+    if (G.voidLord) G.voidLord.dead = true;
+    msgAll(`👑 ${killer ? killer.name : '螢火隊'}擊敗了淵魄君主・冥!深淵最古老的黑暗,終於安靜下來了。`);
+    unlockAchv('void_lord_slain');
+  }
   else if (e.type === 'imp') { if (Math.random() < 0.4) spawnDrop('lumite', 1, e.x, e.y); }
   else if (e.type === 'spore') { if (Math.random() < 0.25) spawnDrop('lumite', 1, e.x, e.y); }
   else if (e.type === 'hunter') spawnDrop('lumite', 1 + (Math.random() < 0.5 ? 1 : 0), e.x, e.y);

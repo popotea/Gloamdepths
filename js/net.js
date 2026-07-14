@@ -121,7 +121,7 @@ const NET = {
         tiles: rleEnc(G.tiles), explored: rleEnc(G.explored),
         objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null, o.stage ?? null, o.t ?? null, o.nestType ?? null, o.dir ?? null, o.fuel ?? null, o.items ?? null]),
         core: { energy: G.core.energy, shards: G.core.shards, shield: G.core.shield || 0 },
-        shrines: G.shrines, traders: G.traders, altars: G.altars, questNpcs: G.questNpcs, quests: G.quests,
+        shrines: G.shrines, traders: G.traders, altars: G.altars, questNpcs: G.questNpcs, quests: G.quests, voidLord: G.voidLord,
         wave: G.wave, time: G.time, difficulty: G.difficulty, unsealed: G.unsealed, won: G.won,
         bestiary: G.bestiary, achv: G.achv,
         players: [...G.players.values()].map(pl => [pl.id, pl.name, pl.x, pl.y, pl.hp, pl.dead ? 1 : 0, pl.lv || 1, pl.xp || 0, pl.downed ? 1 : 0, Math.ceil(pl.downedT || 0), Math.round((pl.reviveP || 0) * 100), pl.pet || null, Math.round(bestArmor(pl) * 100)]),
@@ -385,6 +385,7 @@ const NET = {
         G.core.energy = d.core.energy; G.core.shards = d.core.shards; G.core.shield = d.core.shield || 0;
         G.shrines = d.shrines; G.traders = d.traders || []; G.altars = d.altars || []; G.wave = d.wave; G.time = d.time;
         G.questNpcs = d.questNpcs || []; G.quests = d.quests || { active: {}, done: {} };
+        G.voidLord = d.voidLord || null;
         G.difficulty = DIFFICULTY_CFG[d.difficulty] ? d.difficulty : 'normal';
         G.unsealed = !!d.unsealed;
         G.won = !!d.won;

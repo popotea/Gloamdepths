@@ -736,7 +736,7 @@ function render(dt) {
       ctx.ellipse(sx, sy, er * TILE * squash, er * TILE / squash, 0, 0, TAU);
       ctx.fill();
       if (et.boss) {
-        ctx.strokeStyle = e.type === 'fire_boss' ? '#ff8f4a' : e.type === 'frost_boss' ? '#bfe8ff' : e.type === 'void_boss' ? '#e0a0ff' : '#8a90a5';
+        ctx.strokeStyle = e.type === 'fire_boss' ? '#ff8f4a' : e.type === 'frost_boss' ? '#bfe8ff' : e.type === 'void_boss' ? '#e0a0ff' : e.type === 'void_lord' ? '#ff4dfd' : '#8a90a5';
         ctx.lineWidth = 3; ctx.stroke();
       }
       // 發光的眼睛(黑暗氛圍重點;Q版改版:放大 20% + 白色高光點,一顆高光讓眼睛「活」起來)

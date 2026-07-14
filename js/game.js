@@ -69,6 +69,7 @@ function startNewGame(name, difficulty) {
   G.players.set(0, p);
   spawnShrineBosses();
   spawnAltarGuardians();
+  spawnVoidLord(); // 新世界 G.unsealed 一定是 false,這裡是 no-op;為了跟其他兩個生成函式對稱一起呼叫,萬一以後規則變動不會漏放
   G.started = true;
   showMsg('🕯️ 星核熄滅後,黑暗湧回深淵——而你們是「螢火隊」,來把光帶回來的!');
   showMsg('🌑 星核肚子咕嚕叫了!挖光晶💠(藍色礦脈)按 F 餵它一口~');
@@ -93,6 +94,14 @@ function spawnAltarGuardians() {
     e.hp = Math.round(e.hp * ALTAR_CFG.hpMult); e.maxhp = e.hp;
     e.dmgMult *= ALTAR_CFG.dmgMult;
   }
+}
+
+// 淵核區終極守護者「淵魄君主」:只有通關解封(G.unsealed)後才會真的生出敵人,通關前是 no-op。
+// 用 G.enemies.some(e=>e.voidLord) 擋重複生成(unsealVoidZone/applySave 都會呼叫這裡)
+function spawnVoidLord() {
+  if (!G.unsealed || !G.voidLord || G.voidLord.dead) return;
+  if (G.enemies.some(e => e.voidLord)) return;
+  spawnEnemy('void_lord', G.voidLord.x, G.voidLord.y, { home: { x: G.voidLord.x, y: G.voidLord.y }, voidLord: true });
 }
 
 // ===== 每幀模擬(房主) =====
@@ -331,6 +340,7 @@ function buildSave() {
     altars: G.altars.map(a => ({ x: a.x, y: a.y, dead: a.dead, zone: a.zone })),
     questNpcs: G.questNpcs.map(n => ({ x: n.x, y: n.y, npc: n.npc })),
     quests: G.quests,
+    voidLord: G.voidLord,
     playersByName: G.playersByName,
     hostName: G.players.get(G.myId)?.name || '',
     won: G.won,
@@ -408,6 +418,7 @@ function applySave(s, name) {
   G.altars = s.altars || G.altars; // 舊存檔沒有這欄位就留著 genWorld 剛生成的(新世界升級舊存檔也不會少一批據點)
   G.questNpcs = s.questNpcs || G.questNpcs;
   G.quests = s.quests || G.quests; // 同上;genWorld 已經 seed 過 requires:null 的擊殺型任務進度
+  G.voidLord = s.voidLord || G.voidLord;
   G.playersByName = s.playersByName || {};
   G.time = s.time || 0;
   G.killCount = s.killCount || 0;
@@ -422,6 +433,7 @@ function applySave(s, name) {
   rebuildLights();
   spawnShrineBosses();
   spawnAltarGuardians();
+  spawnVoidLord(); // G.unsealed 剛從存檔還原,若已通關過且淵魄君主還沒死,這裡會正確重新生成
   if (s.core.shards >= CORE_CFG.needShards && !s.won) G.wave = { n: s.wave.n, state: 'warn', timer: 20, final: true };
 
   // 用名字還原玩家背包

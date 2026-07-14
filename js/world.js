@@ -28,6 +28,7 @@ const G = {
   traders: [],          // [{x,y}] 中層區域固定攤位,不會動,不進 snap(靠 init/存讀檔同步)
   altars: [],           // [{x,y,dead,zone}] 深怪祭壇(迷你王據點),資料/實體分離同神殿——實際守衛敵人由 spawnAltarGuardians() 另外生成
   questNpcs: [],        // [{x,y,npc}] 劇情 NPC 固定攤位(不會動),npc = QUEST_NPCS 的 key
+  voidLord: null,       // {x,y,dead} 淵核區終極守護者位置/生死,資料/實體分離同神殿——實際怪物由 spawnVoidLord()(game.js)在解封那一刻生成
   quests: { active: {}, done: {} }, // active: {questId:{kills}} 只有擊殺型任務要記錄;done: {questId:true}
   playersByName: {},    // 離線好友的背包(以名字為鍵,由房主保存)
   time: 0, seed: 0, over: null, started: false,
@@ -111,6 +112,9 @@ function unsealVoidZone(fromNet = false) {
     if (G.tiles[i] === T.SEAL) { G.tiles[i] = T.FLOOR; G.lights.delete(i); G.dmg[i] = 0; G.cracks.delete(i); }
   }
   UI.mmDirty = true;
+  // 淵魄君主只在「房主真正觸發解封那一刻」生成一次(不是客戶端鏡射地形變化的那次呼叫),
+  // 這隻怪不落地形資料、只存在 G.enemies,client 端靠之後的 snap 快照自然同步,不用自己生成
+  if (!fromNet) spawnVoidLord();
   if (!fromNet && NET.isHost()) NET.sendAll({ t: 'unseal' });
 }
 
@@ -164,7 +168,7 @@ function genWorld(seed) {
   G.minerIdx.clear(); G.beltIdx.clear(); G.smelterIdx.clear(); G.frostIdx.clear(); G.decoyIdx.clear();
   G.cannonIdx.clear(); G.multiIdx.clear(); G.sniperIdx.clear();
   G.enemies = []; G.drops = []; G.floaters = []; G.projs = []; G.animals = []; G.hitFx = [];
-  G.shrines = []; G.traders = []; G.altars = []; G.questNpcs = []; G.mushCount = 0; G.warned = {}; G.killCount = 0;
+  G.shrines = []; G.traders = []; G.altars = []; G.questNpcs = []; G.voidLord = null; G.mushCount = 0; G.warned = {}; G.killCount = 0;
   // 任務日誌:每個新世界重新開始收集(跟 achv/bestiary 同一套設計語言);requires:null 的擊殺型任務
   // 一開局就要開始累計進度,所以在這裡直接 seed 一筆(其餘擊殺型任務——目前沒有——會在上一關完成時才 seed)
   G.quests = { active: {}, done: {} };
@@ -445,6 +449,34 @@ function genWorld(seed) {
       spawnAnimal(animalKinds[(rnd() * animalKinds.length) | 0], x + 0.5, y + 0.5);
       break;
     }
+  }
+
+  // 10) 淵核區終極守護者:全遊戲最強單體,只有一隻、不重生,通關解封那一刻才會實際生成敵人實體。
+  // 這裡只放置資料(位置)+挖一個小競技場(比照神殿/深怪祭壇的「資料/實體分離」模式),
+  // 深怪祭壇同一批已經走過一次這個模式,這裡直接沿用,不再重新設計
+  {
+    let placed = false;
+    for (let tries = 0; tries < 60 && !placed; tries++) {
+      const ang = rnd() * TAU, d = ZONE_R.obsidian + 8 + rnd() * (ZONE_R.voidOut - ZONE_R.obsidian - 16);
+      const cx = Math.floor(CX + Math.cos(ang) * d), cy = Math.floor(CY + Math.sin(ang) * d);
+      if (!inMap(cx, cy)) continue;
+      let ok = true;
+      for (let dy = -4; dy <= 4 && ok; dy++) for (let dx = -4; dx <= 4 && ok; dx++) {
+        const x = cx + dx, y = cy + dy;
+        if (!inMap(x, y) || G.tiles[idx(x, y)] === T.BEDROCK || G.tiles[idx(x, y)] === T.SEAL) ok = false;
+      }
+      if (!ok) continue;
+      for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
+        const dd = Math.hypot(dx, dy);
+        const x = cx + dx, y = cy + dy;
+        if (dd <= 3) { G.tiles[idx(x, y)] = T.FLOOR; G.objects.delete(idx(x, y)); }
+        else if (dd <= 4) G.tiles[idx(x, y)] = T.VOIDROCK; // 一圈淵岩收邊,標記出這是特殊房間
+      }
+      G.voidLord = { x: cx + 0.5, y: cy + 0.5, dead: false };
+      placed = true;
+    }
+    // 極端情況保底(60 次嘗試在淵核區找空地理論上綽綽有餘,這裡只是防呆不讓 G.voidLord 是 null)
+    if (!placed) G.voidLord = { x: CX + ZONE_R.obsidian + 10, y: CY, dead: false };
   }
 
   rebuildLights();

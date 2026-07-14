@@ -13,6 +13,8 @@ const TAU = Math.PI * 2;
 // 新增功能時手動往陣列最前面補一筆(最新在最上面)
 const CHANGELOG = [
   { date: '2026-07-15', items: [
+    '👑 淵核區終極守護者「淵魄君主・冥」上線:全遊戲最強單體,通關解封後才會出現,只有一隻、擊敗不重生,掉落豐厚(大量淵晶+鑽石+卷軸)',
+    '📜 鐵匠/拾光者的委託鏈各加一關「終章」,呼應淵魄君主(拾光者的終章要先擊敗牠才能交付)',
     '📜 新增劇情 NPC「鐵匠錚錚」與「拾光者微塵」,各帶 3 關委託任務(遞交材料/擊殺蝕影/達成成就),完成有專屬對話與獎勵;ESC 選單新增「📜 委託」查看進度',
     '🎁 秘笈選單新增「給予物品」下拉選單,測試/除錯拿道具不用再靠合成或運氣',
     '🏛️ 新增「深怪祭壇」迷你王據點(石岩/黑曜區,共 6 座):擊破看守者不重生,保底掉強化卷軸+一件精良裝備,還會開出一個寶箱,大地圖/小地圖都有標記',
@@ -111,8 +113,10 @@ const LEVEL_CFG = {
 const ENEMY_XP = {
   imp: 4, spore: 2, hunter: 9, spitter: 7, bomber: 6,
   phantom: 8, breaker: 20, abyss: 16, sentinel: 60, fire_boss: 65, frost_boss: 68, void_boss: 70,
-  revenant: 24, voidling: 18,
+  revenant: 24, voidling: 18, void_lord: 120,
 };
+// 淵魄君主戰利品(不落 SHRINE_BOSS_LOOT——不是神殿守衛,獨立死亡分支,詳見 entities.js killEnemy 的 e.voidLord)
+const VOID_LORD_LOOT = { void_shard: 5, enh_scroll: 3, diamond: 3 };
 
 // 神殿 Boss 額外掉落(除了必掉 2 張強化卷軸 + 1 顆星核碎片給擊殺者之外的加碼獎勵)
 const SHRINE_BOSS_LOOT = {
@@ -312,6 +316,7 @@ const ACHIEVEMENTS = {
   altar_breaker:   { name: '祭壇征服者', icon: '🗿', desc: '擊破一座深怪祭壇的看守者' },
   quest_novice:    { name: '委託新手', icon: '📜', desc: '完成第一個 NPC 委託' },
   quest_master:    { name: '委託大師', icon: '🏵️', desc: '完成所有 NPC 的委託' },
+  void_lord_slain: { name: '淵魄降服', icon: '👑', desc: '擊敗淵核區的終極守護者——淵魄君主' },
 };
 // tower_collector 成就檢查用:全隊只要地圖上同時存在這六種塔各一座就算(不分誰蓋的)
 const TOWER_COLLECTOR_TYPES = ['tower', 'archer_tower', 'frost_tower', 'cannon_tower', 'multi_tower', 'sniper_tower'];
@@ -705,6 +710,12 @@ const ENEMY_TYPES = {
   revenant: { name: '淵魂',   hp: 140, dmg: 28, r: 0.55, speed: 4.8, hopCD: 1.1, color: '#5a2a6e', eye: '#ff6cf0', shape: 'spike', elem: 'dark', icon: 'revenant.png' },
   voidling: { name: '蝕裂者', hp: 90,  dmg: 16, r: 0.46, speed: 3.8, hopCD: 1.5, color: '#3e2a6a', eye: '#c88cff', shape: 'mouth', elem: 'dark', wallMult: 3, icon: 'voidling.png',
               ranged: { range: 6, cd: 2.0, dmg: 16, speed: 8 } },
+  // 淵核區終極守護者(2026-07-15,第十八批):全遊戲最強單體,通關解封淵核區後才會生成(唯一一隻,不重生)。
+  // 遠程暗屬性彈道+落地範圍爆炸+短暫緩速,沿用火/冰系神殿 Boss 同一套 aoe 彈道機制(cfg.slow 可選欄位)
+  void_lord: { name: '淵魄君主・冥', hp: 550, dmg: 30, r: 1.0, speed: 4.0, hopCD: 2.2,
+               color: '#241830', eye: '#ff4dfd', shape: 'tank', elem: 'dark', boss: true, icon: 'void_lord.png',
+               ranged: { range: 7, cd: 2.4, dmg: 18, speed: 6.0,
+                          aoe: { r: 2.0, wallDmg: 34, slow: { mult: 0.5, dur: 2.0 } } } },
 };
 
 // 各分區(0=泥土/1=石岩/2=黑曜)的野外生成加權池:ambientSpawn(暗處自然生怪)、updateNests(一般/精英巢穴
@@ -865,6 +876,15 @@ const QUESTS = [
     intro: '「淵核區……那是連光都很難抵達的地方。如果你們真能去,拜託帶回一些見聞。(踏入淵核區)」',
     outro: '「這就是……深淵的樣子啊。謝謝你們,替我看見了我永遠去不到的地方。」',
     type: 'achv', need: 'void_breach', reward: { enh_scroll: 5, void_shard: 2 } },
+  // 第十八批:淵核區終極守護者上線,兩條委託鏈各自加一關「終章」收尾,呼應新 Boss
+  { id: 'smith4', npc: 'smith', name: '終極熔煉', requires: 'smith3',
+    intro: '「如果……如果你們真能打倒那個守著淵核區最深處的傢伙,把牠身上的碎片帶給我。我想試試,這輩子最後一次挑戰。」',
+    outro: '「……做到了。這是我這輩子打過最好的東西,謝謝你們,讓一個老鐵匠圓了夢。」',
+    type: 'deliver', need: { void_shard: 5, gold_bar: 5 }, reward: { enh_scroll: 6, diamond: 2 } },
+  { id: 'scholar4', npc: 'scholar', name: '最終的低語', requires: 'scholar3',
+    intro: '「淵核區最深處……好像有『什麼』一直在看著這一切。如果那也是被黑暗纏住的孩子,你們願意去見見牠嗎?(擊敗淵魄君主)」',
+    outro: '「原來如此……連最深最古老的黑暗,也只是想被看見而已。謝謝你們,替所有怕光又想搶光的孩子,說了這句話。」',
+    type: 'achv', need: 'void_lord_slain', reward: { enh_scroll: 8, diamond: 3, void_shard: 3 } },
 ];
 
 // 巢穴種類(世界生成時依 weight 加權抽選,見 world.js pickNestType):
