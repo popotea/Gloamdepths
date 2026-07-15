@@ -13,6 +13,11 @@ const TAU = Math.PI * 2;
 // 新增功能時手動往陣列最前面補一筆(最新在最上面)
 const CHANGELOG = [
   { date: '2026-07-15', items: [
+    '🚉 礦車升級:可以坐上去開了(空手右鍵上車/下車)!新增軌道站台,放置後礦車會照編號自動巡迴各站',
+    '🛒 新增「礦車」:放在軌道上會自動沿軌道行駛,沿途吸收掉落物、經過儲物箱/熔煉爐自動卸貨,打通遠方礦區到基地的自動化長途運輸',
+    '🏠 新增家具/裝潢系統:地毯/花磚(疊加式地板裝飾)、裝飾磚牆、椅子(坐下回血)、床鋪(設定重生點)、馬桶/沙發/書櫃/盆栽/畫框/蠟燭,自己設計家的樣子吧!',
+    '☄️ 新增隨機世界事件:「資源潮汐」(某礦物掉落量倍增)、「流星雨」(持續在玩家附近掉落稀有材料),暗潮警戒/進行中不會觸發,不影響防守節奏',
+    '💎 新增「淵藏寶庫」淵核區專屬據點(共 4 座):每座 2 隻淵魂/蝕裂者混編看守,肅清後保底掉淵晶+一件金裝,還會開出一個寶箱,大地圖/小地圖都有標記',
     '🔪 新增雙持匕首武器線(鐵/金):全近戰最快攻速,適合搭配獵殺勳章打暴擊流',
     '🧭 第三位劇情 NPC「拓路人耘」上線,委託圍繞探索里程碑(挖到鑽石/擊敗三神殿/通關)',
     '👑 淵核區終極守護者「淵魄君主・冥」上線:全遊戲最強單體,通關解封後才會出現,只有一隻、擊敗不重生,掉落豐厚(大量淵晶+鑽石+卷軸)',
@@ -175,6 +180,7 @@ const T = {
   GRAVEL: 13, COAL: 14, DIAMOND: 15, FARMLAND: 16,
   WATER: 17, FENCE: 18, RAIL: 19,
   VOIDROCK: 20, SEAL: 21, // 第五區域「淵核區」:淵岩(比黑曜更硬)/ 封印牆(通關前擋住,通關後解除)
+  DECOWALL: 22, // 裝飾磚牆(家具/裝潢批):跟石牆同耐久,純粹換個顏色蓋出好看的房間
 };
 
 // 地形資料:hp=挖掘耐久, tier=所需鎬階級, light=自帶光半徑
@@ -212,10 +218,24 @@ const TILE_INFO = {
   [T.VOIDROCK]: { solid: true, hp: 40, tier: 3, name: '淵岩', drop: { id: 'stone', n: 2 }, c1: '#3a2a52', c2: '#241830', tex: 'voidrock.png' },
   // 封印牆:通關前圍住淵核區,hp:Infinity 挖不掉(靠通關事件解除),自帶紫色封印光暈(render 特判)
   [T.SEAL]:     { solid: true, seal: true, hp: Infinity, tier: 99, name: '遠古封印', light: 1.5, c1: '#5a3a8e', c2: '#3c2868', tex: 'seal.png' },
+  // 裝飾磚牆(家具/裝潢批):跟石牆(建)同耐久同 tier,純粹是暖色調的「家用」外觀選項,
+  // 蓋法/回收/渲染完全走既有的 placeTile 通用路徑,不用碰任何邏輯
+  [T.DECOWALL]: { solid: true, hp: 90, tier: 0, name: '裝飾磚牆', drop: { id: 'deco_wall', n: 1 }, c1: '#d9a06c', c2: '#a8703f', tex: 'wall_deco.png' },
 };
 
 // 軌道加速:站在 T.RAIL 上時移速倍率(v1 只做「加速地板」,不做真的礦車實體)
 const RAIL_CFG = { speedMult: 2.6 };
+
+// 真礦車實體(3.5 v2,2026-07-15,第十八批):延續「自動採礦機→傳輸帶→自動熔煉爐→儲物箱」的
+// 自動化道鏈,補上長途運輸——礦車放上軌道後會自動沿軌道行駛,沿途吸收掉落物、經過儲物箱/熔煉爐
+// 自動卸貨。**刻意不做玩家可騎乘**(輸入覆蓋/鏡頭跟隨是完全不同方向的功能)、**刻意不做真正的
+// 目的地尋路/可設定站點**(需要軌道連通圖+尋路演算法,是候選清單點名的複雜度來源)——分岔路口
+// 用固定規則(直行優先→右轉→左轉→死路迴轉),不是智慧選路,是簡化但確定性的版本。
+const CART_CFG = { speed: 5, capacity: 8, pickupRange: 1.0, maxPerPlayer: 3 };
+// 軌道站台:貼著軌道放置的固定停靠點,礦車照編號順序(放置順序)自動巡迴,到站停留 waitTime 秒
+// 再找下一個「編號更大、路徑可達」的站台;繞不到任何站台就退回 CART_CFG 原本的固定轉向規則。
+// 刻意不做玩家手動指定目的地的面板——用放置順序當路線,零 UI 成本
+const RAIL_STATION_CFG = { waitTime: 3 };
 
 // ── 箭塔:玩家手動補箭矢的防禦建築,彈藥打完就停火,靠玩家回來補給形成天然上限 ──
 // dmg 比光塔(12)高,但沒箭就是廢鐵;每人可蓋數量上限避免堆成怪打不穿的彈幕牆
@@ -319,12 +339,29 @@ const ACHIEVEMENTS = {
   quest_novice:    { name: '委託新手', icon: '📜', desc: '完成第一個 NPC 委託' },
   quest_master:    { name: '委託大師', icon: '🏵️', desc: '完成所有 NPC 的委託' },
   void_lord_slain: { name: '淵魄降服', icon: '👑', desc: '擊敗淵核區的終極守護者——淵魄君主' },
+  vault_keeper:    { name: '寶庫奪取者', icon: '💎', desc: '肅清一座淵藏寶庫的所有看守者' },
+  world_event_seen: { name: '天有異象', icon: '☄️', desc: '見證第一次隨機世界事件(資源潮汐/流星雨)' },
+  home_sweet_home: { name: '溫馨小窩', icon: '🏠', desc: '地圖上同時擺出 5 種不同的家具/裝潢物件(不分誰蓋的)' },
+  rail_baron:      { name: '鐵道大亨', icon: '🛒', desc: '第一次放置礦車' },
+  station_master:  { name: '站長', icon: '🚉', desc: '第一次放置軌道站台' },
 };
+// home_sweet_home 成就檢查用:跟 TOWER_COLLECTOR_TYPES 同一套邏輯,型別數量到齊就算(不分位置/誰蓋的)。
+// deco_wall 刻意不算在內——它是 placeTile 地形(存在 G.tiles 不是 G.objects),跟這裡其餘的物件類型
+// 結構不同,要另外掃全地圖 tiles 才查得到,不值得為了湊數多做一次昂貴掃描
+const FURNITURE_DECOR_TYPES = ['rug_red', 'rug_blue', 'tile_deco', 'chair', 'bed', 'toilet', 'sofa', 'bookshelf', 'plant_pot', 'painting', 'candle'];
 // tower_collector 成就檢查用:全隊只要地圖上同時存在這六種塔各一座就算(不分誰蓋的)
 const TOWER_COLLECTOR_TYPES = ['tower', 'archer_tower', 'frost_tower', 'cannon_tower', 'multi_tower', 'sniper_tower'];
 // 歸巢螢石:手持右鍵引導數秒傳送回星核;移動/受傷立即中斷(不消耗),完成才消耗——
 // 探索半徑不再被「暗潮警告 30 秒內趕不趕得回」綁死,但被怪纏上時還是得先殺出來才能回城
 const RECALL_CFG = { channel: 4, moveCancel: 0.3 };
+// 玩家主動丟出物品(Q 鍵/拖曳到地上):短暫防止丟的人自己馬上被磁吸撿回去(隊友不受影響,
+// 馬上就能撿),不然分享道具的瞬間會立刻被自己吸走,看起來像「丟不出去」
+const DROP_CFG = { selfPickupDelay: 1.5 };
+
+// 椅子:右鍵坐下(doSit),比照歸巢螢石/釣魚的既有「channel + moveCancel」慣例——移動超過
+// moveCancel 就起身,受傷也會被打斷(damagePlayer)。回血速度刻意比脫戰自然回血(3/s)持平,
+// 定位是「找張椅子慢慢休息」的居家感,不是戰鬥用的高效回血手段
+const CHAIR_CFG = { regen: 3, moveCancel: 0.4 };
 
 // 隊友救援(倒地非陣亡):致命傷不再直接進入 5 秒重生,而是先「倒下」——
 // 有其他存活(且非倒下)隊友時才會觸發此狀態,單機/隊友全滅時直接走原本的陣亡流程(零額外等待)。
@@ -426,6 +463,8 @@ const ITEMS = {
   torch:           { name: '火把', icon: '🕯️', place: 'torch' },
   wood_wall:       { name: '木牆', icon: '🟫', placeTile: T.WOODWALL },
   stone_wall:      { name: '石牆', icon: '⬜', placeTile: T.STONEWALL },
+  deco_wall:       { name: '裝飾磚牆', icon: '🧱', placeTile: T.DECOWALL,
+                     desc: '暖色調的磚牆,防禦力跟石牆(建)完全一樣,純粹是好看的裝潢選項' },
   workbench:       { name: '工作台', icon: '🛠️', place: 'workbench' },
   furnace:         { name: '熔爐', icon: '🔥', place: 'furnace' },
   tower:           { name: '光塔', icon: '🗼', place: 'tower', desc: '照明並自動攻擊附近的蝕影' },
@@ -510,6 +549,17 @@ const ITEMS = {
   // 軌道:放在地板上的加速地帶,站上去移速大增,拿來打通基地↔遠方礦區/神殿的快速通道
   rail:            { name: '軌道', icon: '🛤️', placeTile: T.RAIL,
                      desc: '鋪在地板上,站上去移動速度大幅提升;可用鎬敲掉回收' },
+  // 礦車:只能放在軌道上(不是 place/placeTile,是獨立的 cart 旗標,doPlaceCart 另外處理)。
+  // 放上去後自動沿軌道行駛(有軌道站台就照編號巡迴,沒有就直行優先/死路迴轉),沿途吸收掉落物、
+  // 經過儲物箱/熔煉爐自動卸貨。空手右鍵上車開走;左鍵敲它收回背包(貨艙內容灑在地上)
+  minecart:        { name: '礦車', icon: '🛒', cart: true,
+                     desc: `只能放在軌道上,會自動沿軌道行駛,沿途吸收掉落物、經過儲物箱/自動熔煉爐旁
+自動卸貨,貨艙 ${CART_CFG.capacity} 格。空手右鍵上車(右鍵同一台車下車);拿著東西右鍵看貨艙摘要;
+左鍵敲擊收回背包。每人最多 ${CART_CFG.maxPerPlayer} 台` },
+  // 軌道站台:貼著軌道放置,礦車照放置順序(編號)自動巡迴,到站停留幾秒再開往下一站
+  rail_station:    { name: '軌道站台', icon: '🚉', place: 'rail_station',
+                     desc: `必須貼著軌道放置。有礦車巡迴時會依編號順序自動停靠,到站停留 ${RAIL_STATION_CFG.waitTime} 秒;
+繞不到的站台會被自動跳過` },
   // 自動採礦機:架在已探索的礦脈旁,右鍵拿光晶供電,自動慢慢採礦(掉在腳邊)
   auto_miner:      { name: '自動採礦機', icon: '⚙️', place: 'auto_miner',
                      desc: `架在已探索區域的礦脈旁,右鍵拿光晶供電後自動採集鄰近礦脈(可採到金礦,挖不動鑽石)。
@@ -547,6 +597,24 @@ const ITEMS = {
   crystal_lamp:    { name: '晶燈柱', icon: '💡', place: 'crystal_lamp', desc: '光晶燈柱,照明範圍最大,把基地照得亮堂堂;可敲掉回收' },
   // 裝飾:純擺飾,不擋路無功能,蓋基地插旗宣示地盤用
   banner:          { name: '螢火旗幟', icon: '🚩', place: 'banner', desc: '螢火隊的旗幟,純裝飾;插一面宣示這是你們的地盤' },
+  // ── 家具/裝潢批(2026-07-15,第二十二批):讓玩家設計自己的家,詳見 CLAUDE.md「家具與裝潢」──
+  // 地板裝飾:疊加式的地毯/花磚,蓋在既有地板上(跟圍籬貼圖 fence_tile.png 同一種「疊加不去背」
+  // 的既有做法),不碰目前刻意改成純色分區的乾淨地板畫法(drawCleanFloor)。不擋路,可敲掉回收
+  rug_red:         { name: '紅地毯', icon: '🟥', place: 'rug_red', desc: '鋪在地上的紅地毯,純粹好看,不擋路;可敲掉回收' },
+  rug_blue:        { name: '藍地毯', icon: '🟦', place: 'rug_blue', desc: '鋪在地上的藍地毯,純粹好看,不擋路;可敲掉回收' },
+  tile_deco:       { name: '花磚地板', icon: '🔶', place: 'tile_deco', desc: '拼花裝飾地板,替家裡的房間分區,不擋路;可敲掉回收' },
+  // 家具:椅子/床鋪帶小功能(呼應「部分家具帶功能」的設計方向),其餘純裝飾——馬桶/沙發/書櫃
+  // 單純好看,沒有意外的隱藏機制
+  chair:           { name: '椅子', icon: '🪑', place: 'chair',
+                     desc: `右鍵坐下休息,每秒回血 ${CHAIR_CFG.regen}(移動太遠或受傷會起身);比戰鬥回血更溫和,居家氣氛擔當` },
+  bed:             { name: '床鋪', icon: '🛏️', place: 'bed', desc: '右鍵認床:把你的重生點設在這裡,取代星核旁的預設重生位置' },
+  toilet:          { name: '馬桶', icon: '🚽', place: 'toilet', desc: '一座馬桶,單純好看,沒有其他功能(抱歉,不能真的用)' },
+  sofa:            { name: '沙發', icon: '🛋️', place: 'sofa', desc: '軟綿綿的沙發,單純好看' },
+  bookshelf:       { name: '書櫃', icon: '📚', place: 'bookshelf', desc: '擺滿書的書櫃,單純好看' },
+  // 裝飾品:純擺飾,替家裡添點生活感
+  plant_pot:       { name: '盆栽', icon: '🪴', place: 'plant_pot', desc: '一盆小盆栽,替家裡添點綠意' },
+  painting:        { name: '畫框', icon: '🖼️', place: 'painting', desc: '掛在家裡的畫框,單純好看' },
+  candle:          { name: '蠟燭', icon: '🪔', place: 'candle', desc: '小蠟燭,溫暖的微弱光暈,氣氛佳(照明範圍比火把小很多)' },
   // ── 防守主城強化批(2026-07-13,第六批):詳見 CLAUDE.md「防守主城強化批」──
   // 光簾閘門:玩家(與投射物)自由穿過、蝕影視為牆——解「築牆防守把自己出門的路也堵死」的痛點。
   // 刻意不進 OBJ_SOLID(isSolid 的 forEnemy 參數才把它當牆),投射物也飛得過=箭塔隔門開火
@@ -601,6 +669,7 @@ const RECIPES = [
   { out: 'workbench',   n: 1, cost: { wood: 8 },             station: null },
   { out: 'wood_wall',   n: 4, cost: { wood: 2 },             station: 'workbench' },
   { out: 'stone_wall',  n: 4, cost: { stone: 2 },            station: 'workbench' },
+  { out: 'deco_wall',   n: 4, cost: { stone: 3, lumite: 1 }, station: 'workbench' },
   { out: 'furnace',     n: 1, cost: { stone: 10 },           station: 'workbench' },
   { out: 'tower',       n: 1, cost: { lumite: 6, stone: 4, copper_bar: 2 }, station: 'workbench' },
   { out: 'archer_tower',n: 1, cost: { wood: 10, stone: 6, iron_bar: 3 },    station: 'workbench' },
@@ -649,6 +718,8 @@ const RECIPES = [
   { out: 'fence',        n: 6, cost: { wood: 2 },             station: 'workbench' },
   // 軌道:一次產 4 段,鐵錠+木材(金屬軌+木枕木的意象);要中期鐵器才鋪得起,但單段夠便宜可長距離鋪設
   { out: 'rail',         n: 4, cost: { iron_bar: 1, wood: 2 }, station: 'workbench' },
+  { out: 'minecart',     n: 1, cost: { iron_bar: 5, wood: 4 }, station: 'workbench' },
+  { out: 'rail_station', n: 1, cost: { stone: 4, lumite: 2 }, station: 'workbench' },
   // 自動化道鏈:採礦機是後期建築(金錠級,呼應「金鎬才挖得動金礦」),傳輸帶便宜可長距離鋪
   { out: 'auto_miner',   n: 1, cost: { gold_bar: 2, iron_bar: 3, lumite: 5 }, station: 'workbench' },
   { out: 'belt',         n: 4, cost: { iron_bar: 1, lumite: 1 },              station: 'workbench' },
@@ -669,6 +740,18 @@ const RECIPES = [
   { out: 'lantern',      n: 1, cost: { iron_bar: 1, lumite: 2 },         station: 'workbench' },
   { out: 'crystal_lamp', n: 1, cost: { gold_bar: 1, lumite: 4, stone: 2 }, station: 'workbench' },
   { out: 'banner',       n: 2, cost: { wood: 3, lumite: 1 },             station: 'workbench' },
+  // 家具/裝潢批(2026-07-15,第二十二批):地板裝飾用羊毛呼應動物養殖線,家具走木材為主
+  { out: 'rug_red',      n: 1, cost: { wool: 3 },                       station: 'workbench' },
+  { out: 'rug_blue',     n: 1, cost: { wool: 3, lumite: 1 },            station: 'workbench' },
+  { out: 'tile_deco',    n: 1, cost: { stone: 6 },                      station: 'workbench' },
+  { out: 'chair',        n: 1, cost: { wood: 6 },                       station: 'workbench' },
+  { out: 'bed',          n: 1, cost: { wood: 8, wool: 4 },              station: 'workbench' },
+  { out: 'toilet',       n: 1, cost: { stone: 6, iron_bar: 1 },         station: 'workbench' },
+  { out: 'sofa',         n: 1, cost: { wood: 6, wool: 6 },              station: 'workbench' },
+  { out: 'bookshelf',    n: 1, cost: { wood: 10 },                      station: 'workbench' },
+  { out: 'plant_pot',    n: 1, cost: { stone: 2, wood: 1 },             station: null },
+  { out: 'painting',     n: 1, cost: { wood: 4, lumite: 1 },            station: 'workbench' },
+  { out: 'candle',       n: 2, cost: { lumite: 1 },                     station: null },
   // 防守主城強化批:門/地刺開局就做得起,回城石/誘光罐吃光晶(跟餵星核搶同一資源=機會成本),凜鈴塔鐵器期解鎖
   { out: 'gate',         n: 1, cost: { wood: 8, lumite: 2 },             station: 'workbench' },
   { out: 'spike_trap',   n: 2, cost: { wood: 3, stone: 3 },              station: 'workbench' },
@@ -798,10 +881,13 @@ const EQUIP_DROP_CFG = {
 
 // 已放置物件的耐久(地刺的 hp 直接當「剩餘刺數」用,跟 SPIKE_TRAP_CFG.charges 綁定)
 const OBJ_HP = { torch: 4, workbench: 20, furnace: 20, tower: 50, archer_tower: 40, chest: 12, nest: 60, auto_miner: 30, belt: 8, storage: 30, auto_smelter: 30, lantern: 4, crystal_lamp: 8, banner: 4,
-  gate: 60, frost_tower: 40, spike_trap: SPIKE_TRAP_CFG.charges, decoy: 150, cannon_tower: 55, multi_tower: 45, sniper_tower: 50 };
+  gate: 60, frost_tower: 40, spike_trap: SPIKE_TRAP_CFG.charges, decoy: 150, cannon_tower: 55, multi_tower: 45, sniper_tower: 50,
+  // 家具/裝潢批:地板裝飾比照旗幟(banner)給小耐久,家具給稍高一點(比較「實體」的感覺),都能敲掉回收
+  rug_red: 4, rug_blue: 4, tile_deco: 4, chair: 6, bed: 6, toilet: 6, sofa: 6, bookshelf: 6, plant_pot: 4, painting: 4, candle: 4,
+  rail_station: 8 };
 // 物件光照半徑(自動採礦機自帶微光,呼應「需供電」的能量意象也順便讓機器周圍看得清)
 const OBJ_LIGHT = { torch: 7, tower: 6, furnace: 3, workbench: 2.5, archer_tower: 3, auto_miner: 3, auto_smelter: 3, lantern: 10, crystal_lamp: 14,
-  gate: 2, frost_tower: 3, decoy: 5, cannon_tower: 3, multi_tower: 3, sniper_tower: 3 }; // 光簾門/誘光罐會發光是主題(蝕影搶光),凜鈴塔冰晶微光
+  gate: 2, frost_tower: 3, decoy: 5, cannon_tower: 3, multi_tower: 3, sniper_tower: 3, candle: 3 }; // 光簾門/誘光罐會發光是主題(蝕影搶光),凜鈴塔冰晶微光;蠟燭是最弱的氣氛光源
 // 會擋路的物件(自動採礦機是機台,擋路;傳輸帶是地面軌道,不擋路可站上去)。
 // 光簾閘門刻意不在這裡:對玩家/投射物不算牆,只有 isSolid 的 forEnemy 參數會把它當牆(見 world.js);
 // 地刺是貼地陷阱,誰都能踩上去
@@ -935,6 +1021,9 @@ const CHEST_LOOT = [
   [ ['arrow', 8], ['copper_bar', 2], ['enh_scroll', 1], ['lumite', 3], ['cooked_mushroom', 2] ],
   [ ['arrow', 12], ['iron_bar', 2], ['enh_scroll', 1], ['lumite', 4], ['bow', 1] ],
   [ ['arrow', 15], ['gold_bar', 2], ['enh_scroll', 2], ['lumite', 6], ['crossbow', 1] ],
+  // zone 3(淵核區):openChest 找不到對應 zone 表時退回 CHEST_LOOT[0],新增這格讓淵藏寶庫的箱子
+  // 開出符合終局份量的獎勵(之前淵核區根本沒有 chest 物件會生成,這是第一個用到這個索引的地方)
+  [ ['void_shard', 2], ['diamond', 2], ['enh_scroll', 2], ['gold_bar', 2], ['lumite', 8] ],
 ];
 
 // 深怪祭壇:小型迷你王據點(2026-07-15,呼應地圖放大批——放大後的地圖需要更多「值得走過去」的據點)。
@@ -944,6 +1033,41 @@ const ALTAR_CFG = {
   count: 6,
   hpMult: 1.9, dmgMult: 1.3, // 疊在 ELITE_CFG 之上,比一般精英巢穴怪更兇一階,呼應「迷你王」定位
   guardian: { 1: 'hunter', 2: 'abyss' }, // 依生成所在分區(zone1/zone2)決定看守者底怪種
+};
+
+// 淵藏寶庫:淵核區(zone 3)專屬據點(2026-07-15,第二十批,呼應候選清單「淵核區更多據點」——
+// 通關前只有淵魄君主一個指標戰鬥,POI 密度比其他分區低)。跟深怪祭壇同一套「資料/實體分離」模式,
+// 差異是**兩隻守衛同時上**(不像祭壇/神殿單體)、且要等通關解封才會實際生成(比照 spawnVoidLord 的
+// G.unsealed 門檻,不會在玩家進不去的時候徒佔 G.enemies)。淵核區只有一種分區,守衛固定混編淵魂+蝕裂者,
+// 不像祭壇需要依 zone 查表決定底怪種。
+const VAULT_CFG = {
+  count: 4,
+  guardianCount: 2,
+  hpMult: 1.7, dmgMult: 1.35,
+  guardians: ['revenant', 'voidling'],
+};
+
+// ── 隨機世界事件(2026-07-15,第二十一批,呼應候選清單「隨機世界事件」):計時觸發的全域效果,
+// 純刺激探索,不強迫玩家離開防守崗位。**數值是保守的第一版估計,候選清單本來就點名這塊需要
+// 實際試玩抓手感,之後想調頻率/強度只改這裡兩個 CFG,不用碰觸發邏輯(game.js updateWorldEvent)**。
+// 兩種事件互斥(同時間只會有一個在跑),且刻意只在暗潮「calm」階段才觸發新事件——不在警戒/進行中
+// 開新事件,把「探索誘因」跟「暗潮防守節奏」的衝突降到最低,呼應候選清單原本的顧慮。
+const WORLD_EVENT_CFG = {
+  checkInterval: 300,  // 每 5 分鐘檢查一次是否觸發新事件(前提是目前沒有事件在跑、且暗潮是 calm 狀態)
+  chance: 0.4,          // 每次檢查的觸發機率,不是固定周期,保留隨機感
+};
+// 資源潮汐:期間某一種礦物掉落量倍增,鼓勵玩家趁機衝一波採集
+const RESOURCE_TIDE_CFG = {
+  duration: 90,
+  mult: 2.5,
+  ores: ['copper_ore', 'iron_ore', 'gold_ore', 'coal', 'diamond', 'lumite'],
+};
+// 流星雨:期間持續在玩家附近(有一定距離,鼓勵移動過去撿)掉落稀有材料
+const METEOR_SHOWER_CFG = {
+  duration: 60,
+  interval: 8,       // 期間內每隔幾秒掉一顆
+  range: [10, 26],   // 相對隨機一位玩家的距離範圍
+  loot: [ ['diamond', 0.28], ['enh_scroll', 0.24], ['void_shard', 0.16], ['gold_ore', 0.32] ], // 權重和為 1
 };
 
 // ===== 小工具 =====

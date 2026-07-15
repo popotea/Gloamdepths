@@ -1171,6 +1171,7 @@ function drawMinimap() {
       [T.GRAVEL]: 0xff787e8a, [T.COAL]: 0xff2a2a2a, [T.DIAMOND]: 0xffffc76a,
       [T.FARMLAND]: 0xff1c3a5c, [T.WATER]: 0xff8a622a, [T.FENCE]: 0xff5494c0,
       [T.RAIL]: 0xff6a5a4a, [T.VOIDROCK]: 0xff522a3a, [T.SEAL]: 0xff8e3a5a,
+      [T.DECOWALL]: 0xff6090c0,
     };
     for (let i = 0; i < G.tiles.length; i++) {
       px[i] = G.explored[i] ? (C[G.tiles[i]] || 0xff000000) : 0xff000000;
@@ -1198,6 +1199,11 @@ function drawMinimap() {
     if (!G.explored[idx(Math.floor(a.x), Math.floor(a.y))]) continue; // 沒探索過不暴雷,跟巢穴同規則
     mc.fillStyle = a.dead ? '#666' : '#c88cff';
     mc.fillRect(a.x - 2, a.y - 2, 4, 4);
+  }
+  for (const v of G.vaults) {
+    if (!G.explored[idx(Math.floor(v.x), Math.floor(v.y))]) continue; // 沒探索過不暴雷,跟祭壇同規則
+    mc.fillStyle = v.dead ? '#666' : '#ff8cf0';
+    mc.fillRect(v.x - 2, v.y - 2, 4, 4);
   }
   for (const p of G.players.values()) {
     if (p.dead) continue;
@@ -1234,6 +1240,10 @@ function mapMarkers() {
   for (const a of G.altars) {
     if (!G.explored[idx(Math.floor(a.x), Math.floor(a.y))]) continue; // 沒探索過不暴雷,跟巢穴同規則
     marks.push({ x: a.x, y: a.y, icon: a.dead ? '⚫' : '🏛️', label: `深怪祭壇${a.dead ? '(已擊破)' : ''}` });
+  }
+  for (const v of G.vaults) {
+    if (!G.explored[idx(Math.floor(v.x), Math.floor(v.y))]) continue; // 沒探索過不暴雷,跟祭壇同規則
+    marks.push({ x: v.x, y: v.y, icon: v.dead ? '⚫' : '💎', label: `淵藏寶庫${v.dead ? '(已肅清)' : ''}` });
   }
   return marks;
 }

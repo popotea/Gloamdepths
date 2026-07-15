@@ -70,6 +70,7 @@ function startNewGame(name, difficulty) {
   spawnShrineBosses();
   spawnAltarGuardians();
   spawnVoidLord(); // 新世界 G.unsealed 一定是 false,這裡是 no-op;為了跟其他兩個生成函式對稱一起呼叫,萬一以後規則變動不會漏放
+  spawnVaultGuardians(); // 同上,新世界必為 no-op
   G.started = true;
   showMsg('🕯️ 星核熄滅後,黑暗湧回深淵——而你們是「螢火隊」,來把光帶回來的!');
   showMsg('🌑 星核肚子咕嚕叫了!挖光晶💠(藍色礦脈)按 F 餵它一口~');
@@ -104,6 +105,25 @@ function spawnVoidLord() {
   spawnEnemy('void_lord', G.voidLord.x, G.voidLord.y, { home: { x: G.voidLord.x, y: G.voidLord.y }, voidLord: true });
 }
 
+// 淵藏寶庫的看守者:同一條「只有通關解封後才會真的生出敵人」規則(比照 spawnVoidLord),
+// 每座寶庫獨立判斷——用「該寶庫座標是否還有存活守衛」擋重複生成,而非全域旗標(一座寶庫清空、
+// 另一座還沒清空時,重呼叫這支函式不能漏補未清空那座的守衛)
+function spawnVaultGuardians() {
+  if (!G.unsealed) return;
+  for (const v of G.vaults) {
+    if (v.dead) continue;
+    if (G.enemies.some(e => e.vault && e.vault.x === v.x && e.vault.y === v.y)) continue;
+    for (let i = 0; i < VAULT_CFG.guardianCount; i++) {
+      const ang = (i / VAULT_CFG.guardianCount) * TAU;
+      const gx = v.x + Math.cos(ang) * 1.4, gy = v.y + Math.sin(ang) * 1.4;
+      const type = VAULT_CFG.guardians[i % VAULT_CFG.guardians.length];
+      const e = spawnEnemy(type, gx, gy, { elite: true, home: { x: v.x, y: v.y }, vault: { x: v.x, y: v.y } });
+      e.hp = Math.round(e.hp * VAULT_CFG.hpMult); e.maxhp = e.hp;
+      e.dmgMult *= VAULT_CFG.dmgMult;
+    }
+  }
+}
+
 // ===== 每幀模擬(房主) =====
 let ambientT = 0, mushT = 0, saveT = 0;
 function simTick(dt) {
@@ -121,15 +141,74 @@ function simTick(dt) {
   updateCrops(dt);
   updateAnimals(dt);
   updateBelts(dt);  // 先推(傳輸帶)再撿(磁吸):玩家靠近時 updateDrops 的磁吸能蓋過傳輸帶推力
+  updateCarts(dt);  // 礦車沿軌道自動行駛+沿途收貨/卸貨,刻意排在 updateDrops(磁吸)之前同理:礦車經過優先吸走掉落物
   updateDrops(dt);
   updateWave(dt);
   updateCore(dt);
   ambientSpawn(dt);
   mushroomRegrow(dt);
   animalRegrow(dt);
+  updateWorldEvent(dt); // 隨機世界事件(資源潮汐/流星雨)
   // 自動存檔
   saveT += dt;
   if (saveT > 30) { saveT = 0; saveGame(); }
+}
+
+// ===== 隨機世界事件:資源潮汐 / 流星雨 =====
+// worldEventT/worldEvent 是純粹的房主端暫態(比照 ambientT/mushT 同一套模組層級變數,不進存檔、
+// 不需要同步給客戶端——事件效果只影響房主端的模擬結果:資源潮汐改 breakTile 的掉落量、
+// 流星雨純粹是 spawnDrop 在地上,兩者客戶端都靠既有的 obj/drops 快照自然看得到,不用額外協定)
+let worldEventT = WORLD_EVENT_CFG.checkInterval, worldEvent = null;
+function updateWorldEvent(dt) {
+  if (worldEvent) {
+    worldEvent.timer -= dt;
+    if (worldEvent.type === 'meteor') {
+      worldEvent.meteorT -= dt;
+      if (worldEvent.meteorT <= 0) { worldEvent.meteorT = METEOR_SHOWER_CFG.interval; spawnMeteor(); }
+    }
+    if (worldEvent.timer <= 0) {
+      msgAll(worldEvent.type === 'tide'
+        ? `🌊 資源潮汐退去了,${ITEMS[worldEvent.ore].name}恢復正常產量`
+        : '☄️ 流星雨結束了,天空恢復平靜');
+      worldEvent = null;
+    }
+    return;
+  }
+  worldEventT -= dt;
+  if (worldEventT > 0) return;
+  worldEventT = WORLD_EVENT_CFG.checkInterval;
+  if (G.wave.state !== 'calm') return; // 暗潮警戒/進行中不觸發新事件,避免分散防守注意力
+  if (Math.random() > WORLD_EVENT_CFG.chance) return;
+  if (Math.random() < 0.5) {
+    const ore = randChoice(RESOURCE_TIDE_CFG.ores);
+    worldEvent = { type: 'tide', ore, timer: RESOURCE_TIDE_CFG.duration };
+    msgAll(`🌊 資源潮汐來了!接下來 ${RESOURCE_TIDE_CFG.duration} 秒,${ITEMS[ore].name}掉落量 ×${RESOURCE_TIDE_CFG.mult}!`);
+  } else {
+    worldEvent = { type: 'meteor', timer: METEOR_SHOWER_CFG.duration, meteorT: 0 };
+    msgAll(`☄️ 流星雨開始了!接下來 ${METEOR_SHOWER_CFG.duration} 秒,天上會不斷掉落稀有材料,快去撿!`);
+  }
+  unlockAchv('world_event_seen');
+}
+
+// 流星雨單次掉落:比照 ambientSpawn 的既有寫法(隨機挑一位存活玩家,附近隨機角度/距離找空地板),
+// 刻意保持一定距離(METEOR_SHOWER_CFG.range)而不是掉在腳邊,鼓勵玩家移動過去撿而不是原地躺贏
+function spawnMeteor() {
+  const players = [...G.players.values()].filter(p => !p.dead);
+  if (!players.length) return;
+  const p = players[(Math.random() * players.length) | 0];
+  for (let tries = 0; tries < 20; tries++) {
+    const ang = Math.random() * TAU, d = METEOR_SHOWER_CFG.range[0] + Math.random() * (METEOR_SHOWER_CFG.range[1] - METEOR_SHOWER_CFG.range[0]);
+    const x = Math.floor(p.x + Math.cos(ang) * d), y = Math.floor(p.y + Math.sin(ang) * d);
+    if (!inMap(x, y) || tileAt(x, y) !== T.FLOOR || G.objects.has(idx(x, y))) continue;
+    let r = Math.random();
+    for (const [id, w] of METEOR_SHOWER_CFG.loot) {
+      if ((r -= w) >= 0) continue;
+      spawnDrop(id, 1, x + 0.5, y + 0.5);
+      emitFx({ k: 'ft', x: x + 0.5, y: y - 0.3, txt: '☄️', color: '#ffd23f' });
+      return;
+    }
+    return;
+  }
 }
 
 function updateCore(dt) {
@@ -321,23 +400,25 @@ function winGame() {
 function buildSave() {
   // 把目前所有玩家的背包記進名字表,離線好友下次同名加入可拿回
   for (const p of G.players.values()) {
-    G.playersByName[p.name] = { inv: p.inv, hp: p.hp, x: p.x, y: p.y, lv: p.lv, xp: p.xp, talents: p.talents, pet: p.pet, equip: p.equip };
+    G.playersByName[p.name] = { inv: p.inv, hp: p.hp, x: p.x, y: p.y, lv: p.lv, xp: p.xp, talents: p.talents, pet: p.pet, equip: p.equip, bedX: p.bedX, bedY: p.bedY };
   }
   return {
-    v: 1, seed: G.seed, time: G.time, killCount: G.killCount, difficulty: G.difficulty, unsealed: G.unsealed,
+    v: 1, seed: G.seed, time: G.time, killCount: G.killCount, difficulty: G.difficulty, unsealed: G.unsealed, stationSeq: G.stationSeq,
     savedAt: Date.now(), // 主選單存檔列表顯示「上次遊玩時間」用,讀檔邏輯不吃這欄位
 
     tiles: rleEnc(G.tiles),
     explored: rleEnc(G.explored),
-    objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null, o.stage ?? null, o.t ?? null, o.nestType ?? null, o.dir ?? null, o.fuel ?? null, o.items ?? null]),
+    objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null, o.stage ?? null, o.t ?? null, o.nestType ?? null, o.dir ?? null, o.fuel ?? null, o.items ?? null, o.num ?? null]),
     // lv/dur 一起存:掉在地上的強化裝備讀檔回來不能被洗白(0 與 undefined 用 null 佔位)
     drops: G.drops.map(d => [d.item, d.n, d.x, d.y, d.lv || 0, d.dur ?? null]),
     animals: G.animals.map(a => [a.type, Math.round(a.x * 10) / 10, Math.round(a.y * 10) / 10, Math.round(a.hp), Math.round(a.fedT || 0)]),
+    carts: G.carts.map(c => [c.x, c.y, c.dir, c.owner, c.items]),
     core: { energy: G.core.energy, shards: G.core.shards, shield: G.core.shield || 0 },
     wave: { n: G.wave.n, timer: Math.max(45, G.wave.state === 'calm' ? G.wave.timer : 45), final: G.wave.final && G.core.shards < CORE_CFG.needShards ? false : G.wave.final, en: G.wave.en || 0 },
     shrines: G.shrines.map(s => ({ x: s.x, y: s.y, dead: s.dead, boss: s.boss })),
     traders: G.traders.map(t => ({ x: t.x, y: t.y })),
     altars: G.altars.map(a => ({ x: a.x, y: a.y, dead: a.dead, zone: a.zone })),
+    vaults: G.vaults.map(v => ({ x: v.x, y: v.y, dead: v.dead })),
     questNpcs: G.questNpcs.map(n => ({ x: n.x, y: n.y, npc: n.npc })),
     quests: G.quests,
     voidLord: G.voidLord,
@@ -382,7 +463,7 @@ function applySave(s, name) {
   G.explored = rleDec(s.explored, MAP_W * MAP_H, Uint8Array);
   G.dmg = new Float32Array(MAP_W * MAP_H);
   G.objects.clear(); G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.cropIdx.clear(); G.minerIdx.clear(); G.beltIdx.clear(); G.smelterIdx.clear(); G.frostIdx.clear(); G.decoyIdx.clear(); G.cannonIdx.clear(); G.multiIdx.clear(); G.sniperIdx.clear(); G.mushCount = 0;
-  for (const [i, type, hp, ammo, off, owner, stage, t, nestType, dir, fuel, items] of s.objects) {
+  for (const [i, type, hp, ammo, off, owner, stage, t, nestType, dir, fuel, items, num] of s.objects) {
     const o = hp === null ? { type } : { type, hp };
     if (ammo !== null && ammo !== undefined) o.ammo = ammo;
     if (off) o.off = true;
@@ -393,6 +474,7 @@ function applySave(s, name) {
     if (dir !== null && dir !== undefined) o.dir = dir;     // 傳輸帶方向
     if (fuel !== null && fuel !== undefined) o.fuel = fuel;  // 自動採礦機光晶燃料
     if (items !== null && items !== undefined) o.items = items; // 儲物箱內容
+    if (num !== null && num !== undefined) o.num = num; // 軌道站台編號
     G.objects.set(i, o);
     if (type === 'mushroom') G.mushCount++;
     const key = TOWER_IDX_SETS[type]; if (key) G[key].add(i);
@@ -409,6 +491,13 @@ function applySave(s, name) {
       a.fedT = fedT || 0;
     }
   }
+  // 礦車:genWorld() 已經把 G.carts 歸零,這裡從存檔還原(舊存檔沒這欄位就維持空陣列);
+  // 重新賦 id(nextCid)給客戶端的 snap 對帳用
+  G.carts = [];
+  for (const [x, y, dir, owner, items] of s.carts || []) {
+    // lastIdx/targetNum/waitT 是純執行期暫態(比照塔類的 shootT),不落存檔,讀檔後重新判斷一次即可
+    G.carts.push({ id: nextCid++, x, y, dir, owner, items: items || [], lastIdx: -1, targetNum: 0, waitT: 0 });
+  }
   // 戰敗當下存的檔能量是 0,原樣讀回來第一個 tick 就再敗一次(讀檔即輸的死循環)——
   // 給一口急救能量,玩家至少有機會衝去挖光晶搶救
   G.core.energy = Math.max(s.core.energy, 25); G.core.shards = s.core.shards; G.core.shield = s.core.shield || 0;
@@ -416,12 +505,14 @@ function applySave(s, name) {
   G.shrines = s.shrines;
   G.traders = s.traders || G.traders;
   G.altars = s.altars || G.altars; // 舊存檔沒有這欄位就留著 genWorld 剛生成的(新世界升級舊存檔也不會少一批據點)
+  G.vaults = s.vaults || G.vaults; // 同上
   G.questNpcs = s.questNpcs || G.questNpcs;
   G.quests = s.quests || G.quests; // 同上;genWorld 已經 seed 過 requires:null 的擊殺型任務進度
   G.voidLord = s.voidLord || G.voidLord;
   G.playersByName = s.playersByName || {};
   G.time = s.time || 0;
   G.killCount = s.killCount || 0;
+  G.stationSeq = s.stationSeq || 0; // 軌道站台流水號,舊存檔沒有就從 0 起算(genWorld 已經歸零過)
   G.difficulty = DIFFICULTY_CFG[s.difficulty] ? s.difficulty : 'normal'; // 舊存檔沒有這欄位就退回一般難度
   G.unsealed = !!s.unsealed; // 淵核區解封狀態(SEAL→FLOOR 已寫進 tiles 存下來,這旗標只防重複解封)
   G.bestiary = s.bestiary || {}; G.achv = s.achv || {}; // 舊存檔沒有這兩欄位就從空的開始,不會噴錯
@@ -434,6 +525,7 @@ function applySave(s, name) {
   spawnShrineBosses();
   spawnAltarGuardians();
   spawnVoidLord(); // G.unsealed 剛從存檔還原,若已通關過且淵魄君主還沒死,這裡會正確重新生成
+  spawnVaultGuardians(); // 同上,逐座寶庫各自判斷生死
   if (s.core.shards >= CORE_CFG.needShards && !s.won) G.wave = { n: s.wave.n, state: 'warn', timer: 20, final: true };
 
   // 用名字還原玩家背包
@@ -451,6 +543,7 @@ function applySave(s, name) {
     p.hp = Math.min(p.maxhp, saved.hp);
     p.pet = saved.pet || null;
     p.equip = saved.equip || null;
+    p.bedX = saved.bedX ?? null; p.bedY = saved.bedY ?? null; // 認床設定的重生點(見 doClaimBed)
     migrateLegacyArmor(p); // 舊存檔沒有 equip 欄位,從背包裡挑一件胸甲自動穿上
   }
   G.players.set(0, p);
@@ -472,6 +565,7 @@ function playerJoinAs(id, name) {
     p.hp = Math.max(30, Math.min(p.maxhp, saved.hp));
     p.pet = saved.pet || null;
     p.equip = saved.equip || null;
+    p.bedX = saved.bedX ?? null; p.bedY = saved.bedY ?? null; // 認床設定的重生點(見 doClaimBed)
     migrateLegacyArmor(p); // 舊存檔沒有 equip 欄位,從背包裡挑一件胸甲自動穿上
   }
   G.players.set(id, p);

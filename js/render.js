@@ -357,7 +357,9 @@ function render(dt) {
     chest: '🎁', nest: '🕸️', auto_miner: '⚙️', storage: '📦', auto_smelter: '🏭',
     lantern: '🏮', crystal_lamp: '💡', banner: '🚩',
     gate: '🚪', frost_tower: '🔔', decoy: '🏺',
-    cannon_tower: '🎆', multi_tower: '🎯', sniper_tower: '🔭' }; // 地刺(spike_trap)走下面的貼地特例畫法,不在這表
+    cannon_tower: '🎆', multi_tower: '🎯', sniper_tower: '🔭',
+    chair: '🪑', bed: '🛏️', toilet: '🚽', sofa: '🛋️', bookshelf: '📚',
+    plant_pot: '🪴', painting: '🖼️', candle: '🪔', rail_station: '🚉' }; // 地刺(spike_trap)/地毯/花磚走下面的貼地特例畫法,不在這表
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   for (const [i, o] of G.objects) {
     const tx = i % MAP_W, ty = (i / MAP_W) | 0;
@@ -403,6 +405,26 @@ function render(dt) {
         ctx.fill(); ctx.stroke();
       }
       ctx.restore();
+      continue;
+    }
+    // 地毯/花磚:貼地的裝飾層(疊在既有的乾淨地板畫法上,不去背),跳過下面的底影+emoji 通用畫法
+    if (o.type === 'rug_red' || o.type === 'rug_blue') {
+      const fill = o.type === 'rug_red' ? '#b23a3a' : '#2f6fae';
+      const edge = o.type === 'rug_red' ? '#7a2424' : '#1f4d7a';
+      ctx.fillStyle = fill;
+      ctx.fillRect(sx - TILE * 0.42, sy - TILE * 0.42, TILE * 0.84, TILE * 0.84);
+      ctx.strokeStyle = edge; ctx.lineWidth = 2;
+      ctx.strokeRect(sx - TILE * 0.42, sy - TILE * 0.42, TILE * 0.84, TILE * 0.84);
+      ctx.strokeRect(sx - TILE * 0.28, sy - TILE * 0.28, TILE * 0.56, TILE * 0.56);
+      continue;
+    }
+    if (o.type === 'tile_deco') {
+      const half = TILE / 2;
+      ctx.fillStyle = '#d8d0c0';
+      ctx.fillRect(sx - TILE / 2, sy - TILE / 2, TILE, TILE);
+      ctx.fillStyle = '#a89878';
+      ctx.fillRect(sx - TILE / 2, sy - TILE / 2, half, half);
+      ctx.fillRect(sx, sy, half, half);
       continue;
     }
     ctx.globalAlpha = o.type === 'archer_tower' && o.off ? 0.45 : 1;
@@ -481,6 +503,13 @@ function render(dt) {
       const shimmer = 0.22 + Math.sin(performance.now() / 500 + sx) * 0.08;
       ctx.fillStyle = `rgba(126,240,255,${shimmer})`;
       ctx.fillRect(sx - TILE * 0.32, sy - TILE * 0.1, TILE * 0.64, TILE * 0.5);
+    } else if (o.type === 'rail_station' && o.num) {
+      // 編號牌:礦車照這個順序巡迴,讓玩家看得出站台排序
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillStyle = '#000a';
+      ctx.fillText('#' + o.num, sx + 1, sy - TILE * 0.42 + 1);
+      ctx.fillStyle = '#ffd23f';
+      ctx.fillText('#' + o.num, sx, sy - TILE * 0.42);
     }
   }
 
@@ -527,17 +556,22 @@ function render(dt) {
   }
 
   // ---- 掉落物 ----
+  // 玩家反映掉落物看起來太不明顯:加大底影(更暗更大)+加一圈淡青色光暈(呼應遊戲的 --glow 識別色,
+  // 也讓掉落物在暗處/複雜地板上更容易一眼認出)+圖示放大一階(0.45→0.56,還是比一般物件的 0.7 小,
+  // 維持「這是可撿的小東西」的視覺區隔,只是加強對比不是改整體風格)
   for (const d of G.drops) {
     if (d.x < x0 || d.x > x1 + 1 || d.y < y0 || d.y > y1 + 1) continue;
     if (lightOf(d.x, d.y) < 0.05) continue;
     const [sx, sy] = worldToScreen(d.x, d.y);
     const bob = Math.sin(performance.now() / 300 + d.id) * 3;
-    // 深色底影:掉落物在貼圖地板上才看得見
-    ctx.fillStyle = 'rgba(5,5,10,0.38)';
+    ctx.fillStyle = 'rgba(5,5,10,0.55)';
     ctx.beginPath();
-    ctx.arc(sx, sy + bob, TILE * 0.26, 0, TAU);
+    ctx.arc(sx, sy + bob, TILE * 0.32, 0, TAU);
     ctx.fill();
-    ctx.font = `${TILE * 0.45}px "Segoe UI Emoji"`;
+    ctx.strokeStyle = 'rgba(126,240,255,0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.font = `${TILE * 0.56}px "Segoe UI Emoji"`;
     ctx.fillText(ITEMS[d.item] ? ITEMS[d.item].icon : '❓', sx, sy + bob);
     if (d.n > 1) {
       ctx.font = 'bold 11px sans-serif';
@@ -614,6 +648,32 @@ function render(dt) {
       ctx.fillText(label, sx + 1, sy - at.r * TILE - (a.hp < amax ? 18 : 12) + 1);
       ctx.fillStyle = '#c8f0d0';
       ctx.fillText(label, sx, sy - at.r * TILE - (a.hp < amax ? 18 : 12));
+    }
+  }
+
+  // ---- 礦車(3.5 v2:真正沿軌道行駛的實體,不在 G.objects,獨立畫在這裡) ----
+  for (const c of G.carts) {
+    if (c.x < x0 - 1 || c.x > x1 + 2 || c.y < y0 - 1 || c.y > y1 + 2) continue;
+    if (lightOf(c.x, c.y) < 0.05) continue;
+    const [sx, sy] = worldToScreen(c.x, c.y);
+    ctx.save();
+    ctx.translate(sx, sy);
+    ctx.rotate(c.dir * Math.PI / 2); // 0=右基準,順時針旋轉,跟傳輸帶箭頭同一套慣例
+    ctx.fillStyle = '#8a5a3a';
+    ctx.fillRect(-TILE * 0.32, -TILE * 0.22, TILE * 0.64, TILE * 0.4);
+    ctx.strokeStyle = '#4a2e1a'; ctx.lineWidth = 2;
+    ctx.strokeRect(-TILE * 0.32, -TILE * 0.22, TILE * 0.64, TILE * 0.4);
+    ctx.fillStyle = '#2a2a2e';
+    ctx.beginPath(); ctx.arc(-TILE * 0.2, TILE * 0.2, TILE * 0.08, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(TILE * 0.2, TILE * 0.2, TILE * 0.08, 0, TAU); ctx.fill();
+    ctx.restore();
+    // 貨艙容量條(不跟著車廂旋轉,畫在正上方,視覺比照箭塔彈藥條/熔煉爐緩衝條)
+    if (c.items.length > 0) {
+      const w = TILE * 0.6;
+      ctx.fillStyle = '#3336';
+      ctx.fillRect(sx - w / 2, sy - TILE * 0.42, w, 4);
+      ctx.fillStyle = '#7ef0ff';
+      ctx.fillRect(sx - w / 2, sy - TILE * 0.42, w * (c.items.length / CART_CFG.capacity), 4);
     }
   }
 
@@ -948,10 +1008,13 @@ function render(dt) {
       const inRange = dist(me.x, me.y, tx + 0.5, ty + 0.5) <= 3.6;
       const sel = me.inv[me.sel];
       const placing = sel && (ITEMS[sel.id].place || ITEMS[sel.id].placeTile !== undefined);
+      const placingCart = sel && ITEMS[sel.id].cart; // 礦車:目標格是軌道而不是地板,獨立判斷
       let col = null;
       if (info.solid && info.hp !== Infinity)
         col = !inRange ? '#ffffff33' : bestPick(me).tier >= info.tier ? '#ffffffaa' : '#ff5d5daa';
       else if (placing && tileAt(tx, ty) === T.FLOOR && !G.objects.has(idx(tx, ty)))
+        col = inRange ? '#7dff8eaa' : '#7dff8e33';
+      else if (placingCart && tileAt(tx, ty) === T.RAIL && !G.carts.some(c => Math.floor(c.x) === tx && Math.floor(c.y) === ty))
         col = inRange ? '#7dff8eaa' : '#7dff8e33';
       if (col) {
         const [sx, sy] = worldToScreen(tx, ty);

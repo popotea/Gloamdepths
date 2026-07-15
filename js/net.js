@@ -119,9 +119,9 @@ const NET = {
       this.sendBig(conn, {
         t: 'init', id: pid,
         tiles: rleEnc(G.tiles), explored: rleEnc(G.explored),
-        objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null, o.stage ?? null, o.t ?? null, o.nestType ?? null, o.dir ?? null, o.fuel ?? null, o.items ?? null]),
+        objects: [...G.objects].map(([i, o]) => [i, o.type, o.hp ?? null, o.ammo ?? null, o.off ? 1 : 0, o.owner ?? null, o.stage ?? null, o.t ?? null, o.nestType ?? null, o.dir ?? null, o.fuel ?? null, o.items ?? null, o.num ?? null]),
         core: { energy: G.core.energy, shards: G.core.shards, shield: G.core.shield || 0 },
-        shrines: G.shrines, traders: G.traders, altars: G.altars, questNpcs: G.questNpcs, quests: G.quests, voidLord: G.voidLord,
+        shrines: G.shrines, traders: G.traders, altars: G.altars, vaults: G.vaults, questNpcs: G.questNpcs, quests: G.quests, voidLord: G.voidLord,
         wave: G.wave, time: G.time, difficulty: G.difficulty, unsealed: G.unsealed, won: G.won,
         bestiary: G.bestiary, achv: G.achv,
         players: [...G.players.values()].map(pl => [pl.id, pl.name, pl.x, pl.y, pl.hp, pl.dead ? 1 : 0, pl.lv || 1, pl.xp || 0, pl.downed ? 1 : 0, Math.ceil(pl.downedT || 0), Math.round((pl.reviveP || 0) * 100), pl.pet || null, Math.round(bestArmor(pl) * 100)]),
@@ -153,6 +153,8 @@ const NET = {
       case 'plant': doPlant(p, d.slot | 0, d.x | 0, d.y | 0); break;
       case 'fish': doFish(p, d.x | 0, d.y | 0); break;
       case 'recall': doRecall(p, d.slot | 0); break;
+      case 'sit': doSit(p, d.x | 0, d.y | 0); break;
+      case 'claimbed': doClaimBed(p, d.x | 0, d.y | 0); break;
       case 'feed': doFeed(p, d.id | 0, d.slot | 0); break;
       case 'talent': applyTalent(p, String(d.id || '')); break;
       case 'repair': {
@@ -165,6 +167,10 @@ const NET = {
       case 'fuelminer': doFuelMiner(p, d.x | 0, d.y | 0); break;
       case 'smelter': doFeedSmelter(p, d.x | 0, d.y | 0); break;
       case 'rotatebelt': doRotateBelt(p, d.x | 0, d.y | 0); break;
+      case 'placecart': doPlaceCart(p, d.slot | 0, d.x | 0, d.y | 0); break;
+      case 'pickupcart': pickupCart(p, d.id | 0); break;
+      case 'boardcart': doBoardCart(p, d.id | 0); break;
+      case 'disembark': doDisembark(p); break;
       case 'storeput': doStorageDeposit(p, d.x | 0, d.y | 0, d.slot | 0); break;
       case 'storetake': doStorageWithdraw(p, d.x | 0, d.y | 0, d.si | 0); break;
       case 'storequick': doStorageQuick(p, d.x | 0, d.y | 0); break;
@@ -175,7 +181,7 @@ const NET = {
       case 'gift': doGift(p, d.slot | 0, d.id | 0); break;
       case 'eat': doEat(p, d.slot | 0); break;
       case 'deposit': doDeposit(p); break;
-      case 'drop': doDropItem(p, d.slot | 0); break;
+      case 'drop': doDropItem(p, d.slot | 0, !!d.all); break;
       case 'drop_at': doDropAt(p, d.slot | 0, +d.x || 0, +d.y || 0); break;
       case 'swap': swapSlots(p, d.a | 0, d.b | 0); break;
       case 'split': splitStack(p, d.slot | 0); break;
@@ -247,9 +253,10 @@ const NET = {
       t: 'snap', time: r2(G.time),
       players: [...G.players.values()].map(p =>
         [p.id, r2(p.x), r2(p.y), r2(p.aim), p.swing > 0 ? 1 : 0, Math.round(p.hp), p.dead ? 1 : 0, Math.ceil(p.respawnT || 0), p.lv || 1, Math.round(p.xp || 0),
-         p.downed ? 1 : 0, Math.ceil(p.downedT || 0), Math.round((p.reviveP || 0) * 100), p.pet || null, Math.round(bestArmor(p) * 100)]),
+         p.downed ? 1 : 0, Math.ceil(p.downedT || 0), Math.round((p.reviveP || 0) * 100), p.pet || null, Math.round(bestArmor(p) * 100), p.riding || 0]),
       enemies: G.enemies.map(e => [e.id, e.type, r2(e.x), r2(e.y), Math.round(e.hp), e.maxhp, e.elite ? 1 : 0, e.slowT > 0 ? 1 : 0]),
       animals: G.animals.map(a => [a.id, a.type, r2(a.x), r2(a.y), Math.round(a.hp), a.fedT > 0 ? 1 : 0]),
+      carts: G.carts.map(c => [c.id, r2(c.x), r2(c.y), c.dir, c.items]), // 貨艙(items)是全隊共享資源,整包廣播,跟 storage.items 同一種定位(不是玩家背包那種私人資料)
       drops: G.drops.map(d => [d.id, d.item, d.n, r2(d.x), r2(d.y), d.lv || 0]),
       projs: G.projs.map(pj => [pj.id, r2(pj.x), r2(pj.y), pj.from === 'e' ? 1 : 0, pj.elem || null]),
       core: { e: r2(G.core.energy), s: G.core.shards, sh: r2(G.core.shield || 0) },
@@ -367,7 +374,7 @@ const NET = {
         G.explored = rleDec(d.explored, MAP_W * MAP_H, Uint8Array);
         G.dmg = new Float32Array(MAP_W * MAP_H);
         G.objects.clear(); G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.cropIdx.clear(); G.minerIdx.clear(); G.beltIdx.clear(); G.smelterIdx.clear(); G.frostIdx.clear(); G.decoyIdx.clear(); G.cannonIdx.clear(); G.multiIdx.clear(); G.sniperIdx.clear(); G.mushCount = 0;
-        for (const [i, type, hp, ammo, off, owner, stage, t, nestType, dir, fuel, items] of d.objects) {
+        for (const [i, type, hp, ammo, off, owner, stage, t, nestType, dir, fuel, items, num] of d.objects) {
           const o = hp === null ? { type } : { type, hp };
           if (ammo !== null && ammo !== undefined) o.ammo = ammo;
           if (off) o.off = true;
@@ -378,19 +385,20 @@ const NET = {
           if (dir !== null && dir !== undefined) o.dir = dir;     // 傳輸帶方向
           if (fuel !== null && fuel !== undefined) o.fuel = fuel;  // 自動採礦機光晶燃料
           if (items !== null && items !== undefined) o.items = items; // 儲物箱內容
+          if (num !== null && num !== undefined) o.num = num; // 軌道站台編號
           G.objects.set(i, o);
           if (type === 'mushroom') G.mushCount++;
           const key = TOWER_IDX_SETS[type]; if (key) G[key].add(i);
         }
         G.core.energy = d.core.energy; G.core.shards = d.core.shards; G.core.shield = d.core.shield || 0;
-        G.shrines = d.shrines; G.traders = d.traders || []; G.altars = d.altars || []; G.wave = d.wave; G.time = d.time;
+        G.shrines = d.shrines; G.traders = d.traders || []; G.altars = d.altars || []; G.vaults = d.vaults || []; G.wave = d.wave; G.time = d.time;
         G.questNpcs = d.questNpcs || []; G.quests = d.quests || { active: {}, done: {} };
         G.voidLord = d.voidLord || null;
         G.difficulty = DIFFICULTY_CFG[d.difficulty] ? d.difficulty : 'normal';
         G.unsealed = !!d.unsealed;
         G.won = !!d.won;
         G.bestiary = d.bestiary || {}; G.achv = d.achv || {};
-        G.enemies = []; G.drops = []; G.floaters = []; G.cracks.clear(); G.projs = []; G.animals = []; G.hitFx = []; G.emoteFx = [];
+        G.enemies = []; G.drops = []; G.floaters = []; G.cracks.clear(); G.projs = []; G.animals = []; G.carts = []; G.hitFx = []; G.emoteFx = [];
         G.players.clear();
         for (const [id, name, x, y, hp, dead, lv, xp, downed, downedT, revP, pet, armorPct] of d.players) {
           const p = makePlayer(id, name);
@@ -416,7 +424,7 @@ const NET = {
         break;
       case 'backup': this.backupSave = d.save; break;
       case 'snap': {
-        for (const [id, x, y, aim, swing, hp, dead, respawnT, lv, xp, downed, downedT, revP, pet, armorPct] of d.players) {
+        for (const [id, x, y, aim, swing, hp, dead, respawnT, lv, xp, downed, downedT, revP, pet, armorPct, riding] of d.players) {
           let p = G.players.get(id);
           if (!p) { p = makePlayer(id, '?'); G.players.set(id, p); p.x = x; p.y = y; }
           if (lv && p.lv !== lv) UI.invDirty = true;
@@ -424,6 +432,7 @@ const NET = {
           p.hp = hp; p.dead = !!dead; p.respawnT = respawnT;
           p.downed = !!downed; p.downedT = downedT || 0; p.reviveP = (revP || 0) / 100;
           p.pet = pet || null; p.armorPct = armorPct || 0;
+          p.riding = riding || 0; // 自己是否在騎乘中(localControl 用來擋掉一般移動輸入),見 main.js
           if (id === G.myId) continue; // 自己的位置用本地預測
           p.tx = x; p.ty = y; p.aim = aim;
           if (swing && p.swing <= 0) p.swing = 0.22;
@@ -452,6 +461,18 @@ const NET = {
             alist.push(a);
           }
           G.animals = alist;
+        }
+        // 礦車對帳(同敵人/動物:先建物件給初始 x/y 再設 tx/ty,不然第一次看到某台車時插值會算出 NaN)
+        {
+          const byId = new Map(G.carts.map(c => [c.id, c]));
+          const clist = [];
+          for (const [id, x, y, dir, items] of d.carts || []) {
+            let c = byId.get(id);
+            if (!c) c = { id, x, y, dir, items: [] };
+            c.tx = x; c.ty = y; c.dir = dir; c.items = items || [];
+            clist.push(c);
+          }
+          G.carts = clist;
         }
         G.drops = d.drops.map(([id, item, n, x, y, lv]) => ({ id, item, n, x, y, lv: lv || 0 }));
         G.projs = (d.projs || []).map(([id, x, y, fromE, elem]) => ({ id, x, y, from: fromE ? 'e' : 'p', elem }));
@@ -530,6 +551,10 @@ const NET = {
     for (const a of G.animals) {
       if (a.tx === undefined) continue;
       a.x += (a.tx - a.x) * k; a.y += (a.ty - a.y) * k;
+    }
+    for (const c of G.carts) {
+      if (c.tx === undefined) continue;
+      c.x += (c.tx - c.x) * k; c.y += (c.ty - c.y) * k;
     }
   },
 

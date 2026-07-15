@@ -238,10 +238,11 @@ function stationNear(p, type) {
 }
 
 // 合成(房主端);回傳錯誤訊息或 null=成功
+// /power infinite 開著時連合成站距離限制都跳過(跟免扣材料同一個除錯精神:不受限測試任何配方)
 function craftRecipe(p, ri) {
   const r = RECIPES[ri];
   if (!r) return '無效配方';
-  if (!stationNear(p, r.station)) return `需要靠近${r.station === 'furnace' ? '熔爐' : '工作台'}`;
+  if (!p.infinite && !stationNear(p, r.station)) return `需要靠近${r.station === 'furnace' ? '熔爐' : '工作台'}`;
   if (!canAfford(p, r.cost)) return '材料不足';
   payCost(p, r.cost);
   const left = addItem(p, r.out, r.n);

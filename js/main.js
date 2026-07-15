@@ -55,8 +55,9 @@ function bindInput() {
       if (NET.isHost()) doDeposit(me);
       else NET.act({ t: 'deposit' });
     } else if (k === 'q' && !UI.panelOpen) {
-      if (NET.isHost()) doDropItem(me, me.sel);
-      else NET.act({ t: 'drop', slot: me.sel });
+      // Shift+Q:一次倒完整疊(可堆疊物);一般 Q 維持一次丟 1 個,方便分批分享
+      if (NET.isHost()) doDropItem(me, me.sel, e.shiftKey);
+      else NET.act({ t: 'drop', slot: me.sel, all: e.shiftKey });
     }
   });
   addEventListener('keyup', e => INPUT.keys.delete(e.key.toLowerCase()));
@@ -128,6 +129,23 @@ function localControl(me, dt) {
     }
     return; // 觀戰時角色原地待機,不接受任何動作輸入
   }
+  // 騎乘礦車:位置直接跟著礦車走(host 權威在 updateCarts 裡設定 p.x/y,client 這裡讀本地
+  // 已經插值好的 G.carts 座標,兩者殊途同歸),不接受移動/攻擊/挖礦輸入,專心開車。
+  // 唯一允許的動作是對著自己開的那台車再次右鍵 = 下車
+  if (me.riding) {
+    const cart = G.carts.find(c => c.id === me.riding);
+    if (cart) { me.x = cart.x; me.y = cart.y; }
+    INPUT.rCD -= dt;
+    if (INPUT.r && INPUT.rCD <= 0 && !UI.menuOpen && !UI.powerOpen && cart) {
+      const [wx, wy] = screenToWorld(INPUT.mx, INPUT.my);
+      if (dist(cart.x, cart.y, wx, wy) < 1.2) {
+        INPUT.rCD = 0.25;
+        if (NET.isHost()) doDisembark(me);
+        else NET.act({ t: 'disembark' });
+      }
+    }
+    return;
+  }
   // 倒下(隊友救援待救狀態,尚未徹底陣亡):不接受任何輸入,鏡頭停在倒下位置(不進觀戰,好讓
   // 玩家看著隊友是否趕來、也讓隊友從遠處認得出你倒下的位置);渲染另有專屬畫法(見 render.js)
   if (me.dead || me.downed || UI.menuOpen || UI.powerOpen) return;
@@ -172,9 +190,18 @@ function localControl(me, dt) {
     const tx = Math.floor(wx), ty = Math.floor(wy);
     const info = infoAt(tx, ty);
     const o = objAt(tx, ty);
-    const mineable = !rangedW && ((info.solid && info.hp !== Infinity) || (o && o.type !== 'mushroom'))
+    // 礦車不在 G.objects(tile-based),用連續座標判定——左鍵敲擊 = 收回背包(跟其餘放置物
+    // 「敲爛/敲掉回收」的既有慣例呼應,右鍵則是上車,兩個動作分開不衝突)
+    const nearCart = !rangedW && G.carts.find(c => dist(c.x, c.y, wx, wy) < 0.9 && dist(me.x, me.y, c.x, c.y) <= 3.6);
+    const mineable = !nearCart && !rangedW && ((info.solid && info.hp !== Infinity) || (o && o.type !== 'mushroom'))
       && dist(me.x, me.y, tx + 0.5, ty + 0.5) <= 3.6;
-    if (mineable) {
+    if (nearCart) {
+      if (me.mineCD <= 0) {
+        me.mineCD = 0.26; me.swing = 0.2; me.action = 'mine';
+        if (NET.isHost()) pickupCart(me, nearCart.id);
+        else NET.act({ t: 'pickupcart', id: nearCart.id });
+      }
+    } else if (mineable) {
       if (me.mineCD <= 0) {
         if (NET.isHost()) doMine(me, tx, ty);
         else { me.mineCD = 0.26; me.swing = 0.2; me.action = 'mine'; NET.act({ t: 'mine', x: tx, y: ty }); }
@@ -203,10 +230,22 @@ function localControl(me, dt) {
     const inRange = dist(me.x, me.y, tx0 + 0.5, ty0 + 0.5) <= 3.8;
     const trader = G.traders.find(t => dist(t.x, t.y, wx, wy) < 0.8);
     const qnpc = G.questNpcs.find(n => dist(n.x, n.y, wx, wy) < 0.8);
+    const cart = G.carts.find(c => dist(c.x, c.y, wx, wy) < 1.0);
     if (trader && dist(me.x, me.y, trader.x, trader.y) <= 3.8) {
       openTraderPanel();
     } else if (qnpc && dist(me.x, me.y, qnpc.x, qnpc.y) <= 3.8) {
       openQuestPanel(qnpc.npc);
+    } else if (cart && dist(me.x, me.y, cart.x, cart.y) <= 3.8) {
+      // 礦車:優先於「手上拿著 minecart 想放新車」的判斷(比照 mate/ani 要蓋過 it.place 的既有慣例)。
+      // 空手右鍵上車(下車/收回分別走「騎乘中對同一台車右鍵」跟「左鍵敲擊」,見 localControl 開頭
+      // 與左鍵區塊);拿著東西右鍵純本地讀取秀貨艙摘要(貨艙內容已經隨 snap 同步,零新協定)
+      if (!me.inv[me.sel]) {
+        if (NET.isHost()) doBoardCart(me, cart.id);
+        else NET.act({ t: 'boardcart', id: cart.id });
+      } else {
+        const summary = cart.items.length ? cart.items.map(it => `${ITEMS[it.id].icon}${it.count}`).join(' ') : '空的';
+        addFloater(cart.x, cart.y - 0.6, `🛒 貨艙 ${cart.items.length}/${CART_CFG.capacity}:${summary}`, '#7ef0ff');
+      }
     } else if (targetObj && targetObj.type === 'archer_tower' && inRange) {
       openTowerPanel(tx0, ty0);
     } else if (targetObj && targetObj.type === 'auto_miner' && inRange) {
@@ -228,6 +267,14 @@ function localControl(me, dt) {
       openStoragePanel(tx0, ty0);
     } else if (targetObj && (targetObj.type === 'workbench' || targetObj.type === 'furnace') && inRange) {
       togglePanel(true);
+    } else if (targetObj && targetObj.type === 'chair' && inRange) {
+      // 椅子:不看手上拿什麼,對著椅子右鍵就切換坐下/起身
+      if (NET.isHost()) doSit(me, tx0, ty0);
+      else NET.act({ t: 'sit', x: tx0, y: ty0 });
+    } else if (targetObj && targetObj.type === 'bed' && inRange) {
+      // 床鋪:右鍵認床,設定重生點
+      if (NET.isHost()) doClaimBed(me, tx0, ty0);
+      else NET.act({ t: 'claimbed', x: tx0, y: ty0 });
     } else {
       const s = me.inv[me.sel];
       if (s) {
@@ -248,6 +295,10 @@ function localControl(me, dt) {
         } else if (it.place || it.placeTile !== undefined) {
           if (NET.isHost()) doPlace(me, me.sel, tx0, ty0);
           else NET.act({ t: 'place', slot: me.sel, x: tx0, y: ty0 });
+        } else if (it.cart) {
+          // 礦車:只能放在軌道上,不走 doPlace 通用路徑(見 doPlaceCart)
+          if (NET.isHost()) doPlaceCart(me, me.sel, tx0, ty0);
+          else NET.act({ t: 'placecart', slot: me.sel, x: tx0, y: ty0 });
         } else if (it.till) {
           if (NET.isHost()) doTill(me, tx0, ty0);
           else NET.act({ t: 'till', x: tx0, y: ty0 });

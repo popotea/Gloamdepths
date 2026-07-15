@@ -1,5 +1,5 @@
 // ===== 實體:玩家、敵人、掉落物、戰鬥、挖掘、放置 =====
-let nextEid = 1, nextDid = 1, nextPjid = 1, nextAid = 1;
+let nextEid = 1, nextDid = 1, nextPjid = 1, nextAid = 1, nextCid = 1;
 
 const PLAYER_COLORS = ['#ffd97a', '#7ad0ff', '#8dff9e', '#ff9ecb'];
 
@@ -13,6 +13,9 @@ function makePlayer(id, name) {
     dead: false, respawnT: 0, invDirty: true,
     downed: false, downedT: 0, reviveP: 0, // 隊友救援(倒地非陣亡),見 REVIVE_CFG
     emoteCD: 0, // 快速手勢冷卻(防手滑連點洗頻),見 EMOTE_CFG
+    sitting: null, // 坐在椅子上的暫態(比照 fish/recall),{x,y} 或 null,見 doSit
+    riding: null, // 正在騎乘的礦車 id(比照 sitting,暫態不進存檔),見 doBoardCart/doDisembark
+    bedX: null, bedY: null, // 認床設定的重生點(持久,存讀檔保留),見 doClaimBed
     pet: null, // 目前出戰的寵物(PET_TYPES 的 key 或 null),見 doPet
     equip: { head: null, chest: null, legs: null, accessory: null }, // 裝備欄:{id,lv,dur} 或 null,見 doEquip/bestArmor
     lv: 1, xp: 0,
@@ -240,6 +243,21 @@ function killEnemy(e, killer) {
     if (!G.objects.has(ai)) setObj(Math.floor(e.altar.x), Math.floor(e.altar.y), { type: 'chest', hp: OBJ_HP.chest });
     msgAll(`🗿 ${killer ? killer.name : '螢火隊'}擊破了深怪祭壇的看守者!祭壇中央的寶箱開啟了`);
     unlockAchv('altar_breaker');
+  }
+  else if (e.vault) {
+    // 淵藏寶庫:2 隻守衛(淵魂+蝕裂者混編)要死光才算清空——這裡的 e 在函式開頭已被 splice 出
+    // G.enemies,所以若這是最後一隻,some() 會正確回傳 false;另一隻還活著時單純不觸發清空獎勵
+    const cleared = !G.enemies.some(e2 => e2.vault && e2.vault.x === e.vault.x && e2.vault.y === e.vault.y);
+    if (cleared) {
+      const vault = G.vaults.find(v => v.x === e.vault.x && v.y === e.vault.y);
+      if (vault) vault.dead = true;
+      spawnDrop('void_shard', 2, e.x, e.y);
+      spawnDrop(randChoice(EQUIP_DROP_CFG.pools.elite), 1, e.x, e.y);
+      const vi = idx(Math.floor(e.vault.x), Math.floor(e.vault.y));
+      if (!G.objects.has(vi)) setObj(Math.floor(e.vault.x), Math.floor(e.vault.y), { type: 'chest', hp: OBJ_HP.chest });
+      msgAll(`💎 ${killer ? killer.name : '螢火隊'}肅清了淵藏寶庫的所有看守者!深處的寶藏箱開啟了`);
+      unlockAchv('vault_keeper');
+    }
   }
   else if (e.voidLord) {
     // 淵核區終極守護者:全遊戲最強單體,獨立死亡分支(不落神殿/祭壇的既有流程),只有一隻、死了不重生
@@ -563,7 +581,7 @@ function updateProjs(dt) {
 function enterDead(p) {
   p.hp = 0; p.dead = true; p.respawnT = 5;
   p.downed = false; p.downedT = 0; p.reviveP = 0;
-  p.buffs = {}; p.fish = null; p.recall = null; // 死亡清空料理 buff、釣魚與回城引導狀態
+  p.buffs = {}; p.fish = null; p.recall = null; p.sitting = null; p.riding = null; // 死亡清空料理 buff、釣魚/回城引導/坐椅/騎乘狀態
   msgAll(`💧 ${p.name} 熄火了……5 秒後在星核重新點燃!`);
 }
 
@@ -592,6 +610,7 @@ function damagePlayer(p, amount) {
   p.hp -= dmg; p.iframe = 0.8; p.lastHurt = G.time;
   // 歸巢螢石:受到任何傷害立即中斷引導(不消耗)——堵死「戰鬥中免死脫逃」,張力來源
   if (p.recall) { p.recall = null; addFloater(p.x, p.y - 0.9, '🌀 引導被打斷!', '#ff9d5c'); }
+  if (p.sitting) { p.sitting = null; addFloater(p.x, p.y - 0.9, '🪑 被打斷,跳起來了!', '#ff9d5c'); }
   addFloater(p.x, p.y - 0.6, '-' + dmg, '#ff6b6b');
   emitFx({ k: 'sfx', s: 'hurt' });
   if (p.hp <= 0) {
@@ -601,7 +620,7 @@ function damagePlayer(p, amount) {
     const rescuable = [...G.players.values()].some(q => q.id !== p.id && !q.dead && !q.downed);
     if (rescuable) {
       p.hp = 1; p.downed = true; p.downedT = REVIVE_CFG.downedDur; p.reviveP = 0;
-      p.buffs = {}; p.fish = null; p.recall = null;
+      p.buffs = {}; p.fish = null; p.recall = null; p.sitting = null; p.riding = null;
       msgAll(`🆘 ${p.name} 倒下了!快靠近站著救他(要 ${REVIVE_CFG.reviveTime} 秒,再被打一下就沒救了)!`);
     } else {
       enterDead(p);
@@ -736,9 +755,10 @@ function wearItem(p, s, n = 1) {
 }
 
 // 修理:靠近工作台,花該裝備合成成本的一半(repairCostOf),耐久回滿
+// /power infinite 開著時同樣跳過工作台距離限制(比照 craftRecipe 同一套除錯精神)
 function doRepair(p, slot) {
   if (p.dead || p.downed) return { err: '你已倒下' };
-  if (!stationNear(p, 'workbench')) return { err: '需要靠近工作台' };
+  if (!p.infinite && !stationNear(p, 'workbench')) return { err: '需要靠近工作台' };
   const s = p.inv[slot];
   const it = s && ITEMS[s.id];
   if (!s || !it.dur) return { err: '這個物品不需要修理' };
@@ -810,7 +830,11 @@ function breakTile(x, y, withDrop = true) {
   const info = infoAt(x, y);
   if (!info.solid || info.hp === Infinity) return;
   if (withDrop && info.drop) {
-    spawnDrop(info.drop.id, info.drop.n, x + 0.5, y + 0.5);
+    // 資源潮汐(隨機世界事件,game.js):worldEvent 是 game.js 的模組層級變數,entities.js 定義
+    // 早於 game.js 載入,但函式在呼叫當下(遊戲已開始跑)才解析這個自由變數,跟 msgAll 同一種
+    // 跨檔案順序沒問題的既有寫法——事件生效時只有指定礦物種類的掉落量吃到倍率,其餘不受影響
+    const tideMult = (worldEvent && worldEvent.type === 'tide' && worldEvent.ore === info.drop.id) ? RESOURCE_TIDE_CFG.mult : 1;
+    spawnDrop(info.drop.id, Math.round(info.drop.n * tideMult), x + 0.5, y + 0.5);
     if (info.drop.id === 'diamond') unlockAchv('first_diamond');
   }
   setTile(x, y, T.FLOOR);
@@ -983,6 +1007,14 @@ function checkTowerCollector() {
   for (const [, o] of G.objects) if (TOWER_COLLECTOR_TYPES.includes(o.type)) have.add(o.type);
   if (TOWER_COLLECTOR_TYPES.every(t => have.has(t))) unlockAchv('tower_collector');
 }
+// home_sweet_home 成就:跟 checkTowerCollector 同一套寫法,門檻是「5 種不同」而非「全部」,
+// 家具/裝潢物件比塔類多且非必要蓋好蓋滿,湊齊全部太苛刻
+function checkHomeSweetHome() {
+  if (G.achv.home_sweet_home) return;
+  const have = new Set();
+  for (const [, o] of G.objects) if (FURNITURE_DECOR_TYPES.includes(o.type)) have.add(o.type);
+  if (have.size >= 5) unlockAchv('home_sweet_home');
+}
 
 // 快速手勢:倒下也能用(呼叫隊友救援正是它的用途之一),陣亡才擋——房主權威 + 冷卻防洗頻
 function doEmote(p, idx) {
@@ -1149,6 +1181,14 @@ function doPlace(p, slot, x, y) {
       return;
     }
   }
+  // 軌道站台:必須貼著軌道放置(找不到鄰接的軌道格就失敗),站台的巡迴目的地就是這格軌道
+  let stationRail = null;
+  if (it.place === 'rail_station') {
+    for (let d = 0; d < 4; d++) {
+      if (tileAt(x + DIR_VX[d], y + DIR_VY[d]) === T.RAIL) { stationRail = [x + DIR_VX[d], y + DIR_VY[d]]; break; }
+    }
+    if (!stationRail) { addFloater(x + 0.5, y + 0.5, '必須貼著軌道放置', '#ff9d5c'); return; }
+  }
   // 會擋路的東西不能蓋在任何人/怪身上;非固體地形(如軌道)可站上去,不受這個限制
   // (否則玩家站原地就沒法在自己腳下鋪軌道),所以查地形的 solid 屬性而不是「只要用 placeTile 就當擋路」。
   // 光簾閘門雖不在 OBJ_SOLID(玩家可穿),但對怪是牆,不能蓋在怪身上瞬間關禁閉
@@ -1170,8 +1210,11 @@ function doPlace(p, slot, x, y) {
     if (it.place === 'belt') { o.owner = p.id; o.dir = dirFromAngle(p.aim); }
     if (it.place === 'frost_tower' || it.place === 'decoy') o.owner = p.id; // maxPerPlayer 計數用
     if (it.place === 'cannon_tower' || it.place === 'multi_tower' || it.place === 'sniper_tower') o.owner = p.id; // maxPerPlayer 計數用
+    // 站台編號用來排巡迴順序(照放置先後),rx/ry 不存進物件(即時掃鄰格算,見 findStation)
+    if (it.place === 'rail_station') { o.num = ++G.stationSeq; unlockAchv('station_master'); }
     setObj(x, y, o);
     if (TOWER_COLLECTOR_TYPES.includes(it.place)) checkTowerCollector();
+    if (FURNITURE_DECOR_TYPES.includes(it.place)) checkHomeSweetHome();
   }
   emitFx({ k: 'sfx', s: 'place' });
 }
@@ -1224,6 +1267,47 @@ function doRecall(p, slot) {
   addFloater(p.x, p.y - 0.6, `🌀 呼喚星核……站穩 ${RECALL_CFG.channel} 秒`, '#7ec8ff');
 }
 
+// 椅子:右鍵切換坐下/起身(不看手上拿什麼,對著椅子右鍵就成立,跟箭塔/採礦機的 targetObj
+// 判定同一種模式)。已經坐著時再次呼叫直接起身,不用管這次點的是不是同一張椅子。
+// 移動/受傷中斷寫在 updatePlayersHost/damagePlayer(比照釣魚/歸巢螢石的既有 moveCancel 慣例)
+function doSit(p, x, y) {
+  if (p.dead || p.downed) return;
+  if (p.sitting) { p.sitting = null; addFloater(p.x, p.y - 0.6, '🧍 起身了', '#8899aa'); return; }
+  if (dist(p.x, p.y, x + 0.5, y + 0.5) > 3.8) return;
+  p.sitting = { x: p.x, y: p.y };
+  addFloater(p.x, p.y - 0.9, '🪑 坐下休息中……', '#7dff8e');
+}
+
+// 床鋪:右鍵把重生點設在這裡(取代星核旁的預設重生位置),生效點在 updatePlayersHost 的
+// 死亡讀秒歸零那一行;只存座標不驗證床是否還存在(跟其餘暫態設計一樣,不為邊角案例加防呆)
+function doClaimBed(p, x, y) {
+  if (p.dead || p.downed) return;
+  if (dist(p.x, p.y, x + 0.5, y + 0.5) > 3.8) return;
+  p.bedX = x + 0.5; p.bedY = y + 0.5;
+  addFloater(p.x, p.y - 0.9, '🛏️ 已將重生點設在這裡', '#7dff8e');
+}
+
+// 礦車:上車(空手右鍵),position 之後每幀由 updateCarts 直接設成礦車座標(見該函式尾端的
+// 騎乘同步迴圈);一台車同時只能一人開,下車靠 doDisembark(main.js 對著自己在騎的車再次右鍵觸發)
+function doBoardCart(p, cartId) {
+  if (p.dead || p.downed || p.riding) return;
+  const c = G.carts.find(x => x.id === cartId);
+  if (!c) return;
+  if (dist(p.x, p.y, c.x, c.y) > 3.8) return;
+  if ([...G.players.values()].some(q => q.riding === cartId)) {
+    addFloater(c.x, c.y - 0.6, '已經有人在開這台車了', '#ff9d5c'); return;
+  }
+  p.riding = cartId;
+  p.x = c.x; p.y = c.y;
+  addFloater(c.x, c.y - 0.9, '🛒 上車!', '#7dff8e');
+}
+function doDisembark(p) {
+  if (!p.riding) return;
+  const c = G.carts.find(x => x.id === p.riding);
+  p.riding = null;
+  if (c) addFloater(c.x, c.y - 0.6, '🧍 下車了', '#8899aa');
+}
+
 // 開獎:依 FISH_CFG.loot 權重抽一項;掉在腳邊讓磁吸撿取處理(背包滿了會留在地上,不會憑空消失)
 function resolveFishing(p) {
   let r = Math.random();
@@ -1259,20 +1343,24 @@ function doEat(p, slot) {
   consumeSlot(p, slot);
 }
 
-// 丟出快捷欄選中格子的物品(Q鍵);裝備類(count=1)整把丟出並保留強化等級,
-// 可堆疊物一次丟1個,方便多人合作時分批分享而不是整疊倒出去
-function doDropItem(p, slot) {
+// 丟出快捷欄選中格子的物品(Q鍵);裝備類(count=1)整把丟出並保留強化等級,可堆疊物預設
+// 一次丟1個,方便多人合作時分批分享而不是整疊倒出去——但按 Shift+Q(all=true)可以一次倒完整疊,
+// 想清空整格快捷欄時不用一直按。剛丟出的物品短暫防止丟的人自己被磁吸撿回去(DROP_CFG),隊友不受影響
+function doDropItem(p, slot, all) {
   if (p.dead || p.downed) return;
   const s = p.inv[slot];
   if (!s) return;
   const ang = p.aim + (Math.random() - 0.5) * 0.6;
   const dx = Math.cos(ang) * 0.8, dy = Math.sin(ang) * 0.8;
-  spawnDrop(s.id, 1, p.x + dx, p.y + dy, s.lv || 0, s.dur);
-  consumeSlot(p, slot);
+  const n = all ? s.count : 1;
+  const drop = spawnDrop(s.id, n, p.x + dx, p.y + dy, s.lv || 0, s.dur);
+  drop.noPickup = p.id; drop.noPickupT = DROP_CFG.selfPickupDelay;
+  if (all) { p.inv[slot] = null; p.invDirty = true; } else consumeSlot(p, slot);
   emitFx({ k: 'sfx', s: 'place' });
 }
 
-// 把背包格子拖曳到地圖上放開:丟在滑鼠指的那個位置。
+// 把背包格子拖曳到地圖上放開:丟在滑鼠指的那個位置(維持原本一次 1 個的既有行為,跟 Q 鍵一致,
+// 這次只補上「剛丟出的物品短暫防止自己撿回去」的修正,沒有改動丟出數量的既有規則)。
 // 拖太遠夾到玩家可及範圍邊緣(不是直接失敗,拖曳落點通常沒那麼精準);
 // 落點卡在牆裡就退回腳邊,避免道具卡進牆體拿不到
 function doDropAt(p, slot, x, y) {
@@ -1280,14 +1368,15 @@ function doDropAt(p, slot, x, y) {
   const s = p.inv[slot];
   if (!s) return;
   const maxD = 3.8;
-  const d = dist(p.x, p.y, x, y);
-  if (d > maxD) {
-    const t = maxD / d;
+  const dd = dist(p.x, p.y, x, y);
+  if (dd > maxD) {
+    const t = maxD / dd;
     x = p.x + (x - p.x) * t;
     y = p.y + (y - p.y) * t;
   }
   if (isSolid(Math.floor(x), Math.floor(y))) { x = p.x; y = p.y; }
-  spawnDrop(s.id, 1, x, y, s.lv || 0, s.dur);
+  const drop = spawnDrop(s.id, 1, x, y, s.lv || 0, s.dur);
+  drop.noPickup = p.id; drop.noPickupT = DROP_CFG.selfPickupDelay;
   consumeSlot(p, slot);
   emitFx({ k: 'sfx', s: 'place' });
 }
@@ -1319,24 +1408,32 @@ function doDeposit(p) {
 
 // ===== 掉落物 =====
 // lv:強化等級 / dur:目前耐久(只有裝備類會帶,撿回背包時要一併還原,
-// 否則「丟出去再撿回來」會變成免費修理/洗掉強化)
+// 否則「丟出去再撿回來」會變成免費修理/洗掉強化)。回傳建立的物件,讓呼叫端可以在建立後
+// 補設 d.noPickup/d.noPickupT(見下方 DROP_CFG——只有玩家主動丟出的物品需要這個,一般戰利品/
+// 溢出掉落不用,呼叫端不設定就是預設沒有延遲,舊行為完全不變)
 function spawnDrop(item, n, x, y, lv, dur) {
-  G.drops.push({
+  const d = {
     id: nextDid++, item, n, x, y, lv: lv || 0, dur,
     vx: (Math.random() - 0.5) * 3, vy: (Math.random() - 0.5) * 3,
-  });
+  };
+  G.drops.push(d);
+  return d;
 }
 function updateDrops(dt) {
   for (let i = G.drops.length - 1; i >= 0; i--) {
     const d = G.drops[i];
+    if (d.noPickupT > 0) d.noPickupT -= dt;
     const f = Math.exp(-5 * dt);
     d.vx *= f; d.vy *= f;
     if (!circleHitsSolid(d.x + d.vx * dt, d.y, 0.15)) d.x += d.vx * dt;
     if (!circleHitsSolid(d.x, d.y + d.vy * dt, 0.15)) d.y += d.vy * dt;
-    // 磁吸 + 撿取:拾取戒指讓範圍因人而異,不能用固定半徑的 nearestAlivePlayer,自己找最近符合範圍的人
+    // 磁吸 + 撿取:拾取戒指讓範圍因人而異,不能用固定半徑的 nearestAlivePlayer,自己找最近符合範圍的人。
+    // 剛丟出來的物品短暫跳過丟的人自己(DROP_CFG.selfPickupDelay),不然丟出的瞬間就在磁吸範圍內
+    // 被自己吸回去撿起,玩家會感覺「根本丟不出去」——隊友完全不受影響,馬上就能撿
     let p = null, bd = Infinity;
     for (const q of G.players.values()) {
       if (q.dead) continue;
+      if (d.noPickupT > 0 && d.noPickup === q.id) continue;
       const dd = dist(d.x, d.y, q.x, q.y);
       if (dd < magnetRangeOf(q) && dd < bd) { bd = dd; p = q; }
     }
@@ -1797,8 +1894,10 @@ function spillSmelter(x, y, o) {
   if (o.fuel > 0) spawnDrop('coal', o.fuel, x + 0.5, y + 0.5);
 }
 
+// 4 向方向向量(0=右 1=下 2=左 3=上),傳輸帶/礦車共用同一份,不要各自宣告一次
+const DIR_VX = [1, 0, -1, 0], DIR_VY = [0, 1, 0, -1];
+
 // ===== 傳輸帶(房主):把地上的掉落物往 dir 方向推,連成道鏈集中礦機產出 =====
-const BELT_VX = [1, 0, -1, 0], BELT_VY = [0, 1, 0, -1]; // dir 0=右 1=下 2=左 3=上
 function updateBelts(dt) {
   if (G.beltIdx.size === 0) return;
   for (let di = G.drops.length - 1; di >= 0; di--) { // 倒序:入庫的掉落物要 splice
@@ -1809,7 +1908,7 @@ function updateBelts(dt) {
     const o = G.objects.get(bi);
     const dir = o.dir || 0;
     // 道鏈終點:傳輸帶正前方是儲物箱 → 直接入庫(不用等玩家撿),Core Keeper 式自動化
-    const fx = bx + BELT_VX[dir], fy = by + BELT_VY[dir];
+    const fx = bx + DIR_VX[dir], fy = by + DIR_VY[dir];
     const fo = inMap(fx, fy) ? G.objects.get(idx(fx, fy)) : null;
     if (fo && fo.type === 'storage') {
       const left = storageAdd(fo, d.item, d.n, d.lv, d.dur);
@@ -1827,8 +1926,8 @@ function updateBelts(dt) {
       continue;
     }
     // 直接加位移(不動 vx/vy,避免跟磁吸/摩擦力互相打架);撞牆就不推
-    const nx = d.x + BELT_VX[dir] * BELT_CFG.push * dt;
-    const ny = d.y + BELT_VY[dir] * BELT_CFG.push * dt;
+    const nx = d.x + DIR_VX[dir] * BELT_CFG.push * dt;
+    const ny = d.y + DIR_VY[dir] * BELT_CFG.push * dt;
     if (!circleHitsSolid(nx, d.y, 0.15)) d.x = nx;
     if (!circleHitsSolid(d.x, ny, 0.15)) d.y = ny;
   }
@@ -1862,34 +1961,219 @@ function doRotateBelt(p, x, y) {
   setObj(x, y, o, false);
 }
 
-// ===== 儲物箱(房主權威):放各種道具的容器,自動化道鏈的終點 =====
-// 內容存在 o.items(陣列,每格 {id,count[,lv,dur]},跟背包同格式);任何改動都 setObj 廣播全量內容給客戶端。
-// 存入:可堆疊物併進現有堆疊/新格;帶強化等級或耐久的裝備各佔一格。回傳放不下的數量。
-function storageAdd(o, id, n, lv, dur) {
-  if (!o.items) o.items = [];
-  const slots = STORAGE_CFG.slots;
+// 通用的「格子容器」塞入邏輯:儲物箱/礦車貨艙共用同一份演算法(格式都是 items:[{id,count[,lv,dur]}]),
+// 差別只在容量上限(slots)——可堆疊物併進現有堆疊/新格;帶強化等級或耐久的裝備各佔一格。回傳放不下的數量
+function slotAdd(items, slots, id, n, lv, dur) {
   const enhanced = (lv && lv > 0) || (dur !== undefined && dur !== null);
   if (enhanced) {
     let left = n;
-    while (left > 0 && o.items.length < slots) {
+    while (left > 0 && items.length < slots) {
       const s = { id, count: 1 };
       if (lv) s.lv = lv;
       if (dur !== undefined && dur !== null) s.dur = dur;
-      o.items.push(s); left--;
+      items.push(s); left--;
     }
     return left;
   }
   const mx = stackMax(id);
-  for (const s of o.items) {
+  for (const s of items) {
     if (n <= 0) break;
     if (s.id === id && !s.lv && s.dur === undefined && s.count < mx) {
       const add = Math.min(n, mx - s.count); s.count += add; n -= add;
     }
   }
-  while (n > 0 && o.items.length < slots) {
-    const add = Math.min(n, mx); o.items.push({ id, count: add }); n -= add;
+  while (n > 0 && items.length < slots) {
+    const add = Math.min(n, mx); items.push({ id, count: add }); n -= add;
   }
   return n;
+}
+// 礦車貨艙:跟儲物箱同格式,容量走 CART_CFG.capacity
+function cartAdd(c, id, n, lv, dur) {
+  if (!c.items) c.items = [];
+  return slotAdd(c.items, CART_CFG.capacity, id, n, lv, dur);
+}
+
+// ===== 礦車(3.5 v2,房主權威):真正沿軌道自動行駛的實體,延續「自動採礦機→傳輸帶→
+// 自動熔煉爐→儲物箱」的自動化道鏈補上長途運輸。有軌道站台就照編號真的沿最短路徑巡迴,
+// 沒有站台(或暫時繞不到)退回簡化的固定轉向規則(直行優先→右轉→左轉→死路迴轉) =====
+// 只在「剛跨入新格」(c.lastIdx 改變)才重新決定方向,不是每一幀都算——BFS 比單純查 4 鄰格貴,
+// 節流成每格只算一次;玩家事後延伸/拆除軌道或站台,礦車最慢下一格就會反映
+function updateCarts(dt) {
+  for (const c of G.carts) {
+    const tx = Math.floor(c.x), ty = Math.floor(c.y);
+    const curIdx = idx(tx, ty);
+    if (tileAt(tx, ty) === T.RAIL) {
+      if (curIdx !== c.lastIdx) { c.lastIdx = curIdx; decideCartDir(c, tx, ty); }
+      // 除了停留計時,還要再驗證目前方向真的能走(decideCartDir 可能因為死路+無岔路而放棄,
+      // 沒有改到 c.dir——這種情況下絕對不能盲目套用移動公式,否則會被推出軌道外)
+      if (!(c.waitT > 0) && tileAt(tx + DIR_VX[c.dir], ty + DIR_VY[c.dir]) === T.RAIL) {
+        c.x += DIR_VX[c.dir] * CART_CFG.speed * dt;
+        c.y += DIR_VY[c.dir] * CART_CFG.speed * dt;
+      }
+    }
+    if (c.waitT > 0) c.waitT -= dt;
+    cartCollectDrops(c);
+    cartAutoUnload(c, Math.floor(c.x), Math.floor(c.y));
+    // 騎乘中的玩家位置直接跟著礦車走(host 權威;客戶端靠既有的玩家位置 snap 自然同步)
+    for (const p of G.players.values()) if (p.riding === c.id) { p.x = c.x; p.y = c.y; }
+  }
+}
+// 決定下一步方向(只在剛進新格時呼叫一次)。有可達的目標站台就用 BFS 最短路徑,否則(或
+// 路徑失效)退回固定轉向規則。到站的判斷/停留計時也在這裡處理
+function decideCartDir(c, tx, ty) {
+  const has = d => tileAt(tx + DIR_VX[d], ty + DIR_VY[d]) === T.RAIL;
+  if (!c.targetNum && !(c.waitT > 0)) c.targetNum = nextStationNum(tx, ty, 0);
+  // 到站判斷跟「換算新方向」故意分成兩段:停留期間 curIdx 不會變,這個函式不會再被呼叫,
+  // 所以「到站換下一個目標」跟「算出前往新目標的方向」必須在同一次呼叫裡做完,不能留到下次
+  if (c.targetNum) {
+    const st = findStation(c.targetNum);
+    if (!st) c.targetNum = 0; // 站台被拆了
+    else if (st.rx === tx && st.ry === ty) {
+      c.waitT = RAIL_STATION_CFG.waitTime;
+      c.targetNum = nextStationNum(tx, ty, c.targetNum); // 立刻換成下一個可達編號
+    }
+  }
+  let dir = null;
+  if (c.targetNum) {
+    const st = findStation(c.targetNum);
+    if (!st) c.targetNum = 0;
+    else {
+      const bfsDir = railBFS(tx, ty, st.rx, st.ry);
+      if (bfsDir !== null && bfsDir >= 0) dir = bfsDir;
+      else if (bfsDir === null) c.targetNum = 0; // 斷路了,退回固定規則,下次再嘗試找站台
+    }
+  }
+  if (dir === null) dir = has(c.dir) ? c.dir : [(c.dir + 1) % 4, (c.dir + 3) % 4, (c.dir + 2) % 4].find(has);
+  if (dir === undefined || dir === null) return; // 死路+無岔路,原地停等(c.dir 維持原樣)
+  if (dir !== c.dir) { c.dir = dir; c.x = tx + 0.5; c.y = ty + 0.5; } // 轉向瞬間對齊格中心
+}
+// 在軌道圖上找從 (sx,sy) 到 (tx,ty) 的最短路徑,回傳出發要走的第一步方向(0~3);
+// 已經在終點回傳 -1;完全不通回傳 null。單純 BFS(用陣列當佇列,idx 當 visited key),
+// 軌道網路規模有限,每次呼叫都重算不做快取(呼叫頻率已經被 updateCarts 節流到每格一次)
+function railBFS(sx, sy, tx, ty) {
+  if (sx === tx && sy === ty) return -1;
+  const targetI = idx(tx, ty);
+  const visited = new Set([idx(sx, sy)]);
+  const queue = [[sx, sy, -1]];
+  for (let qi = 0; qi < queue.length; qi++) {
+    const [cx, cy, firstDir] = queue[qi];
+    for (let d = 0; d < 4; d++) {
+      const nx = cx + DIR_VX[d], ny = cy + DIR_VY[d];
+      if (!inMap(nx, ny) || tileAt(nx, ny) !== T.RAIL) continue;
+      const ni = idx(nx, ny);
+      if (visited.has(ni)) continue;
+      visited.add(ni);
+      const fd = firstDir === -1 ? d : firstDir;
+      if (ni === targetI) return fd;
+      queue.push([nx, ny, fd]);
+    }
+  }
+  return null;
+}
+// 找編號 num 的軌道站台,回傳 {x,y,rx,ry}(rx,ry 是它貼著的那格軌道,BFS 的目的地用這個而不是
+// 站台本身,因為站台放在 FLOOR 上,不在軌道圖裡);找不到回傳 null。rx/ry 不存進物件本身,
+// 每次即時掃 4 鄰格算(站台數量少、只在礦車決定方向時查,不是每幀)
+function findStation(num) {
+  if (!num) return null;
+  for (const [i, o] of G.objects) {
+    if (o.type !== 'rail_station' || o.num !== num) continue;
+    const sx = i % MAP_W, sy = (i / MAP_W) | 0;
+    for (let d = 0; d < 4; d++) {
+      const rx = sx + DIR_VX[d], ry = sy + DIR_VY[d];
+      if (tileAt(rx, ry) === T.RAIL) return { x: sx, y: sy, rx, ry };
+    }
+    return null; // 站台旁的軌道被拆了
+  }
+  return null;
+}
+// 找「編號大於 afterNum、路徑可達」的下一個站台(依編號由小到大,繞回最小的),都繞不到回傳 0
+// (呼叫端會把 targetNum 清空、退回固定轉向規則)
+function nextStationNum(tx, ty, afterNum) {
+  const nums = [];
+  for (const [, o] of G.objects) if (o.type === 'rail_station') nums.push(o.num);
+  if (!nums.length) return 0;
+  nums.sort((a, b) => a - b);
+  const ordered = [...nums.filter(n => n > afterNum), ...nums.filter(n => n <= afterNum)];
+  for (const n of ordered) {
+    const st = findStation(n);
+    if (st && railBFS(tx, ty, st.rx, st.ry) !== null) return n;
+  }
+  return 0;
+}
+// 沿途吸收掉落物進貨艙(倒序掃描,比照 updateBelts/updateDrops 既有的倒序 splice 慣例)。
+// 執行順序刻意排在 updateDrops(玩家磁吸)之前(見 simTick)——礦車經過時比玩家磁吸優先吸走
+// 地上的掉落物,跟既有的「傳輸帶推力先於磁吸」是同一種順序哲學,是刻意選擇不是意外
+function cartCollectDrops(c) {
+  if (c.items.length >= CART_CFG.capacity) return;
+  for (let i = G.drops.length - 1; i >= 0; i--) {
+    const d = G.drops[i];
+    if (dist(c.x, c.y, d.x, d.y) > CART_CFG.pickupRange) continue;
+    const left = cartAdd(c, d.item, d.n, d.lv, d.dur);
+    if (left <= 0) G.drops.splice(i, 1);
+    else d.n = left;
+  }
+}
+// 經過儲物箱/自動熔煉爐鄰格時自動卸貨(重用既有的 storageAdd/smelterFeed,零風險)。
+// 熔煉爐那支比照 updateBelts 既有的防呆排除強化裝備,不塞去熔煉爐(但可以進儲物箱)
+function cartAutoUnload(c, tx, ty) {
+  if (!c.items.length) return;
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    if (!c.items.length) break;
+    const nx = tx + dx, ny = ty + dy;
+    const o = inMap(nx, ny) ? G.objects.get(idx(nx, ny)) : null;
+    if (!o || (o.type !== 'storage' && o.type !== 'auto_smelter')) continue;
+    for (let i = c.items.length - 1; i >= 0; i--) {
+      const s = c.items[i];
+      if (o.type === 'auto_smelter' && (s.lv || s.dur !== undefined)) continue; // 強化裝備不進熔煉爐
+      const left = o.type === 'storage' ? storageAdd(o, s.id, s.count, s.lv, s.dur) : smelterFeed(o, s.id, s.count);
+      if (left <= 0) c.items.splice(i, 1);
+      else s.count = left;
+    }
+    setObj(nx, ny, o, false); // 廣播箱子/爐子的新內容,跟 updateBelts 同一慣例
+  }
+}
+// 放置:只能放在軌道上,不走 doPlace 的通用路徑(目標地形/結果型態都跟其他放置物不同,
+// 比照 doTill/doPlant/doFish「需求分歧夠大時另開一支」的既有慣例)
+function doPlaceCart(p, slot, x, y) {
+  if (p.dead || p.downed || !inMap(x, y)) return;
+  const s = p.inv[slot];
+  if (!s || !ITEMS[s.id].cart) return;
+  if (dist(p.x, p.y, x + 0.5, y + 0.5) > 3.8) return;
+  if (tileAt(x, y) !== T.RAIL) { addFloater(x + 0.5, y + 0.5, '只能放在軌道上', '#ff9d5c'); return; }
+  if (G.carts.some(c => dist(c.x, c.y, x + 0.5, y + 0.5) < 0.9)) { addFloater(x + 0.5, y + 0.5, '這裡已經有礦車了', '#ff9d5c'); return; }
+  let owned = 0;
+  for (const c of G.carts) if (c.owner === p.id) owned++;
+  if (owned >= CART_CFG.maxPerPlayer) { addFloater(x + 0.5, y + 0.5, `每人最多 ${CART_CFG.maxPerPlayer} 台礦車`, '#ff9d5c'); return; }
+  // 初始方向:掃 4 鄰格找第一個是軌道的方向(找不到就維持預設 0,礦車下一次 updateCarts
+  // 會判定「死路+無岔路」原地停著,不是錯誤,只是還沒接上有效軌道)
+  let dir = 0;
+  for (let d = 0; d < 4; d++) if (tileAt(x + DIR_VX[d], y + DIR_VY[d]) === T.RAIL) { dir = d; break; }
+  consumeSlot(p, slot);
+  G.carts.push({ id: nextCid++, x: x + 0.5, y: y + 0.5, dir, owner: p.id, items: [], lastIdx: -1, targetNum: 0, waitT: 0 });
+  unlockAchv('rail_baron');
+  emitFx({ k: 'sfx', s: 'place' });
+}
+// 收回礦車:空手右鍵——把 minecart 還給背包(滿了掉腳邊),貨艙內容全部灑在地上
+// (比照 spillStorage 既有的敲爛儲物箱噴內容物寫法),從 G.carts 移除
+function pickupCart(p, id) {
+  if (p.dead || p.downed) return;
+  const c = G.carts.find(x => x.id === id);
+  if (!c) return;
+  if (dist(p.x, p.y, c.x, c.y) > 3.8) return;
+  for (const q of G.players.values()) if (q.riding === id) q.riding = null; // 有人在開就先強制下車,避免懸空引用
+  for (const s of c.items) spawnDrop(s.id, s.count, c.x, c.y, s.lv || 0, s.dur);
+  if (addItem(p, 'minecart', 1) > 0) spawnDrop('minecart', 1, c.x, c.y);
+  G.carts.splice(G.carts.indexOf(c), 1);
+  addFloater(c.x, c.y - 0.6, '🛒 收回了礦車', '#8899aa');
+  emitFx({ k: 'sfx', s: 'place' });
+}
+
+// ===== 儲物箱(房主權威):放各種道具的容器,自動化道鏈的終點 =====
+// 內容存在 o.items(陣列,每格 {id,count[,lv,dur]},跟背包同格式);任何改動都 setObj 廣播全量內容給客戶端。
+// 實際塞入邏輯共用 slotAdd(跟礦車貨艙同一份算法,見上方),這裡只是套上儲物箱的容量常數
+function storageAdd(o, id, n, lv, dur) {
+  if (!o.items) o.items = [];
+  return slotAdd(o.items, STORAGE_CFG.slots, id, n, lv, dur);
 }
 // 玩家把背包某格全部存進儲物箱(放不下的留在背包)
 function doStorageDeposit(p, x, y, slot) {
@@ -1995,8 +2279,9 @@ function updatePlayersHost(dt) {
       p.respawnT -= dt;
       if (p.respawnT <= 0) {
         p.dead = false; p.hp = p.maxhp;
-        p.x = G.core.x + (Math.random() - 0.5) * 2;
-        p.y = G.core.y + 1.5;
+        // 認床(doClaimBed)設過重生點就優先用那裡,否則走原本星核旁的預設重生位置
+        if (p.bedX != null) { p.x = p.bedX; p.y = p.bedY; }
+        else { p.x = G.core.x + (Math.random() - 0.5) * 2; p.y = G.core.y + 1.5; }
         if (p.id !== G.myId && NET.isHost()) NET.sendToPid(p.id, { t: 'tp', x: p.x, y: p.y });
       }
       continue;
@@ -2055,6 +2340,16 @@ function updatePlayersHost(dt) {
             emitFx({ k: 'sfx', s: 'deposit' });
           }
         }
+      }
+    }
+    // 坐椅休息:移動太遠就起身(受傷中斷在 damagePlayer),坐著期間持續小額回血——
+    // 跟脫戰回血/回春 buff/寵物回血是平行的獨立生效點,疊加不衝突
+    if (p.sitting) {
+      if (dist(p.x, p.y, p.sitting.x, p.sitting.y) > CHAIR_CFG.moveCancel) {
+        p.sitting = null;
+        addFloater(p.x, p.y - 0.6, '🧍 起身了', '#8899aa');
+      } else if (p.hp < p.maxhp) {
+        p.hp = Math.min(p.maxhp, p.hp + CHAIR_CFG.regen * dt);
       }
     }
     // 脫戰回血

@@ -21,12 +21,14 @@ const G = {
   hitFx: [],             // 打擊特效(命中閃光,純視覺、client/host 各自倒數,不進存檔)
   emoteFx: [],           // 快速手勢特效(頭上的圖示氣泡,純視覺、client/host 各自倒數,不進存檔)
   animals: [],          // 被動生物(牲畜),房主模擬、快照同步,跟 enemies 分開的一套
+  carts: [],            // 礦車(3.5 v2):沿軌道自動行駛的實體,比照 enemies/animals(陣列,不進 init,只靠 snap 同步),但會存讀檔保留
 
   core: { x: CX + 0.5, y: CY + 0.5, energy: CORE_CFG.maxE, shards: 0, shield: 0 },
   wave: { n: 0, state: 'calm', timer: WAVE_CFG.first, final: false },
   shrines: [],          // [{x,y,dead,boss}]  boss = ENEMY_TYPES 的 key,固定分配三座神殿各自守哪隻 Boss
   traders: [],          // [{x,y}] 中層區域固定攤位,不會動,不進 snap(靠 init/存讀檔同步)
   altars: [],           // [{x,y,dead,zone}] 深怪祭壇(迷你王據點),資料/實體分離同神殿——實際守衛敵人由 spawnAltarGuardians() 另外生成
+  vaults: [],           // [{x,y,dead}] 淵藏寶庫(淵核區專屬據點),資料/實體分離同祭壇——實際守衛(2隻/座)由 spawnVaultGuardians() 在解封後生成
   questNpcs: [],        // [{x,y,npc}] 劇情 NPC 固定攤位(不會動),npc = QUEST_NPCS 的 key
   voidLord: null,       // {x,y,dead} 淵核區終極守護者位置/生死,資料/實體分離同神殿——實際怪物由 spawnVoidLord()(game.js)在解封那一刻生成
   quests: { active: {}, done: {} }, // active: {questId:{kills}} 只有擊殺型任務要記錄;done: {questId:true}
@@ -35,6 +37,7 @@ const G = {
   mushCount: 0, warned: {},
   paused: false,  // 只有單機模式能暫停(多人共享同一個模擬,暫停會卡住其他人)
   killCount: 0,   // 統計面板用:全隊累計擊殺數(killEnemy 累加,存讀檔保留)
+  stationSeq: 0,  // 軌道站台流水號(doPlace 放置時 ++ 取號),存讀檔保留避免重載後跟舊站台編號撞號
   difficulty: 'normal', // DIFFICULTY_CFG 的 key,開新世界時選定;只影響房主模擬,不用同步給客戶端
   unsealed: false,      // 第五區域「淵核區」是否已解封(通關後 true);存讀檔保留,重連靠 init 同步
   bestiary: {},          // 圖鑑:擊殺過的敵人種類(type -> true),全隊共享、存讀檔保留
@@ -112,9 +115,9 @@ function unsealVoidZone(fromNet = false) {
     if (G.tiles[i] === T.SEAL) { G.tiles[i] = T.FLOOR; G.lights.delete(i); G.dmg[i] = 0; G.cracks.delete(i); }
   }
   UI.mmDirty = true;
-  // 淵魄君主只在「房主真正觸發解封那一刻」生成一次(不是客戶端鏡射地形變化的那次呼叫),
-  // 這隻怪不落地形資料、只存在 G.enemies,client 端靠之後的 snap 快照自然同步,不用自己生成
-  if (!fromNet) spawnVoidLord();
+  // 淵魄君主/淵藏寶庫看守者只在「房主真正觸發解封那一刻」生成一次(不是客戶端鏡射地形變化的那次呼叫),
+  // 這些怪不落地形資料、只存在 G.enemies,client 端靠之後的 snap 快照自然同步,不用自己生成
+  if (!fromNet) { spawnVoidLord(); spawnVaultGuardians(); }
   if (!fromNet && NET.isHost()) NET.sendAll({ t: 'unseal' });
 }
 
@@ -167,8 +170,8 @@ function genWorld(seed) {
   G.towerIdx.clear(); G.archerTowerIdx.clear(); G.nestIdx.clear(); G.cropIdx.clear();
   G.minerIdx.clear(); G.beltIdx.clear(); G.smelterIdx.clear(); G.frostIdx.clear(); G.decoyIdx.clear();
   G.cannonIdx.clear(); G.multiIdx.clear(); G.sniperIdx.clear();
-  G.enemies = []; G.drops = []; G.floaters = []; G.projs = []; G.animals = []; G.hitFx = [];
-  G.shrines = []; G.traders = []; G.altars = []; G.questNpcs = []; G.voidLord = null; G.mushCount = 0; G.warned = {}; G.killCount = 0;
+  G.enemies = []; G.drops = []; G.floaters = []; G.projs = []; G.animals = []; G.carts = []; G.hitFx = [];
+  G.shrines = []; G.traders = []; G.altars = []; G.vaults = []; G.questNpcs = []; G.voidLord = null; G.mushCount = 0; G.warned = {}; G.killCount = 0; G.stationSeq = 0;
   // 任務日誌:每個新世界重新開始收集(跟 achv/bestiary 同一套設計語言);requires:null 的擊殺型任務
   // 一開局就要開始累計進度,所以在這裡直接 seed 一筆(其餘擊殺型任務——目前沒有——會在上一關完成時才 seed)
   G.quests = { active: {}, done: {} };
@@ -477,6 +480,33 @@ function genWorld(seed) {
     }
     // 極端情況保底(60 次嘗試在淵核區找空地理論上綽綽有餘,這裡只是防呆不讓 G.voidLord 是 null)
     if (!placed) G.voidLord = { x: CX + ZONE_R.obsidian + 10, y: CY, dead: false };
+  }
+
+  // 11) 淵藏寶庫:淵核區專屬據點(呼應候選清單「淵核區更多據點」),比照深怪祭壇的做法在淵核區
+  // 挖出小房間+一圈淵岩收邊,只放資料(位置/生死),跟淵魄君主保持距離避免據點擠成一團,
+  // 實際守衛(2隻/座)由 spawnVaultGuardians()(game.js)在解封那一刻另外生成
+  for (let n = 0; n < VAULT_CFG.count; n++) {
+    for (let tries = 0; tries < 40; tries++) {
+      const ang = rnd() * TAU, d = ZONE_R.obsidian + 6 + rnd() * (ZONE_R.voidOut - ZONE_R.obsidian - 12);
+      const cx = Math.floor(CX + Math.cos(ang) * d), cy = Math.floor(CY + Math.sin(ang) * d);
+      if (!inMap(cx, cy)) continue;
+      if (G.voidLord && dist(cx, cy, G.voidLord.x, G.voidLord.y) < 22) continue;
+      if (G.vaults.some(v => dist(cx, cy, v.x, v.y) < 22)) continue;
+      let ok = true;
+      for (let dy = -3; dy <= 3 && ok; dy++) for (let dx = -3; dx <= 3 && ok; dx++) {
+        const x = cx + dx, y = cy + dy;
+        if (!inMap(x, y) || G.tiles[idx(x, y)] === T.BEDROCK || G.tiles[idx(x, y)] === T.SEAL) ok = false;
+      }
+      if (!ok) continue;
+      for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
+        const dd = Math.hypot(dx, dy);
+        const x = cx + dx, y = cy + dy;
+        if (dd <= 2.2) { G.tiles[idx(x, y)] = T.FLOOR; G.objects.delete(idx(x, y)); }
+        else if (dd <= 3) G.tiles[idx(x, y)] = T.VOIDROCK; // 淵岩收邊,呼應淵魄君主競技場同一種標記語言
+      }
+      G.vaults.push({ x: cx + 0.5, y: cy + 0.5, dead: false });
+      break;
+    }
   }
 
   rebuildLights();
