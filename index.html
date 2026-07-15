@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>微光深淵 Gloamdepths</title>
-<link rel="stylesheet" href="style.css?v=90">
+<link rel="stylesheet" href="style.css?v=91">
 <!-- PeerJS:與朋友連線用(免費信令服務);沒網路時仍可離線單人遊玩 -->
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
@@ -30,6 +30,9 @@
   </div>
   <div id="msglog"></div>
   <div id="chatlog"></div>
+  <!-- 秘笈選單快捷按鈕(右下角):只有打過 /power 的人才會看到(見 CLAUDE.md,刻意不寫進任何
+       操作說明),按鈕右上角小 × 可以隱藏,隱藏後要用回原本打指令的方式開啟 -->
+  <div id="powerQuickBtn" class="hidden" title="快速開啟秘笈選單">🎮<span id="powerQuickHide" title="隱藏這個按鈕">×</span></div>
   <div id="chatbox" class="hidden">
     <input id="chatInput" maxlength="80" placeholder="輸入訊息,Enter 送出,Esc 取消">
   </div>
@@ -69,15 +72,15 @@
     <div id="mapHint">🖱️滾輪縮放・拖曳平移・M/Esc 關閉</div>
   </div>
 </div>
-<script src="js/config.js?v=90"></script>
-<script src="js/sfx.js?v=90"></script>
-<script src="js/world.js?v=90"></script>
-<script src="js/inventory.js?v=90"></script>
-<script src="js/entities.js?v=90"></script>
-<script src="js/game.js?v=90"></script>
-<script src="js/net.js?v=90"></script>
-<script src="js/render.js?v=90"></script>
-<script src="js/ui.js?v=90"></script>
-<script src="js/main.js?v=90"></script>
+<script src="js/config.js?v=91"></script>
+<script src="js/sfx.js?v=91"></script>
+<script src="js/world.js?v=91"></script>
+<script src="js/inventory.js?v=91"></script>
+<script src="js/entities.js?v=91"></script>
+<script src="js/game.js?v=91"></script>
+<script src="js/net.js?v=91"></script>
+<script src="js/render.js?v=91"></script>
+<script src="js/ui.js?v=91"></script>
+<script src="js/main.js?v=91"></script>
 </body>
 </html>

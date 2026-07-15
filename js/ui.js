@@ -41,13 +41,22 @@ function initUI() {
     hostBtn: $id('hostBtn'), roomcode: $id('roomcode'),
     deathbanner: $id('deathbanner'),
     menuPanel: $id('menuPanel'),
-    powerPanel: $id('powerPanel'),
+    powerPanel: $id('powerPanel'), powerQuickBtn: $id('powerQuickBtn'),
     talentPanel: $id('talentPanel'), talentbadge: $id('talentbadge'),
   };
   UI.els.talentbadge.onclick = () => toggleTalentPanel(true);
   // 小地圖本身+下方提示都能點開大地圖(M 鍵是唯一入口太隱晦,新玩家常常不知道有這功能)
   UI.els.minimap.onclick = () => toggleMapPanel(true);
   $id('mapOpenHint').onclick = () => toggleMapPanel(true);
+  // 秘笈選單快捷按鈕:點按鈕本體開面板,點右上角小 × 改成隱藏這顆按鈕(stopPropagation 避免
+  // 同時觸發開面板)。初始顯示狀態看 localStorage(只有打過指令的人才看得到)
+  UI.els.powerQuickBtn.onclick = () => togglePowerPanel();
+  $id('powerQuickHide').onclick = e => {
+    e.stopPropagation();
+    try { localStorage.setItem('gld_power_hide_btn', '1'); } catch (err) { }
+    updatePowerQuickBtn();
+  };
+  updatePowerQuickBtn();
   // 快捷欄 8 格
   for (let i = 0; i < 8; i++) {
     const d = document.createElement('div');
@@ -185,8 +194,9 @@ function tryDebugCommand(text) {
   if (!me || !text.startsWith('/')) return false;
   const parts = text.slice(1).trim().split(/\s+/).filter(Boolean);
   const head = (parts[0] || '').toLowerCase();
-  if (head === 'give_all') { execPower('infinite'); return true; }
+  if (head === 'give_all') { markPowerUsed(); execPower('infinite'); return true; }
   if (head === 'power') {
+    markPowerUsed(); // 打過一次 /power 之後,右下角才會出現快捷按鈕(見 updatePowerQuickBtn)
     if (parts.length === 1) { togglePowerPanel(); return true; }
     const action = (parts[1] || '').toLowerCase();
     const argRaw = parts[2] || '';
@@ -198,6 +208,22 @@ function tryDebugCommand(text) {
     return true;
   }
   return false;
+}
+
+// 秘笈選單快捷按鈕:刻意不寫進任何操作說明(跟 /power 本身同一種「知道的人才用得到」精神),
+// 只有實際打過指令的人才會看到這顆按鈕。按鈕上的小 × 可以隱藏(存 localStorage),
+// 隱藏之後要用回原本打 /power 指令的方式開啟——這是使用者要求的行為,不是自動恢復
+function markPowerUsed() {
+  try { localStorage.setItem('gld_power_used', '1'); } catch (e) { }
+  updatePowerQuickBtn();
+}
+function updatePowerQuickBtn() {
+  let used = false, hidden = false;
+  try {
+    used = localStorage.getItem('gld_power_used') === '1';
+    hidden = localStorage.getItem('gld_power_hide_btn') === '1';
+  } catch (e) { }
+  UI.els.powerQuickBtn.classList.toggle('hidden', !used || hidden);
 }
 
 // 統一的秘笈執行入口:選單按鈕與手打指令都呼叫這裡,效果保證一致。
@@ -250,6 +276,22 @@ const POWER_MENU = [
   },
 ];
 
+// /power give 的物品分類(只影響秘笈選單下拉選單的分組顯示,不影響其他任何邏輯)。
+// 依序比對,第一個符合的分類就採用——優先用既有的 FURNITURE_DECOR_TYPES/TOWER_COLLECTOR_TYPES
+// (跟成就判斷共用同一份清單,之後新增家具/塔類會自動歸類正確,不用維護第二份清單);
+// 自動化道鏈/建材照明數量少且很少變動,直接列舉沒關係
+const GIVE_ITEM_CATS = [
+  { name: '🧰 工具', test: it => !!(it.pick || it.till || it.fish || it.recall) },
+  { name: '⚔️ 武器', test: it => !!(it.sword || it.ranged) },
+  { name: '🛡️ 裝備', test: it => !!it.equipSlot },
+  { name: '🏠 家具/裝潢', test: it => FURNITURE_DECOR_TYPES.includes(it.place) },
+  { name: '🏗️ 塔類/防禦', test: it => TOWER_COLLECTOR_TYPES.includes(it.place) || ['gate', 'decoy', 'spike_trap'].includes(it.place) },
+  { name: '⚙️ 自動化/軌道', test: it => !!it.cart || ['auto_miner', 'belt', 'storage', 'auto_smelter', 'rail', 'rail_station'].includes(it.place) },
+  { name: '🧱 建築/照明', test: it => !!it.place || it.placeTile !== undefined },
+  { name: '🍲 食物/料理', test: it => !!it.food },
+  { name: '📦 素材/其他', test: () => true },
+];
+
 function togglePowerPanel(open) {
   UI.powerOpen = open === undefined ? !UI.powerOpen : open;
   UI.els.powerPanel.classList.toggle('hidden', !UI.powerOpen);
@@ -272,10 +314,20 @@ function renderPowerPanel() {
     }
     html += `</div>`;
   }
-  // 物品清單太多(150+ 種),不適合像怪物/動物那樣整排按鈕——改用下拉選單+數量,
-  // 對應通用指令 /power give <id> <n>,新增物品自動出現在清單裡不用維護
+  // 物品清單太多(100+ 種),不適合像怪物/動物那樣整排按鈕——改用下拉選單+數量,
+  // 對應通用指令 /power give <id> <n>,新增物品自動出現在清單裡不用維護。
+  // 玩家反映項目太多很難找,補上 GIVE_ITEM_CATS 分類(<optgroup>),一次分類、單一 select,
+  // 原生下拉選單本來就支援打字跳到符合的選項,分類群組是額外的視覺輔助
+  const giveGroups = GIVE_ITEM_CATS.map(cat => ({ cat, ids: [] }));
+  for (const id of Object.keys(ITEMS)) {
+    const g = giveGroups.find(g => g.cat.test(ITEMS[id]));
+    g.ids.push(id);
+  }
+  const giveOptions = giveGroups.filter(g => g.ids.length).map(g =>
+    `<optgroup label="${g.cat.name}">${g.ids.map(id => `<option value="${id}">${ITEMS[id].icon} ${ITEMS[id].name}</option>`).join('')}</optgroup>`
+  ).join('');
   html += `<h3>🎁 物品</h3><div class="power-grid">
-    <select id="giveItemSel">${Object.keys(ITEMS).map(id => `<option value="${id}">${ITEMS[id].icon} ${ITEMS[id].name}</option>`).join('')}</select>
+    <select id="giveItemSel">${giveOptions}</select>
     <input id="giveItemNum" type="number" value="1" min="1" max="999" style="width:4.5em">
     <button id="giveItemBtn">給予</button>
   </div>`;

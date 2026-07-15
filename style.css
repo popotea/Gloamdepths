@@ -123,6 +123,18 @@ button:disabled { opacity: .4; cursor: default; }
   border: 1px solid #7ef0ff88; border-radius: var(--radius-md); transition: box-shadow .12s, border-color .12s; }
 #chatInput:focus { border-color: var(--glow); box-shadow: 0 0 0 3px var(--glow-soft); }
 
+/* 秘笈選單快捷按鈕:右下角圓形小按鈕,只有打過 /power 的人才會被 ui.js 顯示出來。
+   滑鼠移上去才浮出隱藏用的小 ×,平常單純是一顆按鈕不會太搶眼 */
+#powerQuickBtn { position: absolute; bottom: 14px; right: 12px; width: 44px; height: 44px;
+  border-radius: 50%; background: #123a44cc; border: 1px solid var(--glow); display: flex;
+  align-items: center; justify-content: center; font-size: 22px; cursor: pointer; pointer-events: auto;
+  box-shadow: 0 0 10px var(--glow-dim); transition: box-shadow .15s; }
+#powerQuickBtn:hover { box-shadow: 0 0 14px var(--glow); }
+#powerQuickHide { position: absolute; top: -4px; right: -4px; width: 16px; height: 16px; border-radius: 50%;
+  background: #2a2a2ecc; color: #fff; font-size: 11px; line-height: 16px; text-align: center;
+  opacity: 0; transition: opacity .15s; }
+#powerQuickBtn:hover #powerQuickHide { opacity: 1; }
+
 /* 死亡橫幅 */
 #deathbanner { position: absolute; top: 35%; left: 50%; transform: translate(-50%, -50%);
   font-size: 26px; background: linear-gradient(180deg, #3a0d0dee, #2a0808ee); border: 1px solid var(--danger);
