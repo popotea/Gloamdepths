@@ -16,20 +16,24 @@ const MIME = {
   '.json': 'application/json; charset=utf-8',
   '.md': 'text/plain; charset=utf-8',
   '.ico': 'image/x-icon',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg',
 };
 
-// AI Hub「存入遊戲」用:把生成圖寫進 assets/ 底下的分類資料夾
+// AI Hub「存入遊戲」用:把生成圖(或音效 Hub 上傳的音檔)寫進 assets/ 底下的分類資料夾
 // 只收白名單資料夾 + 嚴格檔名,避免被當成任意寫檔的後門(雖然只聽 127.0.0.1,仍防萬一)
-const SAVE_DIRS = new Set(['monsters', 'tiles', 'items', 'animals']);
+// npcs 是原本 GAME_ASSETS 就有列出、但白名單漏加的既有缺口,這次一併補上
+const SAVE_DIRS = new Set(['monsters', 'tiles', 'items', 'animals', 'npcs', 'bgm', 'sfx']);
 function saveAsset(req, res) {
   let body = '';
-  req.on('data', c => { body += c; if (body.length > 15e6) req.destroy(); }); // 15MB 上限,擋異常請求
+  req.on('data', c => { body += c; if (body.length > 30e6) req.destroy(); }); // 30MB 上限(音效 Hub 的 BGM 檔比圖片大,留緩衝)
   req.on('end', () => {
     const json = h => { res.writeHead(h, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' }); };
     try {
       const { dir, name, b64, overwrite } = JSON.parse(body);
       if (!SAVE_DIRS.has(dir)) { json(400); res.end(JSON.stringify({ error: '不允許的資料夾: ' + dir })); return; }
-      if (!/^[a-z0-9\-_]+\.png$/i.test(name || '')) { json(400); res.end(JSON.stringify({ error: '檔名只能是英數-_.png: ' + name })); return; }
+      if (!/^[a-z0-9\-_]+\.(png|mp3|wav|ogg)$/i.test(name || '')) { json(400); res.end(JSON.stringify({ error: '檔名只能是英數-_ + .png/.mp3/.wav/.ogg: ' + name })); return; }
       const folder = path.join(ROOT, 'assets', dir);
       fs.mkdirSync(folder, { recursive: true });
       const file = path.join(folder, name);

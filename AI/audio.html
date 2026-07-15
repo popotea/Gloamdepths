@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>音效/音樂 Hub</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --panel: #ffffff; --border: #e4e7ec;
+    --text: #1a2233; --muted: #667085; --accent: #4f46e5; --accent-soft: #eef2ff;
+    --green: #16a34a; --red: #dc2626; --amber: #d97706;
+    --shadow: 0 1px 3px rgba(16,24,40,.08);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Segoe UI", "Microsoft JhengHei", system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 28px 20px 60px; }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+  .progress-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; box-shadow: var(--shadow); margin-bottom: 22px; display: flex; align-items: center; gap: 16px; }
+  .progress-card .num { font-size: 24px; font-weight: 700; }
+  .progress-bar { flex: 1; height: 10px; background: var(--bg); border-radius: 999px; overflow: hidden; }
+  .progress-bar > div { height: 100%; background: var(--accent); transition: width .3s; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); margin-bottom: 22px; overflow: hidden; }
+  .card-head { padding: 14px 18px; border-bottom: 1px solid var(--border); font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
+  tr:last-child td { border-bottom: none; }
+  .name { font-weight: 600; }
+  .file { color: var(--muted); font-size: 12px; font-family: Consolas, monospace; }
+  .desc { color: var(--muted); font-size: 12.5px; max-width: 300px; }
+  .dur { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+  .state { font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+  .state.ok { color: var(--green); } .state.missing { color: var(--red); } .state.warn { color: var(--amber); }
+  .size-warn { color: var(--amber); font-size: 11.5px; display: block; margin-top: 2px; }
+  audio { height: 32px; width: 200px; display: block; margin-top: 6px; }
+  input[type=file] { font-size: 12px; max-width: 170px; }
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px); background: var(--text); color: var(--panel); padding: 12px 20px; border-radius: 10px; font-weight: 500; transition: transform .25s; z-index: 200; }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🎵 音效/音樂 Hub</h1>
+  <div class="sub">產線管理工具:自己去 Stable Audio / Suno / ElevenLabs 等平台免費額度手動生成音檔,拖進這裡上傳存進 <code>assets/bgm/</code>、<code>assets/sfx/</code>。不呼叫任何 AI API、不需要金鑰。</div>
+
+  <div class="progress-card">
+    <div class="num" id="progressNum">0 / 0</div>
+    <div class="progress-bar"><div id="progressFill" style="width:0%"></div></div>
+  </div>
+
+  <div id="tables"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// 檔名/情境資料表:資料驅動,新增一列不用改邏輯(呼應遊戲本體的既有慣例)
+const AUDIO_ASSETS = [
+  {
+    dir: 'bgm', label: '🎼 地區背景音樂(BGM,對應 zoneOf() 0~3)', sizeWarnKB: 3072,
+    files: [
+      ['dirt.mp3', '表土區', '溫和神秘、輕鬆探索氛圍,無人聲,建議可無縫循環', '60~120 秒'],
+      ['stone.mp3', '石岩區', '略帶壓迫的地底氛圍,節奏平穩', '60~120 秒'],
+      ['obsidian.mp3', '黑曜岩區', '深沉緊張,低頻厚重', '60~120 秒'],
+      ['void.mp3', '淵核區(通關後)', '終局氛圍,最強烈/詭異,呼應「深淵」主題', '60~120 秒'],
+    ],
+  },
+  {
+    dir: 'sfx', label: '🔔 Boss / 特殊狀況音效(SFX)', sizeWarnKB: 300,
+    files: [
+      ['boss_appear.mp3', 'Boss 現身', '神殿 Boss / 淵魄君主生成時的警示音', '1~3 秒'],
+      ['boss_defeat.mp3', 'Boss 擊敗', '神殿 / 深怪祭壇 / 淵藏寶庫 / 淵魄君主守衛清空時', '2~4 秒'],
+      ['world_event.mp3', '世界事件', '資源潮汐 / 流星雨觸發時', '1~3 秒'],
+      ['victory.mp3', '通關', '全隊通關瞬間', '2~5 秒'],
+      ['defeat.mp3', '戰敗', '星核能量歸零瞬間', '2~5 秒'],
+    ],
+  },
+];
+
+function serverBase() { return /^http/.test(location.origin) ? location.origin : 'http://localhost:8000'; }
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2600);
+}
+function fmtSize(bytes) {
+  if (bytes >= 1e6) return (bytes / 1e6).toFixed(1) + ' MB';
+  return Math.round(bytes / 1e3) + ' KB';
+}
+
+function rowId(dir, file) { return dir + '__' + file.replace(/\W/g, '_'); }
+
+function renderTables() {
+  const root = document.getElementById('tables');
+  root.innerHTML = AUDIO_ASSETS.map(group => `
+    <div class="card">
+      <div class="card-head">${group.label}</div>
+      <table>
+        <thead><tr><th>名稱</th><th>建議情境</th><th>建議時長</th><th>狀態</th><th>上傳</th></tr></thead>
+        <tbody>
+          ${group.files.map(([file, name, desc, dur]) => `
+            <tr id="row-${rowId(group.dir, file)}">
+              <td><div class="name">${name}</div><div class="file">${file}</div></td>
+              <td class="desc">${desc}</td>
+              <td class="dur">${dur}</td>
+              <td class="state" id="state-${rowId(group.dir, file)}">偵測中…</td>
+              <td>
+                <input type="file" accept="audio/*" onchange="handlePick(this,'${group.dir}','${file}')">
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `).join('');
+}
+
+async function checkFile(dir, file, sizeWarnKB) {
+  const cell = document.getElementById('state-' + rowId(dir, file));
+  try {
+    const res = await fetch(serverBase() + '/assets/' + dir + '/' + file + '?t=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) { cell.className = 'state missing'; cell.textContent = '❌ 缺件'; return false; }
+    // serve.js 用 chunked transfer(沒有 Content-Length 標頭),只能實際讀 blob 量大小——
+    // 檔案不大(音效 Hub 的用量),多讀這次不是問題
+    const len = (await res.blob()).size;
+    const warn = sizeWarnKB && len > sizeWarnKB * 1024;
+    cell.className = 'state ' + (warn ? 'warn' : 'ok');
+    cell.innerHTML = (warn ? '⚠️ 已有(偏大)' : '✅ 已有') + ' · ' + fmtSize(len) +
+      (warn ? `<span class="size-warn">建議 ≤ ${sizeWarnKB >= 1024 ? (sizeWarnKB/1024)+'MB' : sizeWarnKB+'KB'},過大會拖慢遊戲載入</span>` : '') +
+      `<audio controls src="${serverBase()}/assets/${dir}/${file}?t=${Date.now()}"></audio>`;
+    return true;
+  } catch (e) {
+    cell.className = 'state missing'; cell.textContent = '❌ 伺服器未啟動';
+    return false;
+  }
+}
+
+async function refreshAll() {
+  let done = 0, total = 0;
+  for (const group of AUDIO_ASSETS) {
+    for (const [file] of group.files) {
+      total++;
+      if (await checkFile(group.dir, file, group.sizeWarnKB)) done++;
+    }
+  }
+  document.getElementById('progressNum').textContent = done + ' / ' + total;
+  document.getElementById('progressFill').style.width = (total ? done / total * 100 : 0) + '%';
+}
+
+function handlePick(input, dir, file) {
+  const f = input.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => saveAsset(dir, file, reader.result.split(',')[1], false, input);
+  reader.readAsDataURL(f);
+}
+
+async function saveAsset(dir, file, b64, overwrite, input) {
+  try {
+    const res = await fetch(serverBase() + '/api/save-asset', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dir, name: file, b64, overwrite }),
+    });
+    if (res.status === 409) {
+      if (confirm(file + ' 已存在,要覆蓋嗎?')) return saveAsset(dir, file, b64, true, input);
+      return;
+    }
+    const data = await res.json();
+    if (data.ok) {
+      toast('✅ 已儲存 ' + data.path);
+      await checkFile(dir, file, AUDIO_ASSETS.find(g => g.dir === dir).sizeWarnKB);
+      const total = AUDIO_ASSETS.reduce((n, g) => n + g.files.length, 0);
+      refreshAll();
+    } else {
+      toast('❌ 儲存失敗:' + (data.error || res.status));
+    }
+  } catch (e) {
+    toast('❌ 連不上伺服器,請先執行 啟動遊戲.bat');
+  } finally {
+    if (input) input.value = '';
+  }
+}
+
+renderTables();
+refreshAll();
+</script>
+</body>
+</html>
