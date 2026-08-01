@@ -61,6 +61,30 @@ function animalImg(type) {
 function petImg(type) {
   return bakedSprite(`assets/pets/${type}.png`, Math.ceil(TILE * 0.55));
 }
+function playerCharacterImg(key, direction = 'down') {
+  const c = CHARACTER_TYPES[key];
+  if (!c) return null;
+  // 四方向共用三張圖：side 素材朝右，向左時由繪製端水平翻轉；方向圖未載入時先退回角色主圖。
+  return bakedSprite(`assets/characters/directions/${key}_${direction}.png`, Math.ceil(TILE * 1.2))
+    || bakedSprite(`assets/characters/${c.img}`, Math.ceil(TILE * 1.2));
+}
+// 地面掉落物也沿用物品圖庫；尚未製作 PNG 的物品會由呼叫端退回 Emoji。
+function itemImg(id) {
+  if (!ITEMS[id]) return null;
+  return bakedSprite(`assets/items/${id}.png`, Math.ceil(TILE * 0.9));
+}
+function drawHeldItem(held, x, y, size, alpha) {
+  const img = held && held.id ? itemImg(held.id) : null;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  if (img) ctx.drawImage(img, x - size / 2, y - size / 2, size, size);
+  else {
+    ctx.font = `${size}px "Segoe UI Emoji"`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(held && held.icon ? held.icon : '✊', x, y);
+  }
+  ctx.restore();
+}
 // 打擊特效素材(單張圖,靠 canvas 縮放/淡出做動畫);烘一個固定小尺寸,畫的時候用動態目的地矩形
 // 縮放即可做出「由小變大」的效果,不用每個當下的半徑各烤一份。找不到就交回 null,呼叫端退回向量畫法
 const HITFX_IMG = { fire: 'fire.png', frost: 'frost.png', light: 'light.png', dark: 'dark.png', smash: 'smash.png' };
@@ -77,6 +101,8 @@ const TILE_TEX = new Map();
 const FLOOR_TEX_MUTE = new Set(['floor.png', 'floor_mid.png', 'floor_deep.png', 'farmland.png']);
 // 牆面/實心地形壓一層較淡的暗色:統一整體色調,角色/怪物/掉落物才跳得出來
 const WALL_TEX_MUTE = new Set(['dirt.png', 'stone.png', 'obsidian.png', 'voidrock.png', 'gravel.png', 'bedrock.png']);
+// 少數 AI 素材以白底輸出；用 multiply 壓到指定區域色，保留石塊細節又不讓深區突然變成白牆。
+const TEX_MULTIPLY_BASE = { 'obsidian.png': '#6b529e' };
 // 2×2 格週期取樣名單:整張材質攤在 2×2 格上、每格只畫四分之一。
 // AI 材質細節密度天生偏高,整張塞進 40px 一格會變成高頻雜訊、整片平鋪又滿是網格重複感;
 // 攤開後細節密度減半、重複週期加倍——這是「AI 材質太花」的渲染端解法,不用重生素材。
@@ -93,7 +119,13 @@ function tileTexFile(file) {
       const c = document.createElement('canvas');
       c.width = c.height = n;
       const g = c.getContext('2d');
-      g.drawImage(img, 0, 0, n, n);
+      const multiplyBase = TEX_MULTIPLY_BASE[file];
+      if (multiplyBase) {
+        g.fillStyle = multiplyBase; g.fillRect(0, 0, n, n);
+        g.globalCompositeOperation = 'multiply';
+        g.drawImage(img, 0, 0, n, n);
+        g.globalCompositeOperation = 'source-over';
+      } else g.drawImage(img, 0, 0, n, n);
       if (FLOOR_TEX_MUTE.has(file)) { g.fillStyle = 'rgba(12,10,8,0.42)'; g.fillRect(0, 0, n, n); }
       else if (WALL_TEX_MUTE.has(file)) { g.fillStyle = 'rgba(10,8,12,0.30)'; g.fillRect(0, 0, n, n); }
       e.cv = c;
@@ -120,6 +152,12 @@ function blitTile(texCv, tx, ty, sx, sy) {
 const FLOOR_BASE = ['#302519', '#262b36', '#241d31', '#1b1626']; // zone 0泥土/1石/2黑曜/3淵核
 const FLOOR_EDGE = ['#271d12', '#1d222d', '#1b1526', '#140e1e']; // 對應的格線暗色
 const FLOOR_HI   = ['#382b1e', '#2c313d', '#2a2238', '#211a2e']; // 對應的上緣淡高光(一點點立體感)
+const FLOOR_DETAIL = ['#745539', '#586172', '#5c496f', '#49355d'];
+function tileHash(tx, ty) {
+  let h = Math.imul(tx + 17, 374761393) ^ Math.imul(ty + 31, 668265263);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return (h ^ (h >>> 16)) >>> 0;
+}
 function drawCleanFloor(sx, sy, tx, ty, t) {
   const z = zoneOf(tx + 0.5, ty + 0.5);
   let base = FLOOR_BASE[z], edge = FLOOR_EDGE[z], hi = FLOOR_HI[z];
@@ -132,6 +170,49 @@ function drawCleanFloor(sx, sy, tx, ty, t) {
   ctx.fillStyle = edge;                        // 左邊+下邊暗線 = 清楚的格子切割
   ctx.fillRect(sx, sy, 1, TILE + 1);
   ctx.fillRect(sx, sy + TILE, TILE + 1, 1);
+  // 稀疏、固定的碎石/裂紋：座標雜湊讓每格有些微差異，但每幀結果相同、不會閃爍。
+  if (t !== T.FARMLAND && t !== T.GLOW) {
+    const h = tileHash(tx, ty);
+    if ((h & 7) < 3) {
+      const px = 6 + ((h >>> 4) % 27), py = 7 + ((h >>> 10) % 25);
+      ctx.fillStyle = FLOOR_DETAIL[z];
+      ctx.globalAlpha = 0.26;
+      ctx.fillRect(sx + px, sy + py, 2 + ((h >>> 16) & 1), 2);
+      if ((h & 31) === 0) {
+        ctx.strokeStyle = FLOOR_DETAIL[z]; ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(sx + px - 4, sy + py - 2);
+        ctx.lineTo(sx + px, sy + py + 1);
+        ctx.lineTo(sx + px + 4, sy + py - 1);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+}
+
+function isTallWall(tx, ty) {
+  const info = TILE_INFO[tileAt(tx, ty)];
+  return !!(info && info.solid && !info.low && !info.liquid);
+}
+function drawWallDepth(sx, sy, tx, ty) {
+  // 洞口側才加亮邊/落影，讓整片牆仍連續，但牆與可走地面的交界清楚立起來。
+  if (!isTallWall(tx, ty - 1)) {
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.fillRect(sx, sy, TILE + 1, 2);
+  }
+  if (!isTallWall(tx, ty + 1)) {
+    ctx.fillStyle = 'rgba(3,4,8,0.32)';
+    ctx.fillRect(sx, sy + TILE * 0.82, TILE + 1, TILE * 0.18 + 1);
+  }
+  if (!isTallWall(tx - 1, ty)) {
+    ctx.fillStyle = 'rgba(255,255,255,0.055)';
+    ctx.fillRect(sx, sy, 2, TILE + 1);
+  }
+  if (!isTallWall(tx + 1, ty)) {
+    ctx.fillStyle = 'rgba(3,4,8,0.18)';
+    ctx.fillRect(sx + TILE - 2, sy, 3, TILE + 1);
+  }
 }
 
 // ---- 鐵軌(程序化,依相鄰鐵軌自動轉向,類似 Minecraft)----
@@ -328,6 +409,7 @@ function render(dt) {
           ctx.lineWidth = 2;
           ctx.strokeRect(sx + TILE * 0.2, sy + TILE * 0.2, TILE * 0.6, TILE * 0.6);
         }
+        if (!info.fence) drawWallDepth(sx, sy, tx, ty);
         // 挖掘裂痕
         const cr = G.cracks.get(i);
         if (cr) {
@@ -571,8 +653,14 @@ function render(dt) {
     ctx.strokeStyle = 'rgba(126,240,255,0.5)';
     ctx.lineWidth = 1.5;
     ctx.stroke();
-    ctx.font = `${TILE * 0.56}px "Segoe UI Emoji"`;
-    ctx.fillText(ITEMS[d.item] ? ITEMS[d.item].icon : '❓', sx, sy + bob);
+    const img = itemImg(d.item);
+    if (img) {
+      const size = TILE * 0.9;
+      ctx.drawImage(img, sx - size / 2, sy + bob - size / 2, size, size);
+    } else {
+      ctx.font = `${TILE * 0.56}px "Segoe UI Emoji"`;
+      ctx.fillText(ITEMS[d.item] ? ITEMS[d.item].icon : '❓', sx, sy + bob);
+    }
     if (d.n > 1) {
       ctx.font = 'bold 11px sans-serif';
       ctx.fillStyle = '#fff';
@@ -843,19 +931,72 @@ function render(dt) {
     if (p.downed) { drawDownedBody(p, sx, sy); continue; }
     const col = PLAYER_COLORS[p.id % PLAYER_COLORS.length];
     const R = p.r * TILE;
-    // 移動時偵測位移做走路擺腿動畫(不額外存狀態,用位置差推斷)
+    // 移動方向由位置差推斷，讓房主與遠端玩家都不必新增網路欄位；最後朝向留在渲染暫態。
     const mvx = p.x - (p._lrx ?? p.x), mvy = p.y - (p._lry ?? p.y);
     const moving = (mvx * mvx + mvy * mvy) > 0.00002;
     p._lrx = p.x; p._lry = p.y;
-    if (moving) p._walkPh = (p._walkPh ?? 0) + dt * 9;
+    const moveSpeed = moving ? Math.hypot(mvx, mvy) / Math.max(dt, 0.001) : 0;
+    const running = moving && ((p.dashT || 0) > 0 || moveSpeed > 7.2);
+    if (moving) {
+      if (Math.abs(mvx) > Math.abs(mvy)) {
+        p._facing = 'side';
+        p._facingLeft = mvx < 0;
+      } else {
+        p._facing = mvy < 0 ? 'up' : 'down';
+      }
+      p._walkPh = (p._walkPh ?? 0) + dt * (running ? 16 : 9);
+    }
     const walk = moving ? Math.sin(p._walkPh ?? 0) : 0;
+    const facing = p._facing || 'down';
 
-    // 護甲等級決定輪廓色(無甲=深色 / 鐵甲=銀邊 / 金甲=金邊)
+    // 深色貼紙輪廓永遠保留；護甲另外疊一條銀/金內緣，不再用亮色取代角色剪影。
     // 房主端 p.equip 是正確的即時資料;客戶端看別人時要靠快照同步的 armorPct(自己的 p.equip 也有同步,兩者算出來一致)
     const armor = NET.isHost() ? bestArmor(p) : (p.armorPct || 0) / 100;
-    const outline = armor >= 0.5 ? '#ffd23f' : armor >= 0.3 ? '#c8ced8' : '#0008';
-    const outlineW = armor > 0 ? 3 : 2;
+    const armorAccent = armor >= 0.5 ? '#ffd23f' : armor >= 0.3 ? '#d9e0eb' : null;
+    const outline = '#10131de6', outlineW = 3.2;
 
+    // 腳下接地陰影 + 自己的淡青定位環：在複雜地形和多人重疊時仍能一眼找到角色。
+    ctx.fillStyle = 'rgba(2,3,8,0.38)';
+    ctx.beginPath();
+    ctx.ellipse(sx, sy + R * 0.78, R * (moving ? 0.82 : 0.72), R * 0.22, 0, 0, TAU);
+    ctx.fill();
+    if (p.id === G.myId) {
+      const selfPulse = 0.32 + Math.sin(performance.now() / 420) * 0.09;
+      ctx.strokeStyle = `rgba(126,240,255,${selfPulse})`; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(sx, sy + R * 0.77, R * 0.92, R * 0.32, 0, 0, TAU); ctx.stroke();
+    }
+
+    if (running) {
+      // 高速移動的短塵尾比單純加快彈跳更容易一眼辨識，顏色保持低對比避免蓋過掉落物。
+      const len = Math.max(0.001, Math.hypot(mvx, mvy));
+      const dustX = sx - mvx / len * R * 0.95;
+      const dustY = sy - mvy / len * R * 0.55 + R * 0.55;
+      ctx.fillStyle = 'rgba(190,174,156,0.28)';
+      ctx.beginPath();
+      ctx.arc(dustX - Math.sin(p._walkPh || 0) * 3, dustY, 2.6, 0, TAU);
+      ctx.arc(dustX + Math.sin(p._walkPh || 0) * 4, dustY + 2, 1.7, 0, TAU);
+      ctx.fill();
+    }
+
+    const characterSprite = playerCharacterImg(p.character, facing);
+    if (characterSprite) {
+      // 走路是柔和慢彈跳；衝刺/高速移動加快步頻、前傾與 squash & stretch，和一般走路明顯區隔。
+      const spriteSize = TILE * 1.2;
+      const stride = Math.abs(walk);
+      const spriteBob = running ? -stride * 3.1 : moving ? -stride * 1.7 : Math.sin(performance.now() / 650 + p.id) * 0.45;
+      const squashX = running ? 1 + stride * 0.065 : 1 + stride * 0.018;
+      const squashY = running ? 1 - stride * 0.045 : 1 - stride * 0.012;
+      const sideSign = p._facingLeft ? -1 : 1;
+      const lean = running && facing === 'side' ? sideSign * 0.075 : moving ? walk * 0.018 : 0;
+      ctx.save();
+      ctx.translate(sx, sy + spriteBob);
+      ctx.rotate(lean);
+      ctx.scale(facing === 'side' && p._facingLeft ? -squashX : squashX, squashY);
+      if (armorAccent) { ctx.shadowColor = armorAccent; ctx.shadowBlur = 7; }
+      ctx.drawImage(characterSprite, -spriteSize / 2, -spriteSize / 2 - R * 0.5, spriteSize, spriteSize);
+      ctx.restore();
+    } else {
+    // 舊存檔/素材載入失敗時保留原本向量角色，不會因圖片問題變成隱形人。
     // 雙腳(走路交替擺動)
     ctx.fillStyle = '#0006';
     const legOff = R * 0.4;
@@ -871,6 +1012,12 @@ function render(dt) {
     ctx.ellipse(sx, sy + R * 0.12, R * 0.92 * squashB, R * 0.8 / squashB, 0, 0, TAU);
     ctx.fill();
     ctx.strokeStyle = outline; ctx.lineWidth = outlineW; ctx.stroke();
+    if (armorAccent) { ctx.strokeStyle = armorAccent; ctx.lineWidth = 1.35; ctx.stroke(); }
+    // 上半身小高光讓純色角色不顯扁平，仍維持貼紙式乾淨輪廓。
+    ctx.fillStyle = 'rgba(255,255,255,0.14)';
+    ctx.beginPath();
+    ctx.ellipse(sx - R * 0.27, sy - R * 0.12, R * 0.27, R * 0.12, -0.35, 0, TAU);
+    ctx.fill();
 
     // 頭部(疊在身體上方,略偏向瞄準方向做出朝向感)
     const hx0 = sx + Math.cos(p.aim) * R * 0.12, hy0 = sy - R * 0.45 + Math.sin(p.aim) * R * 0.06;
@@ -879,6 +1026,7 @@ function render(dt) {
     ctx.arc(hx0, hy0, R * 0.62, 0, TAU);
     ctx.fill();
     ctx.strokeStyle = outline; ctx.lineWidth = outlineW * 0.8; ctx.stroke();
+    if (armorAccent) { ctx.strokeStyle = armorAccent; ctx.lineWidth = 1.1; ctx.stroke(); }
 
     // 面向的眼睛(Q版改版:眼睛加大;低血時變「><」求救臉,雙端都有 hp/maxhp 可判)
     const ex = Math.cos(p.aim) * R * 0.3, ey = Math.sin(p.aim) * R * 0.3;
@@ -899,12 +1047,18 @@ function render(dt) {
       ctx.arc(e1x, e1y, 3.5, 0, TAU);
       ctx.arc(e2x, e2y, 3.5, 0, TAU);
       ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.beginPath();
+      ctx.arc(e1x - 1, e1y - 1.2, 1.05, 0, TAU);
+      ctx.arc(e2x - 1, e2y - 1.2, 1.05, 0, TAU);
+      ctx.fill();
       // 淡粉腮紅:Q 版臉頰的靈魂,順著臉的朝向擺在眼睛外側下方
       ctx.fillStyle = 'rgba(255,157,226,0.35)';
       ctx.beginPath();
       ctx.ellipse(e1x - Math.sin(p.aim) * 5, e1y + Math.cos(p.aim) * 5 + 2, 3.2, 2.2, 0, 0, TAU);
       ctx.ellipse(e2x + Math.sin(p.aim) * 5, e2y - Math.cos(p.aim) * 5 + 2, 3.2, 2.2, 0, 0, TAU);
       ctx.fill();
+    }
     }
     // 手持物品(先算出來,揮擊弧光要用它的屬性上色):待機時偏向側後方貼身顯示(避開頭部),
     // 攻擊/挖礦時往瞄準方向揮出到身體外側
@@ -929,24 +1083,15 @@ function render(dt) {
           const ghostF = Math.min(1, swingF + off);
           const gAng = p.aim + (ghostF - 0.5) * 1.1;
           const gr = R * 1.35;
-          ctx.save();
-          ctx.font = `${TILE * 0.44}px "Segoe UI Emoji"`;
-          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-          ctx.globalAlpha = (1 - off) * 0.35;
-          ctx.fillText(held.icon, sx + Math.cos(gAng) * gr, sy + Math.sin(gAng) * gr);
-          ctx.restore();
+          drawHeldItem(held, sx + Math.cos(gAng) * gr, sy + Math.sin(gAng) * gr,
+            TILE * 0.54, (1 - off) * 0.35);
         }
       }
       // 待機時擺在慣用手側(瞄準方向 +100°),不擋住臉;揮動時甩到瞄準方向前方
       const ang = swinging ? p.aim + (swingF - 0.5) * 1.1 : p.aim + 1.75;
       const hr = R * (swinging ? 1.35 : 0.95);
       const hx = sx + Math.cos(ang) * hr, hy = sy + Math.sin(ang) * hr;
-      ctx.save();
-      ctx.font = `${TILE * (swinging ? 0.5 : 0.34)}px "Segoe UI Emoji"`;
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.globalAlpha = swinging ? 1 : 0.85;
-      ctx.fillText(held.icon, hx, hy);
-      ctx.restore();
+      drawHeldItem(held, hx, hy, TILE * (swinging ? 0.64 : 0.46), swinging ? 1 : 0.88);
     }
     // 寵物:純裝飾偏移(繞著玩家位置算出來的軌跡,不是獨立模擬的實體),host/client 用同一份
     // p.x/p.y+performance.now() 算,結果自然一致,不用額外同步座標。受黑暗遮罩影響(跟玩家本體一樣暗處看不見)

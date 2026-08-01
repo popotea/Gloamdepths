@@ -146,6 +146,7 @@
 - **主題定名**:玩家=「螢火隊」、商人=「莫勾」(`TRADER_CFG.name/motto`)、三神殿 Boss=守望者(火・燼/冰・凜/影・寞,`ENEMY_TYPES` name);擊殺守望者訊息是「喚醒」語氣+`SHRINE_BOSS_QUOTES` 專屬台詞(config.js)。文案語氣「再放飛」尺度:全面梗化+emoji 用滿,**唯暗潮警告/星核低電量保留緊張感**,⚠️ 錯誤訊息保持清楚不搞笑。
 - **UI Q 版化**(style.css):血條膠囊化(`border-radius:999px`,`.bar` 本有 `overflow:hidden` 不露角)、主選單按鈕全膠囊、按鈕 active 擠壓(squash & stretch)、快捷欄選中呼吸發光(`slotBreath`)、標題浮動。canvas floater 的糖果色直接寫 hex(canvas 吃不到 CSS 變數):回復類=薄荷綠 `#7dffb2`、動物好感=糖果粉 `#ff9de2`。
 - **向量畫法 Q 版**(render.js):怪物 fallback 眼睛放大 20%+白色高光點;玩家大眼 3.5+淡粉腮紅,**血量 <30% 眼睛變「><」**(用 `p.hp/p.maxhp` 判斷——雙端都有這兩個欄位,客戶端不用等快照同步新欄位)。
+- **可選角色立繪**(2026-08):角色資料集中在 `CHARACTER_TYPES`;主選單卡圖位於 `assets/characters/`,四方向遊戲圖位於 `assets/characters/directions/`(`down/up/side`,左向由 side 水平翻轉),去背前方向表保留在 `assets_raw/characters/directions/`。主選單由 `.char-grid` 建立角色卡,選擇存入 `gld_character`,玩家的 `character` 會寫入名稱存檔並附加在 PeerJS 的 `hi`、`init`、`snap`、`join` 訊息。身體朝向由渲染端比較前後位置推斷,不增加網路欄位;走路/高速移動分別使用不同步頻與 squash & stretch。方向圖載入失敗時先退回角色主圖,再失敗才退回原本的 Canvas vector 角色。新增角色時需同步更新角色資料、兩組素材,以及網路 tuple 的編碼與解碼。
 - 金鎬(tier 3)即頂級鎬,**沒有「鑽石鎬」這一階**——鑽石/淵岩都是金鎬挖。
 
 ## 多存檔/世界選擇(2026-07-12,原 3.4)

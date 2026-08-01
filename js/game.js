@@ -59,13 +59,13 @@ function msgAll(text) {
 }
 
 // 開新世界(房主/單機)
-function startNewGame(name, difficulty) {
+function startNewGame(name, difficulty, character) {
   genWorld((Math.random() * 0xffffffff) >>> 0);
   G.difficulty = DIFFICULTY_CFG[difficulty] ? difficulty : 'normal';
   G.players.clear();
   G.playersByName = {};
   G.myId = 0;
-  const p = makePlayer(0, name);
+  const p = makePlayer(0, name, character);
   G.players.set(0, p);
   spawnShrineBosses();
   spawnAltarGuardians();
@@ -400,7 +400,7 @@ function winGame() {
 function buildSave() {
   // 把目前所有玩家的背包記進名字表,離線好友下次同名加入可拿回
   for (const p of G.players.values()) {
-    G.playersByName[p.name] = { inv: p.inv, hp: p.hp, x: p.x, y: p.y, lv: p.lv, xp: p.xp, talents: p.talents, pet: p.pet, equip: p.equip, bedX: p.bedX, bedY: p.bedY };
+    G.playersByName[p.name] = { inv: p.inv, hp: p.hp, x: p.x, y: p.y, lv: p.lv, xp: p.xp, talents: p.talents, pet: p.pet, equip: p.equip, bedX: p.bedX, bedY: p.bedY, character: p.character };
   }
   return {
     v: 1, seed: G.seed, time: G.time, killCount: G.killCount, difficulty: G.difficulty, unsealed: G.unsealed, stationSeq: G.stationSeq,
@@ -443,21 +443,21 @@ function hasSave(n = SAVE_SLOT) {
   return !!slotRaw(n);
 }
 
-function loadGame(name) {
+function loadGame(name, character) {
   let s;
   try { s = JSON.parse(slotRaw(SAVE_SLOT)); } catch (e) { return false; }
   if (!s) return false;
-  return applySave(s, name);
+  return applySave(s, name, character);
 }
 
 // 匯入的存檔檔案(非房主本機 localStorage)套用同一套流程,讓任何人拿到匯出的
 // JSON 檔案都能以新房主身分開房繼續,不受原房主電腦是否在線影響
-function loadGameFromObject(s, name) {
+function loadGameFromObject(s, name, character) {
   if (!s || typeof s !== 'object') return false;
-  try { return applySave(s, name); } catch (e) { return false; }
+  try { return applySave(s, name, character); } catch (e) { return false; }
 }
 
-function applySave(s, name) {
+function applySave(s, name, character) {
   genWorld(s.seed >>> 0); // 先生成再覆蓋,結構才齊全
   G.tiles = rleDec(s.tiles, MAP_W * MAP_H, Uint8Array);
   G.explored = rleDec(s.explored, MAP_W * MAP_H, Uint8Array);
@@ -531,8 +531,9 @@ function applySave(s, name) {
   // 用名字還原玩家背包
   G.players.clear();
   G.myId = 0;
-  const p = makePlayer(0, name);
   const saved = G.playersByName[name];
+  const chosenCharacter = CHARACTER_TYPES[character] ? character : (saved && CHARACTER_TYPES[saved.character] ? saved.character : DEFAULT_CHARACTER);
+  const p = makePlayer(0, name, chosenCharacter);
   if (saved) {
     p.inv = saved.inv;
     p.lv = saved.lv || 1; p.xp = saved.xp || 0;
@@ -553,8 +554,8 @@ function applySave(s, name) {
 }
 
 // 客戶端玩家加入時由房主呼叫:依名字還原或給新手包
-function playerJoinAs(id, name) {
-  const p = makePlayer(id, name);
+function playerJoinAs(id, name, character) {
+  const p = makePlayer(id, name, character);
   const saved = G.playersByName[name];
   if (saved) {
     p.inv = saved.inv;
@@ -564,6 +565,7 @@ function playerJoinAs(id, name) {
     p.maxhp = playerMaxHp(p);
     p.hp = Math.max(30, Math.min(p.maxhp, saved.hp));
     p.pet = saved.pet || null;
+    if (!CHARACTER_TYPES[character] && CHARACTER_TYPES[saved.character]) p.character = saved.character;
     p.equip = saved.equip || null;
     p.bedX = saved.bedX ?? null; p.bedY = saved.bedY ?? null; // 認床設定的重生點(見 doClaimBed)
     migrateLegacyArmor(p); // 舊存檔沒有 equip 欄位,從背包裡挑一件胸甲自動穿上

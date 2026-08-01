@@ -15,6 +15,7 @@ const UI = {
   storagePos: null, storageT: 0,
   emoteOpen: false,
   selectedDifficulty: 'normal',
+  selectedCharacter: DEFAULT_CHARACTER,
   spec: null, // 觀戰自由鏡頭 {x, y, auto};null = 鏡頭跟著自己(auto = 死亡自動啟用,復活自動收回)
 };
 
@@ -27,7 +28,7 @@ function initUI() {
     xpfill: $id('xpfill'), xptext: $id('xptext'),
     stafill: $id('stafill'), statext: $id('statext'),
     shards: $id('shards'), wavebox: $id('wavebox'), buffbar: $id('buffbar'),
-    hotbar: $id('hotbar'), msglog: $id('msglog'),
+    hotbar: $id('hotbar'), hotbarLabel: $id('hotbarLabel'), msglog: $id('msglog'),
     chatlog: $id('chatlog'), chatbox: $id('chatbox'), chatInput: $id('chatInput'),
     invpanel: $id('invpanel'), invgrid: $id('invgrid'), craftlist: $id('craftlist'), crafttabs: $id('crafttabs'),
     enhPanel: $id('enhPanel'), equipSlots: $id('equipSlots'),
@@ -535,10 +536,62 @@ function uiTick(dt) {
   UI.els.hostBtn.classList.toggle('hidden', !(NET.isHost() && NET.mode === 'single'));
 }
 
+// 背包/快捷欄優先使用已經做好的物品 PNG，沒有對應素材時才退回 Emoji。
+// dataset 避免每次 UI tick 都重建 <img>，也避免反覆對不存在的素材送出請求。
+function setItemIcon(el, id) {
+  if (!el) return;
+  const key = id || '';
+  if (el.dataset.itemId === key) return;
+  el.dataset.itemId = key;
+  el.textContent = '';
+  const it = id && ITEMS[id];
+  if (!it) return;
+
+  const fallback = document.createElement('span');
+  fallback.className = 'item-emoji';
+  fallback.textContent = it.icon;
+  const img = document.createElement('img');
+  img.className = 'item-img';
+  img.alt = '';
+  img.draggable = false;
+  img.hidden = true;
+  img.onload = () => { img.hidden = false; fallback.hidden = true; };
+  img.onerror = () => img.remove();
+  img.src = `assets/items/${id}.png`;
+  el.append(img, fallback);
+}
+
+// 選中物品的即時摘要：玩家用數字鍵/滾輪切換時，不必再靠圖示猜現在拿著什麼。
+function itemQuickMeta(it, s) {
+  if (it.pick) return `挖掘力 ${it.pick.power}`;
+  if (it.sword) return `攻擊 ${it.sword.dmg}${it.sword.elem ? ` · ${it.sword.elem}` : ''}`;
+  if (it.ranged) return `遠程攻擊 ${it.ranged.dmg}`;
+  if (it.armor !== undefined) return `減傷 ${Math.round(it.armor * 100)}%`;
+  if (it.food) return `回復 ${it.food} HP`;
+  if (it.place || it.placeTile !== undefined) return '右鍵放置';
+  if (it.fish) return '對水面右鍵拋竿';
+  if (it.till) return '右鍵翻土';
+  if (it.desc) {
+    const first = it.desc.split(/[。\n,，]/)[0];
+    return first.length > 24 ? first.slice(0, 24) + '…' : first;
+  }
+  return s && s.count > 1 ? `持有 ${s.count}` : '';
+}
+
+function renderHotbarLabel(s) {
+  const el = UI.els.hotbarLabel;
+  const it = s && ITEMS[s.id];
+  el.classList.toggle('hidden', !it);
+  if (!it) return;
+  setItemIcon(el.querySelector('.icon'), s.id);
+  el.querySelector('.name').textContent = it.name + (s.lv ? ` +${s.lv}` : '');
+  el.querySelector('.meta').textContent = itemQuickMeta(it, s);
+}
+
 function slotHTML(el, s, selected, pending) {
-  el.querySelector('.icon').textContent = s ? ITEMS[s.id].icon : '';
+  setItemIcon(el.querySelector('.icon'), s && s.id);
   el.querySelector('.cnt').textContent = s && s.count > 1 ? s.count : (s && s.lv ? '+' + s.lv : '');
-  el.style.background = s && ITEMS[s.id].tint ? ITEMS[s.id].tint : '';
+  el.style.setProperty('--slot-tint', s && ITEMS[s.id].tint ? ITEMS[s.id].tint : 'transparent');
   el.classList.toggle('sel', !!selected);
   el.classList.toggle('pending', !!pending);
   // 耐久條:滿的不畫(乾淨),磨損才出現;歸零整格變紅+圖示轉灰(損壞停用)
@@ -565,6 +618,7 @@ function refreshSlots() {
   if (!me) return;
   [...UI.els.hotbar.children].forEach((el, i) => slotHTML(el, me.inv[i], me.sel === i));
   [...UI.els.invgrid.children].forEach((el, i) => slotHTML(el, me.inv[i], false, UI.pendingSwap === i));
+  renderHotbarLabel(me.inv[me.sel]);
   renderEquipSlots(me);
   if (UI.enhSlot >= 0) renderEnhPanel();
 }
@@ -577,7 +631,7 @@ function renderEquipSlots(me) {
     const it = eq && ITEMS[eq.id];
     const iconEl = el.querySelector('.icon');
     el.classList.toggle('filled', !!it);
-    iconEl.textContent = it ? it.icon : '';
+    setItemIcon(iconEl, it && eq.id);
     el.title = it ? `${EQUIP_SLOT_NAME[part]}:${it.name}${eq.lv ? ' +' + eq.lv : ''}(點一下卸下)` : `${EQUIP_SLOT_NAME[part]}(拖裝備進來穿上)`;
   });
 }
@@ -614,7 +668,7 @@ function renderTowerPanel() {
   body.innerHTML = `
     <div class="tower-row">
       <div id="towerAmmoSlot" class="slot tower-slot">
-        <span class="icon">${ammo > 0 ? ITEMS.arrow.icon : ''}</span>
+        <span class="icon"></span>
         <span class="cnt">${ammo > 0 ? ammo : ''}</span>
       </div>
       <div class="tower-info">
@@ -626,6 +680,7 @@ function renderTowerPanel() {
       <button id="towerToggle">${o.off ? '▶️ 開啟' : '⏸️ 關閉'}</button>
       <button id="towerClose">✖ 關閉面板</button>
     </div>`;
+  setItemIcon($id('towerAmmoSlot').querySelector('.icon'), ammo > 0 ? 'arrow' : '');
   $id('towerClose').onclick = closeTowerPanel;
   $id('towerToggle').onclick = () => {
     if (NET.isHost()) doToggleTower(myPlayer(), x, y);
@@ -824,9 +879,9 @@ function renderStoragePanel() {
   const cell = (s, cls, i) => {
     const it = s ? ITEMS[s.id] : null;
     const cnt = s ? (s.count > 1 ? s.count : (s.lv ? '+' + s.lv : '')) : '';
-    const tint = it && it.tint ? ` style="background:${it.tint}"` : '';
-    return `<div class="slot ${cls}" data-i="${i}"${tint} title="${it ? it.name + (s.lv ? ' +' + s.lv : '') : ''}">
-      <span class="icon">${it ? it.icon : ''}</span><span class="cnt">${cnt}</span></div>`;
+    const tint = it && it.tint ? ` style="--slot-tint:${it.tint}"` : '';
+    return `<div class="slot ${cls}" data-i="${i}" data-item-id="${s ? s.id : ''}"${tint} title="${it ? it.name + (s.lv ? ' +' + s.lv : '') : ''}">
+      <span class="icon"></span><span class="cnt">${cnt}</span></div>`;
   };
   let html = `<h2>📦 儲物箱 <span class="hint">(${items.length}/${STORAGE_CFG.slots})</span></h2>
     <p class="hint">點箱內物品取回背包,點背包物品存入。傳輸帶把礦推到箱子正面會自動入庫。</p>
@@ -836,6 +891,7 @@ function renderStoragePanel() {
   for (let i = 0; i < INV_SIZE; i++) html += cell(me.inv[i], 'inv-cell', i);
   html += `</div><div class="btnrow"><button id="storeQuick">⤵️ 快速存入同類</button><button id="storeClose">關閉(Esc)</button></div>`;
   UI.els.storagePanel.innerHTML = html;
+  UI.els.storagePanel.querySelectorAll('.slot').forEach(el => setItemIcon(el.querySelector('.icon'), el.dataset.itemId));
   UI.els.storagePanel.querySelectorAll('.store-cell').forEach(el => {
     const i = +el.dataset.i;
     el.onclick = () => storageAct({ t: 'storetake', x, y, si: i }, (m, X, Y) => doStorageWithdraw(m, X, Y, i));
@@ -888,7 +944,7 @@ function renderEnhPanel() {
   }
   panel.innerHTML = `
     <div class="enh-row">
-      <span class="enh-icon">${it.icon}</span>
+      <span class="enh-icon"></span>
       <b>${it.name}</b> <span class="enh-lv">目前 +${lv}${maxed ? '(已滿級)' : ` / 上限 +${ENH_CFG.maxLv}`}</span>
     </div>
     <p class="hint">${bonus}${it.dur ? `,耐久上限 +15%/級` : ''};成功只消耗卷軸不會讓裝備變差。</p>
@@ -898,6 +954,7 @@ function renderEnhPanel() {
       <button id="enhGo" ${maxed || !near || have < need ? 'disabled' : ''}>✨ 強化 (+${lv} → +${lv + 1})</button>
       <button id="enhClose">✖ 關閉</button>
     </div>`;
+  setItemIcon(panel.querySelector('.enh-icon'), s.id);
   $id('enhClose').onclick = () => { UI.enhSlot = -1; panel.classList.add('hidden'); };
   if (dMax) {
     $id('enhRepair').onclick = () => {
@@ -947,9 +1004,10 @@ function refreshCraft() {
       d.className = 'recipe';
       const cost = Object.entries(r.cost).map(([id, n]) => `${ITEMS[id].icon}×${n}`).join(' ');
       const st = r.station === 'workbench' ? '🛠️' : r.station === 'furnace' ? '🔥' : '✋';
-      d.innerHTML = `<span class="ricon">${ITEMS[r.out].icon}</span>
+      d.innerHTML = `<span class="ricon"></span>
         <span class="rname">${ITEMS[r.out].name}${r.n > 1 ? '×' + r.n : ''}</span>
         <span class="rcost">${cost}</span><span class="rst">${st}</span>`;
+      setItemIcon(d.querySelector('.ricon'), r.out);
       d.title = (ITEMS[r.out].desc || '') + (r.station ? `\n需靠近${r.station === 'furnace' ? '熔爐' : '工作台'}` : '');
       d.onclick = () => {
         const p = myPlayer();
@@ -1422,12 +1480,23 @@ function setOverlay(mode) {
   if (mode === 'start') {
     migrateLegacySave(); // 舊版單一存檔先搬進槽位,下面的 anySave()/存檔列表才看得到
     const netOK = NET.available();
+    const savedCharacter = localStorage.getItem('gld_character');
+    if (CHARACTER_TYPES[savedCharacter]) UI.selectedCharacter = savedCharacter;
     ov.innerHTML = `
       <div class="menu">
         <h1>微光深淵</h1>
         <p class="sub">一起把光帶回深淵吧!1~4 人合作の地底大冒險</p>
         <button id="btnChangelog" class="linklike">📜 更新紀錄</button>
         <input id="nameInput" maxlength="12" placeholder="你的名字" value="${savedName}">
+        <div class="char-head"><b>選擇螢火隊員</b><span>純外觀，能力完全相同</span></div>
+        <div class="char-grid" id="charGrid">
+          ${Object.entries(CHARACTER_TYPES).map(([key, c]) => `
+            <button class="char-card${UI.selectedCharacter === key ? ' selected' : ''}" data-character="${key}" title="${c.desc}">
+              <img src="assets/characters/${c.img}" alt="${c.name}">
+              <span class="char-name">${c.name}</span>
+              <span class="char-title">${c.title}</span>
+            </button>`).join('')}
+        </div>
         <div class="diffrow" id="diffRow">
           ${Object.entries(DIFFICULTY_CFG).map(([key, d]) => `
             <button class="diffbtn${UI.selectedDifficulty === key ? ' selected' : ''}"
@@ -1463,6 +1532,13 @@ function setOverlay(mode) {
         for (const b of ov.querySelectorAll('.diffbtn')) b.classList.toggle('selected', b === btn);
       };
     }
+    for (const btn of ov.querySelectorAll('.char-card')) {
+      btn.onclick = () => {
+        UI.selectedCharacter = btn.dataset.character;
+        localStorage.setItem('gld_character', UI.selectedCharacter);
+        for (const b of ov.querySelectorAll('.char-card')) b.classList.toggle('selected', b === btn);
+      };
+    }
     $id('btnNew').onclick = () => {
       const slot = firstEmptySlot();
       if (slot) beginGame(false, slot);
@@ -1493,7 +1569,7 @@ function setOverlay(mode) {
         const name = getName();
         SFX.unlock();
         SAVE_SLOT = slot;
-        if (loadGameFromObject(s, name)) {
+        if (loadGameFromObject(s, name, getCharacter())) {
           UI.mmDirty = true; UI.invDirty = true;
           setOverlay(null);
           showMsg('📂 已匯入存檔,你現在是房主,可點右上「開房邀請朋友」讓大家加入');
@@ -1509,7 +1585,7 @@ function setOverlay(mode) {
       if (!code) { showMsg('請輸入房號'); return; }
       $id('btnJoin').disabled = true;
       $id('btnJoin').textContent = '連線中…';
-      NET.join(name, code,
+      NET.join(name, code, getCharacter(),
         () => setOverlay(null),
         err => { showMsg('⚠️ ' + err); $id('btnJoin').disabled = false; $id('btnJoin').textContent = '🔗 加入房間'; });
     };
@@ -1609,14 +1685,21 @@ function getName() {
   return v;
 }
 
+function getCharacter() {
+  const key = CHARACTER_TYPES[UI.selectedCharacter] ? UI.selectedCharacter : DEFAULT_CHARACTER;
+  localStorage.setItem('gld_character', key);
+  return key;
+}
+
 function beginGame(load, slot) {
   const name = getName();
   const diff = UI.selectedDifficulty;
+  const character = getCharacter();
   SFX.unlock();
   if (slot) SAVE_SLOT = slot; // 之後整局的自動存檔都寫這一格
   if (load) {
-    if (!loadGame(name)) { showMsg('⚠️ 讀檔失敗,改開新世界'); startNewGame(name, diff); }
-  } else startNewGame(name, diff);
+    if (!loadGame(name, character)) { showMsg('⚠️ 讀檔失敗,改開新世界'); startNewGame(name, diff, character); }
+  } else startNewGame(name, diff, character);
   UI.mmDirty = true; UI.invDirty = true;
   setOverlay(null);
 }

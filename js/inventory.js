@@ -156,20 +156,20 @@ function splitStack(p, slot) {
 // 自動選最好的工具(徒手也能挖/打,避免卡死);挖掘力會套用強化卷軸加成。
 // 損壞(dur=0)的一律跳過(自然退回次級裝備或徒手);slot 欄位帶回格子物件,磨損要用
 function bestPick(p) {
-  let best = { tier: 0, power: 0.5, name: '徒手', icon: '✊', slot: null };
+  let best = { tier: 0, power: 0.5, name: '徒手', icon: '✊', id: null, slot: null };
   for (const s of p.inv) {
     if (s && ITEMS[s.id].pick && !isBroken(s) && ITEMS[s.id].pick.power > best.power)
-      best = { ...ITEMS[s.id].pick, name: ITEMS[s.id].name, icon: ITEMS[s.id].icon, power: ITEMS[s.id].pick.power * enhMult(s), slot: s };
+      best = { ...ITEMS[s.id].pick, name: ITEMS[s.id].name, icon: ITEMS[s.id].icon, id: s.id, power: ITEMS[s.id].pick.power * enhMult(s), slot: s };
   }
   return best;
 }
 function bestSword(p) {
   // 只自動選「劍」;矛/鎚(manual)要放快捷欄選中才會用,保留武器選擇的意義
-  let best = { dmg: 4, name: '徒手', icon: '✊', slot: null };
+  let best = { dmg: 4, name: '徒手', icon: '✊', id: null, slot: null };
   for (const s of p.inv) {
     const w = s && ITEMS[s.id].sword;
     if (w && !w.manual && !isBroken(s) && w.dmg > best.dmg)
-      best = { ...w, name: ITEMS[s.id].name, icon: ITEMS[s.id].icon, dmg: w.dmg * enhMult(s), slot: s };
+      best = { ...w, name: ITEMS[s.id].name, icon: ITEMS[s.id].icon, id: s.id, dmg: w.dmg * enhMult(s), slot: s };
   }
   return best;
 }
@@ -181,7 +181,7 @@ function meleeWeaponOf(p) {
   const s = p.inv[p.sel];
   const w = s && ITEMS[s.id].sword;
   if (w && w.manual && !isBroken(s)) { // 損壞的矛/鎚不能用,退回自動選劍
-    return { ...w, name: ITEMS[s.id].name, icon: ITEMS[s.id].icon, dmg: w.dmg * enhMult(s),
+    return { ...w, name: ITEMS[s.id].name, icon: ITEMS[s.id].icon, id: s.id, dmg: w.dmg * enhMult(s),
       range: w.range ?? SWORD_DEFAULT_RANGE, arc: w.arc ?? SWORD_DEFAULT_ARC, slot: s };
   }
   const best = bestSword(p);
@@ -191,8 +191,8 @@ function meleeWeaponOf(p) {
 // 目前使用的武器:快捷欄選中的武器(近戰/遠程)優先,否則自動用最好的劍;傷害套用強化卷軸加成
 function weaponOf(p) {
   const s = p.inv[p.sel];
-  if (s && ITEMS[s.id].ranged) return { ...ITEMS[s.id].ranged, name: ITEMS[s.id].name, icon: ITEMS[s.id].icon, ranged: true, dmg: ITEMS[s.id].ranged.dmg * enhMult(s) };
-  if (s && ITEMS[s.id].sword)  return { ...ITEMS[s.id].sword,  name: ITEMS[s.id].name, icon: ITEMS[s.id].icon, dmg: ITEMS[s.id].sword.dmg * enhMult(s) };
+  if (s && ITEMS[s.id].ranged) return { ...ITEMS[s.id].ranged, name: ITEMS[s.id].name, icon: ITEMS[s.id].icon, id: s.id, ranged: true, dmg: ITEMS[s.id].ranged.dmg * enhMult(s) };
+  if (s && ITEMS[s.id].sword)  return { ...ITEMS[s.id].sword,  name: ITEMS[s.id].name, icon: ITEMS[s.id].icon, id: s.id, dmg: ITEMS[s.id].sword.dmg * enhMult(s) };
   return bestSword(p);
 }
 // 裝備欄的護甲值:頭盔+胸甲相加(不是取最好一件),護腿不計入
