@@ -146,8 +146,22 @@ try:
         direct.route('https://unpkg.com/**', lambda route: route.abort())
         direct.goto((ROOT / 'index.html').as_uri())
         direct.wait_for_function('PACK_ATLASES.size === PACK_GROUPS.length && [...PACK_ATLASES.values()].every(a => a.ready)')
+        assert direct.locator('.char-card').count() == 5
+        direct.locator('[data-character="bran"]').click()
         direct.locator('#btnNew').click()
         direct.wait_for_timeout(300)
+        assert direct.evaluate('myPlayer().character') == 'bran'
+        for character in ['luma', 'bran', 'nox', 'ember']:
+            direct.evaluate('(key) => myPlayer().character = key', character)
+            for direction in ['down', 'side', 'up']:
+                direct.wait_for_function('(d) => !!playerCharacterImg(myPlayer().character, d)', arg=direction)
+            direct.evaluate('''() => {
+              G.paused=true;
+              const me=myPlayer(), before=JSON.stringify(me);
+              for (const id of ['classic','ruins']) { setTexturePack(id); render(0.016); }
+              if (JSON.stringify(me)!==before) throw Error('Character rendering mutated player');
+              me.downed=true; render(0.016); me.downed=false;
+            }''')
         assert direct.locator('#hotbar .pack-icon').count() >= 3
         assert not errors, errors
         print(json.dumps({'passed': True, 'errors': errors,

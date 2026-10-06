@@ -3,9 +3,10 @@ let nextEid = 1, nextDid = 1, nextPjid = 1, nextAid = 1, nextCid = 1;
 
 const PLAYER_COLORS = ['#ffd97a', '#7ad0ff', '#8dff9e', '#ff9ecb'];
 
-function makePlayer(id, name) {
+function makePlayer(id, name, character) {
   const p = {
     id, name,
+    character: CHARACTER_TYPES[character] ? character : DEFAULT_CHARACTER,
     x: G.core.x + (id % 2 ? 1.5 : -1.5), y: G.core.y + (id >= 2 ? 1.5 : -1.5),
     r: 0.35, hp: 100, maxhp: 100, aim: 0,
     inv: makeStartInv(), sel: 0,

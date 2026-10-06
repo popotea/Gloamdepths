@@ -78,7 +78,7 @@ const NET = {
     this.conns.delete(conn.pid);
     if (p) {
       // 跟 buildSave 存同一組欄位:少了 lv/xp 的話,朋友離線再重連會掉回 1 等
-      G.playersByName[p.name] = { inv: p.inv, hp: p.hp, x: p.x, y: p.y, lv: p.lv, xp: p.xp, talents: p.talents, pet: p.pet, equip: p.equip };
+      G.playersByName[p.name] = { inv: p.inv, hp: p.hp, x: p.x, y: p.y, lv: p.lv, xp: p.xp, talents: p.talents, pet: p.pet, equip: p.equip, character: p.character };
       G.players.delete(conn.pid);
       msgAll(`👋 ${p.name} 先下線了,深淵會想念他的~`);
       this.sendAll({ t: 'bye', id: conn.pid });
@@ -115,7 +115,8 @@ const NET = {
       const pid = this.nextPid++;
       conn.pid = pid;
       this.conns.set(pid, conn);
-      const p = playerJoinAs(pid, name);
+      const character = CHARACTER_TYPES[d.character] ? d.character : DEFAULT_CHARACTER;
+      const p = playerJoinAs(pid, name, character);
       this.sendBig(conn, {
         t: 'init', id: pid,
         tiles: rleEnc(G.tiles), explored: rleEnc(G.explored),
@@ -124,10 +125,10 @@ const NET = {
         shrines: G.shrines, traders: G.traders, altars: G.altars, vaults: G.vaults, questNpcs: G.questNpcs, quests: G.quests, voidLord: G.voidLord,
         wave: G.wave, time: G.time, difficulty: G.difficulty, unsealed: G.unsealed, won: G.won,
         bestiary: G.bestiary, achv: G.achv,
-        players: [...G.players.values()].map(pl => [pl.id, pl.name, pl.x, pl.y, pl.hp, pl.dead ? 1 : 0, pl.lv || 1, pl.xp || 0, pl.downed ? 1 : 0, Math.ceil(pl.downedT || 0), Math.round((pl.reviveP || 0) * 100), pl.pet || null, Math.round(bestArmor(pl) * 100)]),
+        players: [...G.players.values()].map(pl => [pl.id, pl.name, pl.x, pl.y, pl.hp, pl.dead ? 1 : 0, pl.lv || 1, pl.xp || 0, pl.downed ? 1 : 0, Math.ceil(pl.downedT || 0), Math.round((pl.reviveP || 0) * 100), pl.pet || null, Math.round(bestArmor(pl) * 100), pl.character || DEFAULT_CHARACTER]),
         inv: p.inv, equip: p.equip, over: G.over,
       });
-      this.sendAllExcept(pid, { t: 'join', id: pid, name, x: p.x, y: p.y });
+      this.sendAllExcept(pid, { t: 'join', id: pid, name, x: p.x, y: p.y, character: p.character });
       msgAll(`🎉 ${name} 空降深淵!人多好挖礦!`);
       // 每次有人入房就重推備援:新人立刻知道接棒房號,繼任者拿到最新進度
       this._refreshSuccessor();
@@ -253,7 +254,7 @@ const NET = {
       t: 'snap', time: r2(G.time),
       players: [...G.players.values()].map(p =>
         [p.id, r2(p.x), r2(p.y), r2(p.aim), p.swing > 0 ? 1 : 0, Math.round(p.hp), p.dead ? 1 : 0, Math.ceil(p.respawnT || 0), p.lv || 1, Math.round(p.xp || 0),
-         p.downed ? 1 : 0, Math.ceil(p.downedT || 0), Math.round((p.reviveP || 0) * 100), p.pet || null, Math.round(bestArmor(p) * 100), p.riding || 0]),
+         p.downed ? 1 : 0, Math.ceil(p.downedT || 0), Math.round((p.reviveP || 0) * 100), p.pet || null, Math.round(bestArmor(p) * 100), p.riding || 0, p.character || DEFAULT_CHARACTER]),
       enemies: G.enemies.map(e => [e.id, e.type, r2(e.x), r2(e.y), Math.round(e.hp), e.maxhp, e.elite ? 1 : 0, e.slowT > 0 ? 1 : 0]),
       animals: G.animals.map(a => [a.id, a.type, r2(a.x), r2(a.y), Math.round(a.hp), a.fedT > 0 ? 1 : 0]),
       carts: G.carts.map(c => [c.id, r2(c.x), r2(c.y), c.dir, c.items]), // 貨艙(items)是全隊共享資源,整包廣播,跟 storage.items 同一種定位(不是玩家背包那種私人資料)
@@ -270,7 +271,7 @@ const NET = {
   },
 
   // ===== 客戶端:加入房間 =====
-  join(name, code, onOk, onErr) {
+  join(name, code, character, onOk, onErr) {
     if (!this.available()) { onErr('無法載入連線元件(需要網路)'); return; }
     try { if (this.peer) this.peer.destroy(); } catch (e) { } // 接棒重連時清掉舊 peer
     const peer = this.peer = new Peer(PEER_OPTS);
@@ -289,7 +290,7 @@ const NET = {
       const conn = peer.connect('gld-' + code.toUpperCase().trim(), { reliable: true });
       this.conn = conn;
       const failT = setTimeout(() => fail('連線逾時,請確認房號'), 8000);
-      conn.on('open', () => { conn.send({ t: 'hi', name }); });
+      conn.on('open', () => { conn.send({ t: 'hi', name, character: CHARACTER_TYPES[character] ? character : DEFAULT_CHARACTER }); });
       conn.on('data', d => {
         if (d && d.t === 'big') { try { d = JSON.parse(d.json); } catch (e) { return; } } // 大封包解包
         if (d.t === 'init' && !opened) { opened = true; clearTimeout(failT); this.mode = 'client'; }
@@ -349,13 +350,14 @@ const NET = {
   // 非繼任者:給繼任者幾秒開房時間,然後反覆敲接棒房號的門
   _chase() {
     const name = G.players.get(G.myId)?.name || localStorage.getItem('gld_name') || '礦工';
+    const character = G.players.get(G.myId)?.character || DEFAULT_CHARACTER;
     const code = this.succCode;
     this.migrating = true;
     setOverlay('migrating');
     let tries = 0;
     const attempt = () => {
       tries++;
-      this.join(name, code, // join 保證 onOk/onErr 恰好觸發一次,重試鏈不會分裂
+      this.join(name, code, character, // join 保證 onOk/onErr 恰好觸發一次,重試鏈不會分裂
         () => { this.migrating = false; setOverlay(null); showMsg('✅ 接上新房主了!繼續挖!'); },
         () => {
           if (tries >= MIGRATE_CFG.chaseTries) { this.migrating = false; setOverlay('disconnected'); }
@@ -400,8 +402,8 @@ const NET = {
         G.bestiary = d.bestiary || {}; G.achv = d.achv || {};
         G.enemies = []; G.drops = []; G.floaters = []; G.cracks.clear(); G.projs = []; G.animals = []; G.carts = []; G.hitFx = []; G.emoteFx = [];
         G.players.clear();
-        for (const [id, name, x, y, hp, dead, lv, xp, downed, downedT, revP, pet, armorPct] of d.players) {
-          const p = makePlayer(id, name);
+        for (const [id, name, x, y, hp, dead, lv, xp, downed, downedT, revP, pet, armorPct, character] of d.players) {
+          const p = makePlayer(id, name, character);
           p.lv = lv || 1; p.xp = xp || 0; p.maxhp = playerMaxHp(p);
           p.x = x; p.y = y; p.tx = x; p.ty = y; p.hp = hp; p.dead = !!dead;
           p.downed = !!downed; p.downedT = downedT || 0; p.reviveP = (revP || 0) / 100;
@@ -424,14 +426,14 @@ const NET = {
         break;
       case 'backup': this.backupSave = d.save; break;
       case 'snap': {
-        for (const [id, x, y, aim, swing, hp, dead, respawnT, lv, xp, downed, downedT, revP, pet, armorPct, riding] of d.players) {
+        for (const [id, x, y, aim, swing, hp, dead, respawnT, lv, xp, downed, downedT, revP, pet, armorPct, riding, character] of d.players) {
           let p = G.players.get(id);
           if (!p) { p = makePlayer(id, '?'); G.players.set(id, p); p.x = x; p.y = y; }
           if (lv && p.lv !== lv) UI.invDirty = true;
           p.lv = lv || 1; p.xp = xp || 0; p.maxhp = playerMaxHp(p);
           p.hp = hp; p.dead = !!dead; p.respawnT = respawnT;
           p.downed = !!downed; p.downedT = downedT || 0; p.reviveP = (revP || 0) / 100;
-          p.pet = pet || null; p.armorPct = armorPct || 0;
+          p.pet = pet || null; p.armorPct = armorPct || 0; p.character = CHARACTER_TYPES[character] ? character : (p.character || DEFAULT_CHARACTER);
           p.riding = riding || 0; // 自己是否在騎乘中(localControl 用來擋掉一般移動輸入),見 main.js
           if (id === G.myId) continue; // 自己的位置用本地預測
           p.tx = x; p.ty = y; p.aim = aim;
@@ -500,7 +502,7 @@ const NET = {
       case 'msg': showMsg(d.text); break;
       case 'chat': showChat(d.name, d.text); break;
       case 'join': {
-        const p = makePlayer(d.id, d.name);
+        const p = makePlayer(d.id, d.name, d.character);
         p.x = d.x; p.y = d.y; p.tx = d.x; p.ty = d.y;
         G.players.set(d.id, p);
         break;

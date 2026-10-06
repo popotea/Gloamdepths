@@ -75,6 +75,57 @@ function animalImg(type) {
 function petImg(type) {
   return bakedSprite(`assets/pets/${type}.png`, Math.ceil(TILE * 0.55));
 }
+function playerCharacterImg(key, direction = 'down') {
+  const c = CHARACTER_TYPES[key];
+  if (!c || !c.img) return null;
+  // 四方向共用三張圖：side 素材朝右，向左時由繪製端水平翻轉；方向圖未載入時先退回角色主圖。
+  return bakedSprite(`assets/characters/directions/${key}_${direction}.png`, Math.ceil(TILE * 1.2))
+    || bakedSprite(`assets/characters/${c.img}`, Math.ceil(TILE * 1.2));
+}
+// 可選角色沿用相同的本機步伐、暫停與減少動態狀態,保留每個角色的方向素材。
+function drawCharacterMotion(p, motion, sx, sy, col) {
+  const directions = ['down', 'side', 'up', 'side'];
+  const sprite = playerCharacterImg(p.character, directions[motion.facing]);
+  if (!sprite) return false;
+  const size = TILE * 1.2, radius = p.r * TILE;
+  const reduced = motionPreference.matches;
+  const walk = reduced || motion.moveAge >= 0.1 ? 0 : Math.sin(motion.phase);
+  ctx.save();
+  ctx.fillStyle = '#0007'; ctx.strokeStyle = col; ctx.lineWidth = 1.3;
+  ctx.beginPath(); ctx.ellipse(sx, sy + radius * 0.8, radius * 0.9, radius * 0.3, 0, 0, TAU); ctx.fill(); ctx.stroke();
+  for (const trail of motion.trails) {
+    const image = playerCharacterImg(p.character, directions[trail.facing]);
+    if (!image) continue;
+    const [x, y] = worldToScreen(trail.x, trail.y);
+    ctx.save(); ctx.translate(x, y - radius * 0.5); ctx.scale(trail.facing === 3 ? -1 : 1, 1);
+    ctx.globalAlpha = trail.life / 0.15 * 0.24;
+    ctx.drawImage(image, -size / 2, -size / 2, size, size); ctx.restore();
+  }
+  ctx.translate(sx, sy - radius * 0.5 - Math.abs(walk) * (motion.dash ? 3.1 : 1.7));
+  ctx.scale(motion.facing === 3 ? -1 : 1, 1);
+  drawMotionSprite(sprite, 0, 0, size, motion, reduced ? 0 : walk * 0.018, 1 - Math.abs(walk) * 0.025);
+  ctx.restore();
+  return true;
+}
+// 地面掉落物也沿用物品圖庫；尚未製作 PNG 的物品會由呼叫端退回 Emoji。
+function itemImg(id) {
+  if (!ITEMS[id]) return null;
+  const packed = packItemSprite(id, Math.ceil(TILE * 0.9));
+  if (packed) return packed;
+  return bakedSprite(`assets/items/${id}.png`, Math.ceil(TILE * 0.9));
+}
+function drawHeldItem(held, x, y, size, alpha) {
+  const img = held && held.id ? itemImg(held.id) : null;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  if (img) ctx.drawImage(img, x - size / 2, y - size / 2, size, size);
+  else {
+    ctx.font = `${size}px "Segoe UI Emoji"`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(held && held.icon ? held.icon : '✊', x, y);
+  }
+  ctx.restore();
+}
 // 打擊特效素材(單張圖,靠 canvas 縮放/淡出做動畫);烘一個固定小尺寸,畫的時候用動態目的地矩形
 // 縮放即可做出「由小變大」的效果,不用每個當下的半徑各烤一份。找不到就交回 null,呼叫端退回向量畫法
 const HITFX_IMG = { fire: 'fire.png', frost: 'frost.png', light: 'light.png', dark: 'dark.png', smash: 'smash.png' };
@@ -91,6 +142,8 @@ const TILE_TEX = new Map();
 const FLOOR_TEX_MUTE = new Set(['floor.png', 'floor_mid.png', 'floor_deep.png', 'farmland.png']);
 // 牆面/實心地形壓一層較淡的暗色:統一整體色調,角色/怪物/掉落物才跳得出來
 const WALL_TEX_MUTE = new Set(['dirt.png', 'stone.png', 'obsidian.png', 'voidrock.png', 'gravel.png', 'bedrock.png']);
+// 少數 AI 素材以白底輸出；用 multiply 壓到指定區域色，保留石塊細節又不讓深區突然變成白牆。
+const TEX_MULTIPLY_BASE = { 'obsidian.png': '#6b529e' };
 // 2×2 格週期取樣名單:整張材質攤在 2×2 格上、每格只畫四分之一。
 // AI 材質細節密度天生偏高,整張塞進 40px 一格會變成高頻雜訊、整片平鋪又滿是網格重複感;
 // 攤開後細節密度減半、重複週期加倍——這是「AI 材質太花」的渲染端解法,不用重生素材。
@@ -109,7 +162,13 @@ function tileTexFile(file) {
       const c = document.createElement('canvas');
       c.width = c.height = n;
       const g = c.getContext('2d');
-      g.drawImage(img, 0, 0, n, n);
+      const multiplyBase = TEX_MULTIPLY_BASE[file];
+      if (multiplyBase) {
+        g.fillStyle = multiplyBase; g.fillRect(0, 0, n, n);
+        g.globalCompositeOperation = 'multiply';
+        g.drawImage(img, 0, 0, n, n);
+        g.globalCompositeOperation = 'source-over';
+      } else g.drawImage(img, 0, 0, n, n);
       if (FLOOR_TEX_MUTE.has(file)) { g.fillStyle = 'rgba(12,10,8,0.42)'; g.fillRect(0, 0, n, n); }
       else if (WALL_TEX_MUTE.has(file)) { g.fillStyle = 'rgba(10,8,12,0.30)'; g.fillRect(0, 0, n, n); }
       e.cv = c;
@@ -173,6 +232,30 @@ function drawCleanFloor(sx, sy, tx, ty, t) {
 // 鐵軌只是「加速地板」(移動無方向性),所以自動轉向是純視覺:讀四鄰的 T.RAIL 決定畫直線還是轉彎。
 // 鄰居靠 G.tiles 已同步,雙端各自畫得出一致造型,不需要任何額外資料/協定。
 const RAIL_TIE = '#6a5236', RAIL_STEEL = '#c8ccd8';
+function isTallWall(tx, ty) {
+  const info = TILE_INFO[tileAt(tx, ty)];
+  return !!(info && info.solid && !info.low && !info.liquid);
+}
+function drawWallDepth(sx, sy, tx, ty) {
+  // 洞口側才加亮邊/落影，讓整片牆仍連續，但牆與可走地面的交界清楚立起來。
+  if (!isTallWall(tx, ty - 1)) {
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.fillRect(sx, sy, TILE + 1, 2);
+  }
+  if (!isTallWall(tx, ty + 1)) {
+    ctx.fillStyle = 'rgba(3,4,8,0.32)';
+    ctx.fillRect(sx, sy + TILE * 0.82, TILE + 1, TILE * 0.18 + 1);
+  }
+  if (!isTallWall(tx - 1, ty)) {
+    ctx.fillStyle = 'rgba(255,255,255,0.055)';
+    ctx.fillRect(sx, sy, 2, TILE + 1);
+  }
+  if (!isTallWall(tx + 1, ty)) {
+    ctx.fillStyle = 'rgba(3,4,8,0.18)';
+    ctx.fillRect(sx + TILE - 2, sy, 3, TILE + 1);
+  }
+}
+
 function drawRail(sx, sy, tx, ty) {
   const u = tileAt(tx, ty - 1) === T.RAIL, d = tileAt(tx, ty + 1) === T.RAIL;
   const l = tileAt(tx - 1, ty) === T.RAIL, r = tileAt(tx + 1, ty) === T.RAIL;
@@ -212,7 +295,7 @@ function drawRail(sx, sy, tx, ty) {
 
 // ---- 隊友救援(倒地非陣亡):倒地的身體(黑暗遮罩前畫,跟正常玩家一樣受光照影響) ----
 function drawDownedBody(p, sx, sy) {
-  const packed = packSprite('creatures', PACK_CREATURES.player, TILE * 1.25);
+  const packed = p.character === 'explorer' ? packSprite('creatures', PACK_CREATURES.player, TILE * 1.25) : playerCharacterImg(p.character);
   if (packed) {
     ctx.save(); ctx.translate(sx, sy); ctx.rotate(Math.PI / 2); ctx.globalAlpha = 0.65;
     ctx.drawImage(packed, -TILE * 0.625, -TILE * 0.625, TILE * 1.25, TILE * 1.25);
@@ -374,6 +457,7 @@ function render(dt) {
           ctx.lineWidth = 2;
           ctx.strokeRect(sx + TILE * 0.2, sy + TILE * 0.2, TILE * 0.6, TILE * 0.6);
         }
+        if (!info.fence) drawWallDepth(sx, sy, tx, ty);
         // 挖掘裂痕
         const cr = G.cracks.get(i);
         if (cr) {
@@ -651,7 +735,7 @@ function render(dt) {
     ctx.lineWidth = 1.5;
     ctx.stroke();
     ctx.font = `${TILE * 0.56}px "Segoe UI Emoji"`;
-    const packed = packItemSprite(d.item, TILE * 0.75);
+    const packed = itemImg(d.item);
     if (packed) ctx.drawImage(packed, sx - TILE * 0.375, sy + bob - TILE * 0.375, TILE * 0.75, TILE * 0.75);
     else ctx.fillText(ITEMS[d.item] ? ITEMS[d.item].icon : '❓', sx, sy + bob);
     if (d.n > 1) {
@@ -930,18 +1014,20 @@ function render(dt) {
     const walk = motion.moveAge < 0.1 ? Math.sin(motion.phase) : 0;
     const held = p.swing > 0 && p.action === 'mine' ? bestPick(p) : weaponOf(p);
     const heldId = held && (held.slot?.id || PACK_ITEM_IDS_BY_NAME.get(held.name));
-    const heldSprite = heldId ? packItemSprite(heldId, TILE * 0.7) : null;
+    const heldSprite = heldId ? packItemSprite(heldId, TILE * 0.7) || itemImg(heldId) : null;
     const pose = weaponMotion(p, held, R);
 
-    // 護甲等級決定輪廓色(無甲=深色 / 鐵甲=銀邊 / 金甲=金邊)
+    // 深色貼紙輪廓永遠保留；護甲另外疊一條銀/金內緣，不再用亮色取代角色剪影。
     // 房主端 p.equip 是正確的即時資料;客戶端看別人時要靠快照同步的 armorPct(自己的 p.equip 也有同步,兩者算出來一致)
     const armor = NET.isHost() ? bestArmor(p) : (p.armorPct || 0) / 100;
-    const outline = armor >= 0.5 ? '#ffd23f' : armor >= 0.3 ? '#c8ced8' : '#0008';
-    const outlineW = armor > 0 ? 3 : 2;
+    const armorAccent = armor >= 0.5 ? '#ffd23f' : armor >= 0.3 ? '#d9e0eb' : null;
+    const outline = '#10131de6', outlineW = 3.2;
 
-    const explorer = explorerSprite(motion);
+    const explorer = p.character === 'explorer' ? explorerSprite(motion) : null;
     if (explorer) {
       drawExplorerMotion(p, explorer, motion, sx, sy, col, pose);
+    } else if (drawCharacterMotion(p, motion, sx, sy, col)) {
+      // 可選角色已使用共用的本機動畫狀態繪製。
     } else {
     // 雙腳(走路交替擺動)
     ctx.fillStyle = '#0006';
@@ -958,6 +1044,12 @@ function render(dt) {
     ctx.ellipse(sx, sy + R * 0.12, R * 0.92 * squashB, R * 0.8 / squashB, 0, 0, TAU);
     ctx.fill();
     ctx.strokeStyle = outline; ctx.lineWidth = outlineW; ctx.stroke();
+    if (armorAccent) { ctx.strokeStyle = armorAccent; ctx.lineWidth = 1.35; ctx.stroke(); }
+    // 上半身小高光讓純色角色不顯扁平，仍維持貼紙式乾淨輪廓。
+    ctx.fillStyle = 'rgba(255,255,255,0.14)';
+    ctx.beginPath();
+    ctx.ellipse(sx - R * 0.27, sy - R * 0.12, R * 0.27, R * 0.12, -0.35, 0, TAU);
+    ctx.fill();
 
     // 頭部(疊在身體上方,略偏向瞄準方向做出朝向感)
     const hx0 = sx + Math.cos(p.aim) * R * 0.12, hy0 = sy - R * 0.45 + Math.sin(p.aim) * R * 0.06;
@@ -966,6 +1058,7 @@ function render(dt) {
     ctx.arc(hx0, hy0, R * 0.62, 0, TAU);
     ctx.fill();
     ctx.strokeStyle = outline; ctx.lineWidth = outlineW * 0.8; ctx.stroke();
+    if (armorAccent) { ctx.strokeStyle = armorAccent; ctx.lineWidth = 1.1; ctx.stroke(); }
 
     // 面向的眼睛(Q版改版:眼睛加大;低血時變「><」求救臉,雙端都有 hp/maxhp 可判)
     const ex = Math.cos(p.aim) * R * 0.3, ey = Math.sin(p.aim) * R * 0.3;
@@ -985,6 +1078,11 @@ function render(dt) {
       ctx.beginPath();
       ctx.arc(e1x, e1y, 3.5, 0, TAU);
       ctx.arc(e2x, e2y, 3.5, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.beginPath();
+      ctx.arc(e1x - 1, e1y - 1.2, 1.05, 0, TAU);
+      ctx.arc(e2x - 1, e2y - 1.2, 1.05, 0, TAU);
       ctx.fill();
       // 淡粉腮紅:Q 版臉頰的靈魂,順著臉的朝向擺在眼睛外側下方
       ctx.fillStyle = 'rgba(255,157,226,0.35)';
