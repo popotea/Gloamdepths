@@ -45,6 +45,18 @@ function initUI() {
     talentPanel: $id('talentPanel'), talentbadge: $id('talentbadge'),
   };
   UI.els.talentbadge.onclick = () => toggleTalentPanel(true);
+  addEventListener('texturepackchange', () => {
+    UI.invDirty = true;
+    delete UI.els.craftlist.dataset.built;
+    for (const id of ['startTexturePack', 'settingsTexturePack']) {
+      const control = $id(id);
+      if (!control) continue;
+      control.value = texturePackId;
+      const failed = texturePackId === 'ruins' && [...PACK_ATLASES.values()].some(a => a.failed);
+      control.nextElementSibling.textContent = failed ? '部分素材載入失敗，已使用原版替代。' : TEXTURE_PACKS[texturePackId].description;
+    }
+    if (myPlayer()) { refreshSlots(); refreshCraft(); }
+  });
   // 小地圖本身+下方提示都能點開大地圖(M 鍵是唯一入口太隱晦,新玩家常常不知道有這功能)
   UI.els.minimap.onclick = () => toggleMapPanel(true);
   $id('mapOpenHint').onclick = () => toggleMapPanel(true);
@@ -536,7 +548,7 @@ function uiTick(dt) {
 }
 
 function slotHTML(el, s, selected, pending) {
-  el.querySelector('.icon').textContent = s ? ITEMS[s.id].icon : '';
+  el.querySelector('.icon').innerHTML = itemIconHTML(s?.id);
   el.querySelector('.cnt').textContent = s && s.count > 1 ? s.count : (s && s.lv ? '+' + s.lv : '');
   el.style.background = s && ITEMS[s.id].tint ? ITEMS[s.id].tint : '';
   el.classList.toggle('sel', !!selected);
@@ -577,7 +589,7 @@ function renderEquipSlots(me) {
     const it = eq && ITEMS[eq.id];
     const iconEl = el.querySelector('.icon');
     el.classList.toggle('filled', !!it);
-    iconEl.textContent = it ? it.icon : '';
+    iconEl.innerHTML = itemIconHTML(eq?.id);
     el.title = it ? `${EQUIP_SLOT_NAME[part]}:${it.name}${eq.lv ? ' +' + eq.lv : ''}(點一下卸下)` : `${EQUIP_SLOT_NAME[part]}(拖裝備進來穿上)`;
   });
 }
@@ -826,7 +838,7 @@ function renderStoragePanel() {
     const cnt = s ? (s.count > 1 ? s.count : (s.lv ? '+' + s.lv : '')) : '';
     const tint = it && it.tint ? ` style="background:${it.tint}"` : '';
     return `<div class="slot ${cls}" data-i="${i}"${tint} title="${it ? it.name + (s.lv ? ' +' + s.lv : '') : ''}">
-      <span class="icon">${it ? it.icon : ''}</span><span class="cnt">${cnt}</span></div>`;
+      <span class="icon">${itemIconHTML(s?.id)}</span><span class="cnt">${cnt}</span></div>`;
   };
   let html = `<h2>📦 儲物箱 <span class="hint">(${items.length}/${STORAGE_CFG.slots})</span></h2>
     <p class="hint">點箱內物品取回背包,點背包物品存入。傳輸帶把礦推到箱子正面會自動入庫。</p>
@@ -888,7 +900,7 @@ function renderEnhPanel() {
   }
   panel.innerHTML = `
     <div class="enh-row">
-      <span class="enh-icon">${it.icon}</span>
+      <span class="enh-icon">${itemIconHTML(s.id)}</span>
       <b>${it.name}</b> <span class="enh-lv">目前 +${lv}${maxed ? '(已滿級)' : ` / 上限 +${ENH_CFG.maxLv}`}</span>
     </div>
     <p class="hint">${bonus}${it.dur ? `,耐久上限 +15%/級` : ''};成功只消耗卷軸不會讓裝備變差。</p>
@@ -947,7 +959,7 @@ function refreshCraft() {
       d.className = 'recipe';
       const cost = Object.entries(r.cost).map(([id, n]) => `${ITEMS[id].icon}×${n}`).join(' ');
       const st = r.station === 'workbench' ? '🛠️' : r.station === 'furnace' ? '🔥' : '✋';
-      d.innerHTML = `<span class="ricon">${ITEMS[r.out].icon}</span>
+      d.innerHTML = `<span class="ricon">${itemIconHTML(r.out)}</span>
         <span class="rname">${ITEMS[r.out].name}${r.n > 1 ? '×' + r.n : ''}</span>
         <span class="rcost">${cost}</span><span class="rst">${st}</span>`;
       d.title = (ITEMS[r.out].desc || '') + (r.station ? `\n需靠近${r.station === 'furnace' ? '熔爐' : '工作台'}` : '');
@@ -1074,7 +1086,7 @@ function renderMenu() {
     const bestiaryHtml = monIds.map(id => {
       const et = ENEMY_TYPES[id], seen = !!G.bestiary[id];
       return `<div class="bestiary-cell${seen ? '' : ' unseen'}" title="${seen ? et.name : '尚未擊敗過'}">
-        ${et.icon ? `<img src="assets/monsters/${et.icon}" onerror="this.style.display='none'">` : ''}
+        ${packIconHTML('creatures', PACK_CREATURES[id]) || (et.icon ? `<img src="assets/monsters/${et.icon}" onerror="this.style.display='none'">` : '')}
         <span>${seen ? et.name : '？？？'}</span>
       </div>`;
     }).join('');
@@ -1120,6 +1132,7 @@ function renderMenu() {
   }
   panel.innerHTML = `
     <h2>設定</h2>
+    ${texturePackControl('settingsTexturePack')}
     ${body}
     <p>🔄 <b>遊戲有更新但畫面沒變?</b>瀏覽器可能還在用快取的舊檔案,點下面按鈕強制重新抓取最新版本
     (不會影響存檔,但網頁本身無法清除瀏覽器的「瀏覽紀錄」,那是瀏覽器設定裡的功能)。</p>
@@ -1128,6 +1141,7 @@ function renderMenu() {
     </div>
     <div class="btnrow"><button id="mBack">← 返回</button></div>`;
   $id('mBack').onclick = () => { UI.menuView = 'main'; renderMenu(); };
+  $id('settingsTexturePack').onchange = e => setTexturePack(e.target.value);
   $id('mForceUpdate').onclick = async () => {
     if (!confirm('確定要強制更新嗎?會重新載入頁面(存檔不受影響)。')) return;
     try {
@@ -1423,9 +1437,12 @@ function setOverlay(mode) {
     migrateLegacySave(); // 舊版單一存檔先搬進槽位,下面的 anySave()/存檔列表才看得到
     const netOK = NET.available();
     ov.innerHTML = `
-      <div class="menu">
+      <div class="menu start-menu">
+        <div class="system-label">GLOAMDEPTHS / 深淵探索計畫</div>
+        <div class="core-emblem" aria-hidden="true"><span></span></div>
         <h1>微光深淵</h1>
-        <p class="sub">一起把光帶回深淵吧!1~4 人合作の地底大冒險</p>
+        <p class="sub">深入失落遺跡，守住最後的光。<br><small>1–4 人合作 · 探索 / 建造 / 生存</small></p>
+        ${texturePackControl('startTexturePack')}
         <button id="btnChangelog" class="linklike">📜 更新紀錄</button>
         <input id="nameInput" maxlength="12" placeholder="你的名字" value="${savedName}">
         <div class="diffrow" id="diffRow">
@@ -1457,6 +1474,7 @@ function setOverlay(mode) {
           <b>觀戰</b>:按 <b>V</b> 進入自由鏡頭看隊友,再按 V 回來;倒下等復活時也能移動鏡頭。
         </div>
       </div>`;
+    $id('startTexturePack').onchange = e => setTexturePack(e.target.value);
     for (const btn of ov.querySelectorAll('.diffbtn')) {
       btn.onclick = () => {
         UI.selectedDifficulty = btn.dataset.diff;

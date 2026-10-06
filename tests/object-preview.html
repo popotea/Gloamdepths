@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-Hant">
+<meta charset="utf-8">
+<base href="../">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>微光深淵 — 地圖物件預覽</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #07111b; color: #c6e9f1; font-family: "Microsoft JhengHei", sans-serif; }
+  main { max-width: 1080px; margin: auto; }
+  header { padding: 26px 24px 18px; }
+  h1 { margin: 0 0 10px; font-size: 23px; font-weight: 500; letter-spacing: 3px; }
+  p, footer { font-size: 13px; color: #87a7b8; }
+  button { padding: 8px 18px; background: #153645; border: 1px solid #397e93; color: #ceeff7; cursor: pointer; }
+  canvas { display: block; width: 100%; }
+  footer { padding: 14px 24px 24px; }
+</style>
+<main>
+  <header><h1>微光深淵 / 遺跡設施</h1><p>機械設施 · 全息照明 · 居住家具 · 生態巢穴</p><button id="pause">暫停動態</button></header>
+  <canvas id="preview" aria-label="科技遺跡物件、三階段作物與機器供能狀態"></canvas>
+  <footer>青燈：供能／有彈藥　橘燈：缺燃料／缺箭　灰燈：停用　｜　此預覽不讀寫遊戲進度。</footer>
+</main>
+<script src="js/config.js"></script>
+<script src="js/texture-pack.js"></script>
+<script src="js/animation.js"></script>
+<script src="js/object-render.js"></script>
+<script>
+  texturePackId = 'ruins'; preloadTexturePack();
+  const cv = document.getElementById('preview'), ctx = cv.getContext('2d');
+  const scale = Math.min(devicePixelRatio || 1, 2);
+  cv.width = 1080 * scale; cv.height = 816 * scale; ctx.scale(scale, scale);
+  const samples = [
+    ['auto_miner', '採礦機 · 供能', {fuel: 30}], ['auto_miner', '採礦機 · 缺燃料', {fuel: 0}],
+    ['auto_smelter', '自動熔爐 · 供能', {fuel: 30}], ['auto_smelter', '自動熔爐 · 缺燃料', {fuel: 0}],
+    ['cannon_tower', '重砲塔'], ['multi_tower', '多重箭塔'], ['sniper_tower', '狙擊塔'], ['frost_tower', '冰霜塔'],
+    ['gate', '全息閘門'], ['decoy', '誘餌投影'], ['rail_station', '軌道站點'], ['banner', '基地旗幟'],
+    ['torch', '能量火把'], ['lantern', '提燈'], ['crystal_lamp', '水晶燈'], ['candle', '燭台'],
+    ['storage', '工業儲物箱'], ['chest', '遺跡寶箱'], ['workbench', '工作台'], ['furnace', '手動熔爐'],
+    ['chair', '座椅'], ['bed', '床鋪'], ['toilet', '衛浴'], ['sofa', '沙發'],
+    ['bookshelf', '書櫃'], ['plant_pot', '盆栽'], ['painting', '全息星圖'], ['spike_trap', '地刺陷阱', {hp: OBJ_HP.spike_trap}],
+    ['crop', '幼苗', {crop:'mush',stage:0}], ['crop', '生長中', {crop:'mush',stage:1}], ['crop', '成熟', {crop:'mush',stage:2}],
+    ['nest', '一般巢穴', {nestType:'common'}], ['nest', '孢群巢穴', {nestType:'swarm'}], ['nest', '精英巢穴', {nestType:'elite'}],
+    ['belt', '流動輸送帶', {dir:0}], ['rug_red', '紅色裝飾墊'], ['rug_blue', '藍色裝飾墊'], ['tile_deco', '遺跡花磚'],
+    ['cart', '金屬礦車', {dir:0,items:[{id:'iron_ore',count:3}]}], ['archer_tower', '箭塔 · 停用', {off:true,ammo:10}],
+  ].map(([type,label,extra]) => ({label, o:{type,...extra}}));
+  let paused = false, last = performance.now();
+  document.getElementById('pause').onclick = event => {
+    paused = !paused; event.target.textContent = paused ? '繼續動態' : '暫停動態';
+  };
+  function draw(now) {
+    advanceObjectVisuals(paused ? 0 : Math.max(0, (now-last)/1000)); last = now;
+    ctx.fillStyle = '#07111b'; ctx.fillRect(0, 0, 1080, 816);
+    samples.forEach(({label,o}, i) => {
+      const x = 8 + (i % 8) * 134, y = 8 + Math.floor(i / 8) * 160;
+      ctx.fillStyle = '#0e1d2b'; ctx.fillRect(x, y, 126, 148);
+      ctx.strokeStyle = '#20374a'; ctx.lineWidth = 1; ctx.strokeRect(x+.5,y+.5,126,148);
+      ctx.save(); ctx.translate(x + 63, y + 73); ctx.scale(1.9,1.9);
+      ctx.strokeStyle = '#254352'; ctx.strokeRect(-21, -11, 42, 30);
+      const ok = o.type === 'cart' ? drawTechCart(o, 0, 0) : drawTechFloorObject(o, 0, 0) || drawTechObject(o, i, 0, 0);
+      ctx.restore(); ctx.textAlign = 'center'; ctx.font = '12px "Microsoft JhengHei", sans-serif'; ctx.fillStyle = '#b3d4e0';
+      ctx.fillText(ok ? label : '載入中…', x + 63, y + 130);
+    });
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+</script>
+</html>

@@ -1,11 +1,21 @@
 // ===== 渲染(Canvas)=====
 // 效能重點:只畫視野內的格子;黑暗中的格子直接不畫(底色本來就是黑)
 let cv, ctx, camX = 0, camY = 0;
+let viewWidth = 0, viewHeight = 0, renderScale = 1;
 
 function initRender() {
   cv = document.getElementById('game');
   ctx = cv.getContext('2d');
-  const fit = () => { cv.width = innerWidth; cv.height = innerHeight; };
+  // 世界與滑鼠維持 CSS 像素座標,只提高畫布取樣密度;上限 2 倍避免過度耗用顯存。
+  const fit = () => {
+    viewWidth = innerWidth; viewHeight = innerHeight;
+    renderScale = Math.min(devicePixelRatio || 1, 2);
+    cv.width = Math.round(viewWidth * renderScale);
+    cv.height = Math.round(viewHeight * renderScale);
+    cv.style.width = viewWidth + 'px'; cv.style.height = viewHeight + 'px';
+    ctx.setTransform(renderScale, 0, 0, renderScale, 0, 0);
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  };
   addEventListener('resize', fit);
   fit();
 }
@@ -20,17 +30,17 @@ const PROJ_TRAIL = new Map();
 // (squash 擠壓動畫的 ±15% 縮放很便宜也不失真)。載入失敗回 null,呼叫端退回向量/emoji 畫法
 const SPRITE_CACHE = new Map();
 function bakedSprite(src, sizePx) {
-  const key = src + '@' + sizePx;
+  const key = src + '@' + sizePx + 'x' + renderScale;
   let e = SPRITE_CACHE.get(key);
   if (!e) {
     e = { cv: null, failed: false };
     const img = new Image();
     img.onload = () => {
       const c = document.createElement('canvas');
-      c.width = c.height = sizePx;
+      c.width = c.height = Math.ceil(sizePx * renderScale);
       const g = c.getContext('2d');
       g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
-      g.drawImage(img, 0, 0, sizePx, sizePx);
+      g.drawImage(img, 0, 0, c.width, c.height);
       e.cv = c;
     };
     img.onerror = () => { e.failed = true; };
@@ -41,12 +51,16 @@ function bakedSprite(src, sizePx) {
 }
 // 怪物:烘焙尺寸=顯示尺寸上限(含 squash 拉伸餘裕);失敗自動退回向量畫法
 function monsterImg(type) {
+  const packed = packSprite('creatures', PACK_CREATURES[type], Math.ceil((ENEMY_TYPES[type]?.r || 0.5) * TILE * 2.65), type === 'void_lord' ? 'hue-rotate(30deg)' : 'none');
+  if (packed) return packed;
   const et = ENEMY_TYPES[type];
   if (!et || !et.icon) return null;
   return bakedSprite(`assets/monsters/${et.icon}`, Math.ceil(et.r * TILE * 2.3 * 1.15));
 }
 // 商人(失敗退回 emoji+金色光暈)
 function traderImg() {
+  const packed = packSprite('creatures', PACK_CREATURES.trader, Math.ceil(TILE * 1.1));
+  if (packed) return packed;
   return bakedSprite('assets/npcs/trader.png', Math.ceil(TILE * 1.1));
 }
 // 劇情 NPC(失敗退回 emoji+同一套金色光暈,跟商人共用畫法慣例;找 assets/npcs/<key>.png)
@@ -84,6 +98,8 @@ const WALL_TEX_MUTE = new Set(['dirt.png', 'stone.png', 'obsidian.png', 'voidroc
 const TEX_SPREAD2 = new Set(['floor.png', 'floor_mid.png', 'floor_deep.png', 'dirt.png', 'stone.png',
   'obsidian.png', 'voidrock.png', 'gravel.png', 'bedrock.png', 'water.png', 'farmland.png']);
 function tileTexFile(file) {
+  const packed = packSprite('terrain', PACK_TILES[file], (TEX_SPREAD2.has(file) ? TILE * 2 : TILE) + 1, 'none', WALL_TEX_MUTE.has(file));
+  if (packed) return packed;
   let e = TILE_TEX.get(file); // 用檔名當 key:GLOW 與 FLOOR 共用 floor.png,只載一次
   if (!e) {
     e = { cv: null, failed: false };
@@ -110,16 +126,19 @@ function tileTex(t) {
 }
 // 畫一格地形貼圖:2×2 週期的大貼圖依格座標取對應的四分之一,一般貼圖整張畫
 function blitTile(texCv, tx, ty, sx, sy) {
-  if (texCv.width > TILE + 1) ctx.drawImage(texCv, (tx & 1) * TILE, (ty & 1) * TILE, TILE + 1, TILE + 1, sx, sy, TILE + 1, TILE + 1);
-  else ctx.drawImage(texCv, sx, sy);
+  const logical = texCv.logicalSize || texCv.width;
+  const scale = texCv.width / logical;
+  if (logical > TILE + 1) ctx.drawImage(texCv, (tx & 1) * TILE * scale, (ty & 1) * TILE * scale,
+    (TILE + 1) * scale, (TILE + 1) * scale, sx, sy, TILE + 1, TILE + 1);
+  else ctx.drawImage(texCv, sx, sy, TILE + 1, TILE + 1);
 }
 
 // ---- 乾淨地板(程序化)----
 // AI 材質縮到 40px 一格會變高頻雜訊、切割不明確;地板改純色分區 + 整齊格線,清楚不吃視線。
 // 依區域(zoneOf)分四種底色,每格畫上邊+左邊各一條暗線 → 整張地圖連成清楚的網格。
-const FLOOR_BASE = ['#302519', '#262b36', '#241d31', '#1b1626']; // zone 0泥土/1石/2黑曜/3淵核
-const FLOOR_EDGE = ['#271d12', '#1d222d', '#1b1526', '#140e1e']; // 對應的格線暗色
-const FLOOR_HI   = ['#382b1e', '#2c313d', '#2a2238', '#211a2e']; // 對應的上緣淡高光(一點點立體感)
+const FLOOR_BASE = ['#202e38', '#202a38', '#29283e', '#192636'];
+const FLOOR_EDGE = ['#14212b', '#131e2b', '#1a192d', '#101c29'];
+const FLOOR_HI   = ['#354651', '#324353', '#403950', '#293b4c'];
 function drawCleanFloor(sx, sy, tx, ty, t) {
   const z = zoneOf(tx + 0.5, ty + 0.5);
   let base = FLOOR_BASE[z], edge = FLOOR_EDGE[z], hi = FLOOR_HI[z];
@@ -132,6 +151,22 @@ function drawCleanFloor(sx, sy, tx, ty, t) {
   ctx.fillStyle = edge;                        // 左邊+下邊暗線 = 清楚的格子切割
   ctx.fillRect(sx, sy, 1, TILE + 1);
   ctx.fillRect(sx, sy + TILE, TILE + 1, 1);
+  if (t === T.FARMLAND) return;
+  // 大面積壓低對比,稀疏的鉚釘與導光槽提供尺度,不遮住礦物與角色。
+  const n = (tx * 17 + ty * 31) >>> 0;
+  ctx.fillStyle = '#9bb9cb12';
+  ctx.fillRect(sx + 5, sy + 5, 2, 2);
+  ctx.fillRect(sx + TILE - 7, sy + TILE - 7, 2, 2);
+  if (n % 7 === 0) {
+    ctx.fillStyle = '#09141d';
+    ctx.fillRect(sx + 7, sy + TILE - 9, TILE - 14, 3);
+    ctx.fillStyle = z > 1 ? '#9887ca55' : '#62dbe35c';
+    ctx.fillRect(sx + 9, sy + TILE - 8, TILE - 18, 1);
+  }
+  if (n % 13 === 0) {
+    ctx.fillStyle = '#b4ced018';
+    for (let k = 0; k < 3; k++) ctx.fillRect(sx + 8 + k * 4, sy + 10, 2, 7);
+  }
 }
 
 // ---- 鐵軌(程序化,依相鄰鐵軌自動轉向,類似 Minecraft)----
@@ -177,6 +212,13 @@ function drawRail(sx, sy, tx, ty) {
 
 // ---- 隊友救援(倒地非陣亡):倒地的身體(黑暗遮罩前畫,跟正常玩家一樣受光照影響) ----
 function drawDownedBody(p, sx, sy) {
+  const packed = packSprite('creatures', PACK_CREATURES.player, TILE * 1.25);
+  if (packed) {
+    ctx.save(); ctx.translate(sx, sy); ctx.rotate(Math.PI / 2); ctx.globalAlpha = 0.65;
+    ctx.drawImage(packed, -TILE * 0.625, -TILE * 0.625, TILE * 1.25, TILE * 1.25);
+    ctx.restore();
+    return;
+  }
   const col = PLAYER_COLORS[p.id % PLAYER_COLORS.length];
   const R = p.r * TILE;
   ctx.save();
@@ -223,19 +265,21 @@ function screenToWorld(sx, sy) { return [sx / TILE + camX, sy / TILE + camY]; }
 
 function render(dt) {
   ctx.fillStyle = '#050508';
-  ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.fillRect(0, 0, viewWidth, viewHeight);
   if (!G.started) return;
   const me = G.players.get(G.myId);
   if (!me) return;
+  const animationDt = G.paused ? 0 : dt;
+  advanceObjectVisuals(animationDt);
 
   // 觀戰模式:鏡頭跟著自由觀戰點走,不跟角色(UI.spec 純本地,見 main.js localControl)
   const cam = UI.spec || me;
-  camX = cam.x - cv.width / 2 / TILE;
-  camY = cam.y - cv.height / 2 / TILE;
+  camX = cam.x - viewWidth / 2 / TILE;
+  camY = cam.y - viewHeight / 2 / TILE;
 
   const x0 = Math.max(0, Math.floor(camX)), y0 = Math.max(0, Math.floor(camY));
-  const x1 = Math.min(MAP_W - 1, Math.ceil(camX + cv.width / TILE));
-  const y1 = Math.min(MAP_H - 1, Math.ceil(camY + cv.height / TILE));
+  const x1 = Math.min(MAP_W - 1, Math.ceil(camX + viewWidth / TILE));
+  const y1 = Math.min(MAP_H - 1, Math.ceil(camY + viewHeight / TILE));
   const srcs = lightSources(x0, y0, x1, y1);
   const W = x1 - x0 + 1;
   const lightBuf = new Float32Array(W * (y1 - y0 + 1));
@@ -264,9 +308,11 @@ function render(dt) {
         // 地板一律走乾淨程序化畫法(純色分區+清楚格線),不再用會變高頻雜訊的 AI 材質
         drawCleanFloor(sx, sy, tx, ty, t);
         if (t === T.GLOW) {
-          // 發光地板:中央青色光斑
-          ctx.fillStyle = 'rgba(126,240,255,0.28)';
-          ctx.fillRect(sx + TILE * 0.38, sy + TILE * 0.38, TILE * 0.24, TILE * 0.24);
+          // 發光地板用嵌入式導光角線,保留可辨識性也讓中央晶體維持焦點。
+          ctx.fillStyle = 'rgba(126,240,255,0.22)';
+          ctx.fillRect(sx + 5, sy + 5, 10, 1);
+          ctx.fillRect(sx + 5, sy + 5, 1, 10);
+          ctx.fillRect(sx + TILE - 15, sy + TILE - 6, 10, 1);
         } else if (t === T.FARMLAND) {
           // 翻土紋路:三條深色橫紋,一眼認得出是農地
           ctx.strokeStyle = '#2a1c0f'; ctx.lineWidth = 2;
@@ -367,6 +413,8 @@ function render(dt) {
     if (lightOf(tx + 0.5, ty + 0.5) < 0.05) continue;
     const [sx, sy] = worldToScreen(tx + 0.5, ty + 0.5);
     // 傳輸帶:貼地的方向箭頭(不是站著的機台),自己畫、跳過下面的底影+emoji 通用畫法
+    if (drawTechFloorObject(o, sx, sy)) continue;
+    if (o.type === 'spike_trap' && drawTechObject(o, i, sx, sy)) continue;
     if (o.type === 'belt') {
       const dir = o.dir || 0;
       ctx.save();
@@ -427,33 +475,40 @@ function render(dt) {
       ctx.fillRect(sx, sy, half, half);
       continue;
     }
-    ctx.globalAlpha = o.type === 'archer_tower' && o.off ? 0.45 : 1;
-    // 深色底影:emoji 物件(火把/工作台等)放在貼圖地板上才看得見
-    ctx.fillStyle = 'rgba(5,5,10,0.42)';
-    ctx.beginPath();
-    ctx.arc(sx, sy + TILE * 0.06, TILE * 0.40, 0, TAU);
-    ctx.fill();
-    ctx.font = `${TILE * 0.7}px "Segoe UI Emoji"`;
-    if (o.type === 'crop') {
-      const def = CROP_TYPES[o.crop];
-      const icon = def ? def.icons[Math.min(o.stage, def.icons.length - 1)] : '❓';
-      ctx.font = `${TILE * (0.4 + 0.3 * (o.stage / Math.max(1, (def?.icons.length ?? 2) - 1)))}px "Segoe UI Emoji"`;
-      ctx.fillText(icon, sx, sy);
-    } else if (o.type === 'nest') {
-      const ndef = NEST_TYPES[o.nestType] || NEST_TYPES.common;
-      if (ndef.elite) {
-        // 精英巢穴外圈脈動紅光,遠遠就能認出比較危險
-        ctx.strokeStyle = `rgba(255,93,93,${0.5 + Math.sin(performance.now() / 260) * 0.25})`;
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        ctx.arc(sx, sy, TILE * 0.55, 0, TAU);
-        ctx.stroke();
+    const techRendered = drawTechObject(o, i, sx, sy);
+    if (!techRendered) {
+      ctx.globalAlpha = o.type === 'archer_tower' && o.off ? 0.45 : 1;
+      // 深色底影:emoji 物件(火把/工作台等)放在貼圖地板上才看得見
+      ctx.fillStyle = 'rgba(5,5,10,0.42)';
+      ctx.beginPath();
+      ctx.arc(sx, sy + TILE * 0.06, TILE * 0.40, 0, TAU);
+      ctx.fill();
+      ctx.font = `${TILE * 0.7}px "Segoe UI Emoji"`;
+      if (o.type === 'crop') {
+        const def = CROP_TYPES[o.crop];
+        const icon = def ? def.icons[Math.min(o.stage, def.icons.length - 1)] : '❓';
+        ctx.font = `${TILE * (0.4 + 0.3 * (o.stage / Math.max(1, (def?.icons.length ?? 2) - 1)))}px "Segoe UI Emoji"`;
+        ctx.fillText(icon, sx, sy);
+      } else if (o.type === 'nest') {
+        const ndef = NEST_TYPES[o.nestType] || NEST_TYPES.common;
+        if (ndef.elite) {
+          // 精英巢穴外圈脈動紅光,遠遠就能認出比較危險
+          ctx.strokeStyle = `rgba(255,93,93,${0.5 + Math.sin(performance.now() / 260) * 0.25})`;
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.arc(sx, sy, TILE * 0.55, 0, TAU);
+          ctx.stroke();
+        }
+        const packed = packItemSprite('nest', TILE * 1.05);
+        if (packed) ctx.drawImage(packed, sx - TILE * 0.525, sy - TILE * 0.525, TILE * 1.05, TILE * 1.05);
+        else ctx.fillText(ndef.icon, sx, sy);
+      } else {
+        const packed = packItemSprite(o.type, TILE * 1.05);
+        if (packed) ctx.drawImage(packed, sx - TILE * 0.525, sy - TILE * 0.6, TILE * 1.05, TILE * 1.05);
+        else ctx.fillText(OBJ_ICON[o.type] || '❓', sx, sy);
       }
-      ctx.fillText(ndef.icon, sx, sy);
-    } else {
-      ctx.fillText(OBJ_ICON[o.type] || '❓', sx, sy);
+      ctx.globalAlpha = 1;
     }
-    ctx.globalAlpha = 1;
     if (o.type === 'archer_tower') {
       const w = TILE * 0.8, ammoR = (o.ammo || 0) / ARCHER_TOWER_CFG.maxAmmo;
       ctx.fillStyle = '#3336';
@@ -484,21 +539,21 @@ function render(dt) {
       ctx.fillRect(sx - w / 2, sy + TILE * 0.42, w, 4);
       ctx.fillStyle = '#ffd23f';
       ctx.fillRect(sx - w / 2, sy + TILE * 0.42, w * fillR, 4);
-    } else if (o.type === 'frost_tower') {
+    } else if (o.type === 'frost_tower' && !techRendered) {
       // 冰藍脈動環:一眼認出「這座塔在控場」(純裝飾,雙端各自用時間畫,不用同步脈衝時機)
       ctx.strokeStyle = `rgba(168,232,255,${0.35 + Math.sin(performance.now() / 400) * 0.15})`;
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.arc(sx, sy, TILE * 0.6, 0, TAU);
       ctx.stroke();
-    } else if (o.type === 'decoy') {
+    } else if (o.type === 'decoy' && !techRendered) {
       // 金色脈動環:仿星核的「假光」既視感,遠遠看就知道是誘餌在嘲諷
       ctx.strokeStyle = `rgba(255,210,63,${0.4 + Math.sin(performance.now() / 300) * 0.2})`;
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.arc(sx, sy, TILE * 0.58, 0, TAU);
       ctx.stroke();
-    } else if (o.type === 'gate') {
+    } else if (o.type === 'gate' && !techRendered) {
       // 光簾:門框下掛一道半透明青色光簾,示意「玩家能穿、蝕影不敢鑽」
       const shimmer = 0.22 + Math.sin(performance.now() / 500 + sx) * 0.08;
       ctx.fillStyle = `rgba(126,240,255,${shimmer})`;
@@ -516,7 +571,7 @@ function render(dt) {
   // ---- 星核 ----
   {
     const [sx, sy] = worldToScreen(G.core.x, G.core.y);
-    if (sx > -80 && sy > -80 && sx < cv.width + 80 && sy < cv.height + 80) {
+    if (sx > -80 && sy > -80 && sx < viewWidth + 80 && sy < viewHeight + 80) {
       const pulse = 1 + Math.sin(performance.now() / 400) * 0.08;
       const eR = G.core.energy / CORE_CFG.maxE;
       const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, TILE * 2.2 * pulse);
@@ -524,12 +579,36 @@ function render(dt) {
       grad.addColorStop(1, 'rgba(126,240,255,0)');
       ctx.fillStyle = grad;
       ctx.fillRect(sx - TILE * 2.5, sy - TILE * 2.5, TILE * 5, TILE * 5);
+      // 同心投影環與分面晶體集中在星核,避免逐格發光造成畫面雜亂與效能負擔。
       ctx.save();
       ctx.translate(sx, sy);
-      ctx.rotate(Math.PI / 4);
-      const s = TILE * 0.55 * pulse;
-      ctx.fillStyle = eR > 0.3 ? '#9ff4ff' : '#4d7f8a';
-      ctx.fillRect(-s / 2, -s / 2, s, s);
+      const now = performance.now() / 1000;
+      const accent = eR > 0.3 ? '#75e8f5' : '#ff826c';
+      ctx.fillStyle = '#0b1829cc';
+      ctx.strokeStyle = '#507a8b'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.ellipse(0, 9, 36, 21, 0, 0, TAU); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = '#74ddeb66';
+      for (let k = 0; k < 3; k++) {
+        const a = now * 0.22 + k * TAU / 3;
+        ctx.beginPath(); ctx.ellipse(0, 9, 32, 17, 0, a, a + 1.3); ctx.stroke();
+      }
+      for (let k = 0; k < 32; k++) {
+        const a = k * TAU / 32;
+        ctx.strokeStyle = k / 32 < eR ? accent : '#35505c';
+        ctx.beginPath(); ctx.moveTo(Math.cos(a) * 49, Math.sin(a) * 49);
+        ctx.lineTo(Math.cos(a) * (k % 4 === 0 ? 54 : 51), Math.sin(a) * (k % 4 === 0 ? 54 : 51)); ctx.stroke();
+      }
+      ctx.translate(0, -9 + Math.sin(now * 1.6) * 3);
+      ctx.shadowColor = accent; ctx.shadowBlur = 16;
+      ctx.fillStyle = accent;
+      ctx.beginPath(); ctx.moveTo(0, -25); ctx.lineTo(15, -3); ctx.lineTo(0, 20); ctx.lineTo(-15, -3); ctx.closePath(); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#dbfcff';
+      ctx.beginPath(); ctx.moveTo(0, -25); ctx.lineTo(0, -3); ctx.lineTo(-15, -3); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#267b9d';
+      ctx.beginPath(); ctx.moveTo(0, -3); ctx.lineTo(15, -3); ctx.lineTo(0, 20); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#e1fbff99'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(-15, -3); ctx.lineTo(15, -3); ctx.moveTo(0, -25); ctx.lineTo(0, 20); ctx.stroke();
       ctx.restore();
       // 能量環
       ctx.strokeStyle = eR > 0.3 ? '#7ef0ff' : '#ff6b6b';
@@ -572,7 +651,9 @@ function render(dt) {
     ctx.lineWidth = 1.5;
     ctx.stroke();
     ctx.font = `${TILE * 0.56}px "Segoe UI Emoji"`;
-    ctx.fillText(ITEMS[d.item] ? ITEMS[d.item].icon : '❓', sx, sy + bob);
+    const packed = packItemSprite(d.item, TILE * 0.75);
+    if (packed) ctx.drawImage(packed, sx - TILE * 0.375, sy + bob - TILE * 0.375, TILE * 0.75, TILE * 0.75);
+    else ctx.fillText(ITEMS[d.item] ? ITEMS[d.item].icon : '❓', sx, sy + bob);
     if (d.n > 1) {
       ctx.font = 'bold 11px sans-serif';
       ctx.fillStyle = '#fff';
@@ -656,6 +737,7 @@ function render(dt) {
     if (c.x < x0 - 1 || c.x > x1 + 2 || c.y < y0 - 1 || c.y > y1 + 2) continue;
     if (lightOf(c.x, c.y) < 0.05) continue;
     const [sx, sy] = worldToScreen(c.x, c.y);
+    if (!drawTechCart(c, sx, sy)) {
     ctx.save();
     ctx.translate(sx, sy);
     ctx.rotate(c.dir * Math.PI / 2); // 0=右基準,順時針旋轉,跟傳輸帶箭頭同一套慣例
@@ -667,6 +749,7 @@ function render(dt) {
     ctx.beginPath(); ctx.arc(-TILE * 0.2, TILE * 0.2, TILE * 0.08, 0, TAU); ctx.fill();
     ctx.beginPath(); ctx.arc(TILE * 0.2, TILE * 0.2, TILE * 0.08, 0, TAU); ctx.fill();
     ctx.restore();
+    }
     // 貨艙容量條(不跟著車廂旋轉,畫在正上方,視覺比照箭塔彈藥條/熔煉爐緩衝條)
     if (c.items.length > 0) {
       const w = TILE * 0.6;
@@ -754,7 +837,8 @@ function render(dt) {
     const escale = e.elite ? ELITE_CFG.scale : 1;
     const er = et.r * escale;
     const [sx, sy] = worldToScreen(e.x, e.y);
-    const squash = 1 + Math.sin(performance.now() / 200 + e.id) * 0.08;
+    const motion = entityMotion(e, animationDt);
+    const squash = 1 + Math.sin(motion.time * 2.5) * 0.015;
     // 精英怪:紫色脈動外圈,一眼認出比一般怪更硬更痛
     if (e.elite) {
       ctx.strokeStyle = `rgba(224,140,255,${0.5 + Math.sin(performance.now() / 240) * 0.25})`;
@@ -788,8 +872,7 @@ function render(dt) {
     }
     const img = monsterImg(e.type);
     if (img) {
-      const size = er * TILE * 2.3 * squash;
-      ctx.drawImage(img, sx - size / 2, sy - size / 2, size, size);
+      drawEnemyMotion(e, img, motion, sx, sy, er * TILE * 2.3);
     } else {
       ctx.fillStyle = et.color;
       ctx.beginPath();
@@ -835,20 +918,20 @@ function render(dt) {
 
   // ---- 玩家 ----
   for (const p of G.players.values()) {
+    const motion = entityMotion(p, animationDt, true);
     if (p.dead) continue;
     const [sx, sy] = worldToScreen(p.x, p.y);
-    if (sx < -60 || sy < -60 || sx > cv.width + 60 || sy > cv.height + 60) continue;
+    if (sx < -60 || sy < -60 || sx > viewWidth + 60 || sy > viewHeight + 60) continue;
     // 倒下(隊友救援待救,見 REVIVE_CFG):畫倒地的身體就好,不接受任何動作輸入所以不用畫走路/揮擊;
     // SOS 標記/救援進度環/倒數畫在黑暗遮罩之上(跟名字同一批),暗處也找得到人
     if (p.downed) { drawDownedBody(p, sx, sy); continue; }
     const col = PLAYER_COLORS[p.id % PLAYER_COLORS.length];
     const R = p.r * TILE;
-    // 移動時偵測位移做走路擺腿動畫(不額外存狀態,用位置差推斷)
-    const mvx = p.x - (p._lrx ?? p.x), mvy = p.y - (p._lry ?? p.y);
-    const moving = (mvx * mvx + mvy * mvy) > 0.00002;
-    p._lrx = p.x; p._lry = p.y;
-    if (moving) p._walkPh = (p._walkPh ?? 0) + dt * 9;
-    const walk = moving ? Math.sin(p._walkPh ?? 0) : 0;
+    const walk = motion.moveAge < 0.1 ? Math.sin(motion.phase) : 0;
+    const held = p.swing > 0 && p.action === 'mine' ? bestPick(p) : weaponOf(p);
+    const heldId = held && (held.slot?.id || PACK_ITEM_IDS_BY_NAME.get(held.name));
+    const heldSprite = heldId ? packItemSprite(heldId, TILE * 0.7) : null;
+    const pose = weaponMotion(p, held, R);
 
     // 護甲等級決定輪廓色(無甲=深色 / 鐵甲=銀邊 / 金甲=金邊)
     // 房主端 p.equip 是正確的即時資料;客戶端看別人時要靠快照同步的 armorPct(自己的 p.equip 也有同步,兩者算出來一致)
@@ -856,6 +939,10 @@ function render(dt) {
     const outline = armor >= 0.5 ? '#ffd23f' : armor >= 0.3 ? '#c8ced8' : '#0008';
     const outlineW = armor > 0 ? 3 : 2;
 
+    const explorer = explorerSprite(motion);
+    if (explorer) {
+      drawExplorerMotion(p, explorer, motion, sx, sy, col, pose);
+    } else {
     // 雙腳(走路交替擺動)
     ctx.fillStyle = '#0006';
     const legOff = R * 0.4;
@@ -906,50 +993,10 @@ function render(dt) {
       ctx.ellipse(e2x + Math.sin(p.aim) * 5, e2y - Math.cos(p.aim) * 5 + 2, 3.2, 2.2, 0, 0, TAU);
       ctx.fill();
     }
+    }
     // 手持物品(先算出來,揮擊弧光要用它的屬性上色):待機時偏向側後方貼身顯示(避開頭部),
     // 攻擊/挖礦時往瞄準方向揮出到身體外側
-    const held = p.swing > 0 && p.action === 'mine' ? bestPick(p) : weaponOf(p);
-    // weaponOf/bestPick 把 ITEMS[id].sword/ranged 子物件展平合併進回傳值,elem 直接掛在 held 上(不是 held.sword.elem)
-    const heldElem = held && held.elem;
-    const arcRgb = heldElem && ELEM_FX_COLOR[heldElem] ? ELEM_FX_COLOR[heldElem] : '255,255,255';
-    // 揮擊弧光:白色=無屬性,有屬性武器染成對應顏色(焰橘/霜藍/光金/暗紫/重擊灰)
-    if (p.swing > 0) {
-      ctx.strokeStyle = `rgba(${arcRgb},${p.swing / 0.22 * 0.85})`;
-      ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.arc(sx, sy, TILE * 1.3, p.aim - 0.8, p.aim + 0.8);
-      ctx.stroke();
-    }
-    if (held && held.icon) {
-      const swinging = p.swing > 0;
-      const swingF = swinging ? (p.action === 'mine' ? p.swing / 0.2 : p.swing / 0.22) : 0;
-      // 拖影:近戰揮擊時額外畫兩個「稍早角度、較淡」的殘影,做出揮動的動態感(挖礦不畫,避免視覺雜訊)
-      if (swinging && p.action !== 'mine') {
-        for (const off of [0.32, 0.16]) {
-          const ghostF = Math.min(1, swingF + off);
-          const gAng = p.aim + (ghostF - 0.5) * 1.1;
-          const gr = R * 1.35;
-          ctx.save();
-          ctx.font = `${TILE * 0.44}px "Segoe UI Emoji"`;
-          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-          ctx.globalAlpha = (1 - off) * 0.35;
-          ctx.fillText(held.icon, sx + Math.cos(gAng) * gr, sy + Math.sin(gAng) * gr);
-          ctx.restore();
-        }
-      }
-      // 待機時擺在慣用手側(瞄準方向 +100°),不擋住臉;揮動時甩到瞄準方向前方
-      const ang = swinging ? p.aim + (swingF - 0.5) * 1.1 : p.aim + 1.75;
-      const hr = R * (swinging ? 1.35 : 0.95);
-      const hx = sx + Math.cos(ang) * hr, hy = sy + Math.sin(ang) * hr;
-      ctx.save();
-      ctx.font = `${TILE * (swinging ? 0.5 : 0.34)}px "Segoe UI Emoji"`;
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.globalAlpha = swinging ? 1 : 0.85;
-      ctx.fillText(held.icon, hx, hy);
-      ctx.restore();
-    }
-    // 寵物:純裝飾偏移(繞著玩家位置算出來的軌跡,不是獨立模擬的實體),host/client 用同一份
-    // p.x/p.y+performance.now() 算,結果自然一致,不用額外同步座標。受黑暗遮罩影響(跟玩家本體一樣暗處看不見)
+    drawPlayerWeapon(p, held, heldSprite, pose, sx, sy, R);
     if (p.pet) {
       const pet = PET_TYPES[p.pet];
       if (pet) {
@@ -1097,7 +1144,8 @@ function render(dt) {
     const [sx, sy] = worldToScreen(h.x, h.y);
     const t = clamp(h.t / HITFX_DUR, 0, 1);
     const img = hitFxSprite(h.elem);
-    const a = (1 - t) * (h.crit ? 0.95 : 0.75);
+    const a = (1 - t) ** 2 * (h.crit ? 0.85 : 0.6);
+    drawImpactSparks(sx, sy, h, t);
     if (img) {
       const size = TILE * (0.85 + t * (h.crit ? 1.35 : 0.9));
       ctx.save();
@@ -1126,11 +1174,11 @@ function render(dt) {
   // ---- 倒下畫面(全螢幕暗紅暈,純本地渲染不影響模擬;倒數/救援環已在世界空間畫在自己頭上)----
   if (me.downed) {
     ctx.save();
-    const g = ctx.createRadialGradient(cv.width / 2, cv.height / 2, cv.height * 0.22, cv.width / 2, cv.height / 2, cv.height * 0.72);
+    const g = ctx.createRadialGradient(viewWidth / 2, viewHeight / 2, viewHeight * 0.22, viewWidth / 2, viewHeight / 2, viewHeight * 0.72);
     g.addColorStop(0, 'rgba(120,10,10,0)');
     g.addColorStop(1, 'rgba(120,10,10,0.5)');
     ctx.fillStyle = g;
-    ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.fillRect(0, 0, viewWidth, viewHeight);
     ctx.restore();
   }
 }

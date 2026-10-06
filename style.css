@@ -17,9 +17,9 @@
   --panel-border-color: #4a5a78;
   /* Q版改版(2026-07):圓角全面加大 = 果凍感的地基;糖果色只用在「回饋時刻」
      (撿寶/升級/愛心),平常介面仍以青藍 --glow 為識別主色,糖果色是調味料不是主菜 */
-  --radius-lg: 22px;
-  --radius-md: 14px;
-  --radius-sm: 9px;
+  --radius-lg: 10px;
+  --radius-md: 5px;
+  --radius-sm: 3px;
   --candy-pink:  #ff9de2;
   --candy-yellow:#ffd93d;
   --candy-mint:  #7dffb2;
@@ -44,6 +44,20 @@ button:disabled { opacity: .4; cursor: default; }
 #hud { position: absolute; inset: 0; pointer-events: none; }
 #hud button, #hud input, #hud .slot, #hud .recipe, #hud #roomcode, #hud #minimap,
 #hud .menu-panel, #hud .panel-glass, #hud #invpanel, #hud #towerPanel { pointer-events: auto; }
+
+/* 圖示共用一張透明圖集,介面與世界中的貼圖使用同一格素材。 */
+.pack-icon { display: inline-block; position: relative; width: 1.3em; height: 1.3em;
+  vertical-align: middle; pointer-events: none; }
+.pack-sprite { position: absolute; background-repeat: no-repeat; }
+.slot .pack-icon, .eqslot .pack-icon { width: 36px; height: 36px; }
+.bestiary-cell > .pack-icon { width: 46px; height: 46px; }
+.bestiary-cell.unseen > .pack-icon { filter: brightness(0) !important; opacity: .55; }
+.texture-control { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 8px 14px;
+  text-align: left; padding: 12px; margin: 14px 0; border: 1px solid #355164; background: #081521; }
+.texture-control label { font-size: 12px; color: #a6c8d6; }
+.texture-control select { min-width: 0; width: 100%; padding: 7px 10px; font: inherit; font-size: 13px;
+  color: #b7f3ff; background: #152d3d; border: 1px solid #4d8197; border-radius: 3px; cursor: pointer; }
+.texture-control small { grid-column: 1 / -1; font-size: 11px; color: #8ba5b5; line-height: 1.6; }
 
 .hidden { display: none !important; }
 
@@ -370,4 +384,68 @@ button.mini { font-size: 11px; padding: 3px 9px; border-radius: 6px; }
 /* 無障礙:偏好減少動態效果時,把裝飾性動畫/過場全部縮到近乎瞬間 */
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+/* 深淵探索儀表:用細線與冷色材質建立層次,光只集中在互動焦點。 */
+:root { --line: #304957; --line-soft: #223440; --panel-border-color: #3c596b;
+  --panel-bg: linear-gradient(145deg, #122230f5, #080f19fa); }
+button { background: linear-gradient(160deg, #183543, #0b1c28); box-shadow: inset 0 1px #b2eeff12; }
+button:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 0 16px #52c9e51c; }
+button:active:not(:disabled) { transform: translateY(1px); }
+#stats { padding: 12px; width: 260px; border: 1px solid #48667a66; border-top: 2px solid #80deed;
+  background: linear-gradient(135deg, #102332eb, #07121cce); border-radius: 0 0 6px 6px; }
+#stats::before { content: 'EXPLORER / 探索者'; display: block; font: 10px Consolas, monospace;
+  letter-spacing: 2px; color: #84afbf; margin-bottom: 10px; }
+.bar { border-radius: 2px; border-color: #61849640; box-shadow: none; }
+.bar::after { content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(90deg, transparent 0 23px, #06101b40 23px 25px); }
+.bar span { z-index: 1; }
+#hpfill { background: linear-gradient(90deg, #88394d, #df7e8c); }
+#corefill { background: linear-gradient(90deg, #22677f, #6edcde); }
+#stafill { background: linear-gradient(90deg, #32695d, #87c9a5); }
+#xpfill { background: linear-gradient(90deg, #4b437a, #a19bcf); }
+#msglog { top: 224px; }
+#wavebox { border-top: 2px solid #6dcbdf; padding: 10px 20px; font-size: 13px; letter-spacing: 1px; }
+#wavebox.warn { border-top-color: var(--danger); }
+#netbox { padding: 10px; background: #0a1520bd; border: 1px solid #405b6c70; }
+#minimap { border-radius: 2px; border-color: #6b93a5; }
+#hotbar { padding: 9px; gap: 5px; background: #091521e8; border: 1px solid #466173;
+  border-top-color: #82bdcc; border-radius: 5px; box-shadow: 0 8px 28px #0008; }
+.slot { border-radius: 3px; background: linear-gradient(145deg, #203443, #101b28); }
+.slot.sel { animation: none; box-shadow: inset 0 -3px #7ef0ff, 0 0 14px #56cce527; background: #234553; }
+.slot .key { color: #adc4d1; font-family: Consolas, monospace; }
+#overlay { overflow-y: auto; padding: 28px 12px;
+  background: radial-gradient(ellipse at 50% 20%, #17445766, transparent 60%),
+    linear-gradient(#6bacc507 1px, transparent 1px), linear-gradient(90deg, #6bacc507 1px, transparent 1px), #060d16f5;
+  background-size: auto, 64px 64px, 64px 64px, auto; }
+.menu { margin: auto; flex-shrink: 0; }
+.start-menu { width: 560px; max-width: 100%; border: 1px solid #385366; border-top: 2px solid #8ddce6;
+  background: linear-gradient(145deg, #112534e8, #080f19f5); box-shadow: 0 28px 90px #0008; }
+.system-label { color: #80aabb; font: 10px Consolas, monospace; letter-spacing: 3px; }
+.start-menu #btnChangelog { display: block; margin: 0 auto 10px; }
+.core-emblem { position: relative; width: 70px; height: 70px; margin: 20px auto; border: 1px solid #5cacbc66; border-radius: 50%; }
+.core-emblem::before { content: ''; position: absolute; inset: -7px; border: 1px dashed #68adbf55; border-radius: 50%; }
+.core-emblem span { position: absolute; width: 24px; height: 34px; left: 22px; top: 17px;
+  background: linear-gradient(115deg, #d5ffff 0 35%, #68d9e8 35% 65%, #317f9f 65%);
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); filter: drop-shadow(0 0 9px #83e9ff); }
+.menu h1 { font-size: clamp(28px, 5vw, 38px); font-weight: 500; letter-spacing: 10px;
+  text-shadow: 0 0 24px #7ef0ff35; animation: none; }
+.menu .sub { font-size: 14px; line-height: 1.9; color: #aec3d1; margin-bottom: 12px; }
+.menu .sub small { color: #668c9f; font-size: 11px; letter-spacing: 2px; }
+.menu .btnrow button, .menu .joinrow button, .menu .diffrow button, .menu .slotrow button { border-radius: 4px; }
+#btnNew { background: linear-gradient(120deg, #90e9ed, #54baca); color: #09212d; border-color: #a3f6f7; font-weight: bold; }
+.menu .diffbtn.selected { border-color: #7ed8e6; color: #b6f2f9; box-shadow: inset 0 -2px #7ed8e6; }
+.menu .help { background: #050e1877; border-color: #273f50; font-size: 12px; color: #8fa8ba; }
+@media (max-width: 640px) {
+  .start-menu { padding: 24px 16px; }
+  #stats { width: 206px; top: 8px; left: 8px; padding: 8px; }
+  #netbox { top: 8px; right: 8px; padding: 6px; }
+  #minimap { width: 112px; height: 112px; }
+  #wavebox { top: 205px; max-width: calc(100vw - 24px); white-space: normal; }
+  #msglog { top: 260px; max-width: calc(100vw - 24px); }
+  #hotbar { max-width: calc(100vw - 12px); gap: 3px; padding: 5px; }
+  #hotbar .slot { width: min(52px, calc((100vw - 47px) / 8)); height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .menu h1, .slot.sel { animation: none; }
+  button, .slot { transition: none; }
 }

@@ -3,7 +3,7 @@ const INPUT = { keys: new Set(), mx: 0, my: 0, l: false, r: false, rCD: 0 };
 
 function typingInInput() {
   const el = document.activeElement;
-  return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
+  return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT');
 }
 
 function bindInput() {
@@ -338,7 +338,7 @@ function clientTimers(me, dt) {
 // ===== 主迴圈 =====
 let lastTS = performance.now();
 function frame(ts) {
-  const dt = Math.min(0.05, (ts - lastTS) / 1000);
+  const dt = Math.max(0, Math.min(0.05, (ts - lastTS) / 1000));
   lastTS = ts;
   if (G.started) {
     const me = myPlayer();
